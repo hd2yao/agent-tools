@@ -17,14 +17,34 @@ from typing import Mapping, Sequence
 
 DEFAULT_PROFILE_ROOT = Path("~/.codex-profiles").expanduser()
 DEFAULT_SHARED_HOME = Path("~/.codex").expanduser()
-SHARED_STATE_ENTRIES = (
+SHARED_DIRECTORY_ENTRIES = (
     "sessions",
     "archived_sessions",
-    "history.jsonl",
-    "state_5.sqlite",
     "skills",
+    "pets",
+    "plugins",
+    "vendor_imports",
+    "computer-use",
+    "attachments",
+    "generated_images",
+    "shell_snapshots",
+    "ambient-suggestions",
+    "browser",
+    "automations",
+    "rules",
+    "superpowers",
+    "worktrees",
+    "cache",
+)
+SHARED_FILE_ENTRIES = (
+    "history.jsonl",
+    "session_index.jsonl",
+    "models_cache.json",
+    "AGENTS.md",
+    "state_5.sqlite",
     ".codex-global-state.json",
 )
+SHARED_STATE_ENTRIES = (*SHARED_DIRECTORY_ENTRIES, *SHARED_FILE_ENTRIES)
 SHARED_STATE_LINKS = {"sqlite/state_5.sqlite": "state_5.sqlite"}
 PROFILE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 
@@ -60,7 +80,9 @@ def profile_path(root: Path, name: str) -> Path:
 
 def _ensure_shared_target(shared_home: Path, name: str) -> Path:
     target = shared_home.expanduser() / name
-    if name.endswith(".jsonl"):
+    if name in SHARED_DIRECTORY_ENTRIES:
+        target.mkdir(parents=True, exist_ok=True, mode=0o700)
+    elif name.endswith(".jsonl") or name.endswith(".md"):
         target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         target.touch(mode=0o600, exist_ok=True)
     elif name.endswith(".json"):
@@ -71,7 +93,8 @@ def _ensure_shared_target(shared_home: Path, name: str) -> Path:
     elif name.endswith(".sqlite"):
         target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     else:
-        target.mkdir(parents=True, exist_ok=True, mode=0o700)
+        target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        target.touch(mode=0o600, exist_ok=True)
     return target
 
 
@@ -247,6 +270,15 @@ def run_codex(home: Path, args: Sequence[str]) -> int:
         return 130
 
 
+def quit_codex_desktop() -> None:
+    subprocess.run(
+        ["osascript", "-e", 'tell application "Codex" to quit'],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+
+
 def cmd_init(args: argparse.Namespace) -> int:
     path = ensure_profile(get_profile_root(), args.name)
     print(f"created: {path}")
@@ -285,6 +317,13 @@ def cmd_use(args: argparse.Namespace) -> int:
     return run_codex(path, codex_args)
 
 
+def cmd_app(args: argparse.Namespace) -> int:
+    path = existing_profile(get_profile_root(), args.name)
+    if args.restart:
+        quit_codex_desktop()
+    return run_codex(path, ["app"])
+
+
 def cmd_login(args: argparse.Namespace) -> int:
     path = ensure_profile(get_profile_root(), args.name)
     return run_codex(path, ["login"])
@@ -313,6 +352,24 @@ def build_parser() -> argparse.ArgumentParser:
     use_parser.add_argument("name")
     use_parser.add_argument("codex_args", nargs=argparse.REMAINDER)
     use_parser.set_defaults(func=cmd_use)
+
+    app_parser = subparsers.add_parser(
+        "app",
+        help="open Codex Desktop with a profile",
+        description=(
+            "Open Codex Desktop with a profile. By default this first quits an "
+            "already-running Desktop app so its app-server inherits the selected CODEX_HOME."
+        ),
+    )
+    app_parser.add_argument("name")
+    app_parser.add_argument(
+        "--no-restart",
+        dest="restart",
+        action="store_false",
+        default=True,
+        help="do not quit an already-running Codex Desktop app before opening it",
+    )
+    app_parser.set_defaults(func=cmd_app)
 
     login_parser = subparsers.add_parser("login", help="run codex login with a profile")
     login_parser.add_argument("name")

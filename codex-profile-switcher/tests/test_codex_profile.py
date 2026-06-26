@@ -118,6 +118,69 @@ class ProfileHelperTests(unittest.TestCase):
         self.assertTrue((shared_home / "skills" / "profile-skill" / "SKILL.md").is_file())
         self.assertTrue((shared_home / "skills" / "shared-skill" / "SKILL.md").is_file())
 
+    def test_prepare_profile_links_local_workspace_entries_to_shared_home(self):
+        from codex_profile import prepare_profile_home
+
+        profile = self.root / "account-a"
+        shared_home = self.root / "shared-codex"
+        profile.mkdir()
+        shared_home.mkdir()
+        directory_entries = (
+            "pets",
+            "plugins",
+            "vendor_imports",
+            "computer-use",
+            "attachments",
+            "generated_images",
+            "shell_snapshots",
+            "ambient-suggestions",
+            "browser",
+            "automations",
+            "rules",
+            "superpowers",
+            "worktrees",
+            "cache",
+        )
+        file_entries = ("session_index.jsonl", "AGENTS.md")
+        json_entries = ("models_cache.json",)
+        for name in directory_entries:
+            (profile / name / "from-profile.txt").mkdir(parents=True)
+            (shared_home / name / "from-shared.txt").mkdir(parents=True)
+        for name in file_entries:
+            (profile / name).write_text("from-profile\n", encoding="utf-8")
+            (shared_home / name).write_text("from-shared\n", encoding="utf-8")
+        for name in json_entries:
+            (profile / name).write_text('{"profile":["one"]}\n', encoding="utf-8")
+            (shared_home / name).write_text('{"shared":["one"]}\n', encoding="utf-8")
+
+        prepare_profile_home(profile, shared_home)
+
+        for name in directory_entries:
+            with self.subTest(name=name):
+                link = profile / name
+                self.assertTrue(link.is_symlink())
+                self.assertEqual(link.resolve(), (shared_home / name).resolve())
+                self.assertTrue((shared_home / name / "from-profile.txt").is_dir())
+                self.assertTrue((shared_home / name / "from-shared.txt").is_dir())
+        for name in file_entries:
+            with self.subTest(name=name):
+                link = profile / name
+                self.assertTrue(link.is_symlink())
+                self.assertEqual(link.resolve(), (shared_home / name).resolve())
+                self.assertEqual(
+                    (shared_home / name).read_text(encoding="utf-8"),
+                    "from-shared\nfrom-profile\n",
+                )
+        for name in json_entries:
+            with self.subTest(name=name):
+                link = profile / name
+                self.assertTrue(link.is_symlink())
+                self.assertEqual(link.resolve(), (shared_home / name).resolve())
+                self.assertEqual(
+                    (shared_home / name).read_text(encoding="utf-8"),
+                    '{"shared":["one"],"profile":["one"]}\n',
+                )
+
     def test_prepare_profile_merges_and_links_global_state(self):
         from codex_profile import prepare_profile_home
 
@@ -201,6 +264,48 @@ class CommandTests(unittest.TestCase):
 
         self.assertEqual(code, 2)
         self.assertIn("profile not found", err.getvalue())
+
+    def test_app_command_restarts_desktop_and_launches_app(self):
+        import codex_profile
+        from codex_profile import main
+
+        profile = self.root / "account-a"
+        profile.mkdir()
+        calls = []
+        old_quit = codex_profile.quit_codex_desktop
+        old_run = codex_profile.run_codex
+        try:
+            codex_profile.quit_codex_desktop = lambda: calls.append(("quit", None))
+            codex_profile.run_codex = lambda home, args: calls.append((home, list(args))) or 0
+
+            code = main(["app", "account-a"])
+        finally:
+            codex_profile.quit_codex_desktop = old_quit
+            codex_profile.run_codex = old_run
+
+        self.assertEqual(code, 0)
+        self.assertEqual(calls, [("quit", None), (profile, ["app"])])
+
+    def test_app_command_can_skip_restart(self):
+        import codex_profile
+        from codex_profile import main
+
+        profile = self.root / "account-a"
+        profile.mkdir()
+        calls = []
+        old_quit = codex_profile.quit_codex_desktop
+        old_run = codex_profile.run_codex
+        try:
+            codex_profile.quit_codex_desktop = lambda: calls.append(("quit", None))
+            codex_profile.run_codex = lambda home, args: calls.append((home, list(args))) or 0
+
+            code = main(["app", "account-a", "--no-restart"])
+        finally:
+            codex_profile.quit_codex_desktop = old_quit
+            codex_profile.run_codex = old_run
+
+        self.assertEqual(code, 0)
+        self.assertEqual(calls, [(profile, ["app"])])
 
 
 if __name__ == "__main__":

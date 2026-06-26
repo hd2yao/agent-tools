@@ -1,0 +1,2 @@
+#!/bin/sh
+exec python3 /Users/dysania/program/tools/agent-tools/codex-profile-switcher/codex_profile.py app hd-sarah-blackwell "$@"
