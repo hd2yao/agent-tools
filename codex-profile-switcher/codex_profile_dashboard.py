@@ -239,6 +239,9 @@ def read_app_server_account_snapshot(
         selector.close()
     finally:
         _stop_process(process)
+        for stream in (process.stdin, process.stdout):
+            if stream is not None:
+                stream.close()
 
     rate_limits = responses.get(2) or {}
     usage = responses.get(3) or {}

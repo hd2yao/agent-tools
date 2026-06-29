@@ -3,10 +3,12 @@ import Foundation
 
 struct DashboardPayload: Decodable {
     let generatedAt: String
+    let activeProfile: String?
     let profiles: [ProfileStatus]
 
     enum CodingKeys: String, CodingKey {
         case generatedAt = "generated_at"
+        case activeProfile = "active_profile"
         case profiles
     }
 }
@@ -109,14 +111,42 @@ enum AccountHealth {
     var label: String {
         switch self {
         case .green:
-            return "Ready"
+            return "充足"
         case .yellow:
-            return "Watch"
+            return "注意"
         case .red:
-            return "Low"
+            return "紧张"
         case .unknown:
-            return "Unknown"
+            return "未知"
         }
+    }
+}
+
+enum TimeText {
+    static func beijingShort(_ value: String?) -> String {
+        guard let value else {
+            return "--"
+        }
+        let parser = ISO8601DateFormatter()
+        if let date = parser.date(from: value) {
+            return beijingShort(date)
+        }
+        return value
+    }
+
+    static func beijingShort(_ timestamp: TimeInterval?) -> String {
+        guard let timestamp else {
+            return "--"
+        }
+        return beijingShort(Date(timeIntervalSince1970: timestamp))
+    }
+
+    private static func beijingShort(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "zh_CN")
+        formatter.timeZone = TimeZone(identifier: "Asia/Shanghai")
+        formatter.dateFormat = "yy年M月d日 HH:mm"
+        return formatter.string(from: date)
     }
 }
 
@@ -139,9 +169,11 @@ final class CodexProfileMenuBarApp: NSObject, NSApplicationDelegate, NSPopoverDe
         guard let button = statusItem.button else {
             return
         }
-        button.title = "</> -- ⚪️"
+        button.image = makeStatusIcon(health: .unknown)
+        button.imagePosition = .imageLeft
+        button.title = " -- ⚪️"
         button.font = NSFont.monospacedSystemFont(ofSize: 13, weight: .semibold)
-        button.toolTip = "Codex Account Manager"
+        button.toolTip = "Codex 账号管家"
         button.target = self
         button.action = #selector(togglePopover(_:))
     }
@@ -170,9 +202,10 @@ final class CodexProfileMenuBarApp: NSObject, NSApplicationDelegate, NSPopoverDe
             return
         }
         isRefreshing = true
-        statusItem.button?.title = "</> ... ⚪️"
+        statusItem.button?.image = makeStatusIcon(health: .unknown)
+        statusItem.button?.title = " ... ⚪️"
         latestError = nil
-        updatePopover(message: "Refreshing Codex accounts...")
+        updatePopover(message: "正在刷新 Codex 账号...")
         DispatchQueue.global(qos: .userInitiated).async {
             let result = Self.runPython(arguments: ["status", "--json"])
             DispatchQueue.main.async {
@@ -191,7 +224,7 @@ final class CodexProfileMenuBarApp: NSObject, NSApplicationDelegate, NSPopoverDe
 
     private func handleStatusOutput(_ output: String) {
         guard let data = output.data(using: .utf8) else {
-            latestError = "Could not read status output."
+            latestError = "无法读取账号状态。"
             updateStatusTitle()
             updatePopover(message: latestError)
             return
@@ -202,7 +235,7 @@ final class CodexProfileMenuBarApp: NSObject, NSApplicationDelegate, NSPopoverDe
             updateStatusTitle()
             updatePopover()
         } catch {
-            latestError = "Could not decode Codex status."
+            latestError = "无法解析账号状态。"
             updateStatusTitle()
             updatePopover(message: latestError)
         }
@@ -210,13 +243,56 @@ final class CodexProfileMenuBarApp: NSObject, NSApplicationDelegate, NSPopoverDe
 
     private func updateStatusTitle() {
         if latestError != nil {
-            statusItem.button?.title = "</> ! 🔴"
+            statusItem.button?.image = makeStatusIcon(health: .red)
+            statusItem.button?.title = " ! 🔴"
             return
         }
-        let remaining = latestPayload?.profiles.compactMap { $0.rateLimits.primary?.remainingPercent }.min()
+        let remaining = displayProfile()?.rateLimits.primary?.remainingPercent
+            ?? latestPayload?.profiles.compactMap { $0.rateLimits.primary?.remainingPercent }.min()
         let health = AccountHealth(remaining: remaining)
         let percent = remaining.map { "\($0)%" } ?? "--"
-        statusItem.button?.title = "</> \(percent) \(health.emoji)"
+        statusItem.button?.image = makeStatusIcon(health: health)
+        statusItem.button?.title = " \(percent) \(health.emoji)"
+    }
+
+    private func displayProfile() -> ProfileStatus? {
+        guard let payload = latestPayload, let active = payload.activeProfile else {
+            return nil
+        }
+        return payload.profiles.first { $0.name == active }
+    }
+
+    private func makeStatusIcon(health: AccountHealth) -> NSImage {
+        let size = NSSize(width: 22, height: 18)
+        let image = NSImage(size: size)
+        image.lockFocus()
+
+        let rect = NSRect(x: 1, y: 1, width: 20, height: 16)
+        let path = NSBezierPath(roundedRect: rect, xRadius: 5, yRadius: 5)
+        let gradient = NSGradient(colors: [
+            NSColor(calibratedRed: 0.50, green: 0.92, blue: 0.82, alpha: 1),
+            NSColor(calibratedRed: 0.45, green: 0.68, blue: 1.0, alpha: 1),
+        ])
+        gradient?.draw(in: path, angle: 0)
+        NSColor.black.withAlphaComponent(0.22).setStroke()
+        path.lineWidth = 1
+        path.stroke()
+
+        let c = "C" as NSString
+        c.draw(
+            at: CGPoint(x: 5.2, y: 1.8),
+            withAttributes: [
+                .font: NSFont.monospacedSystemFont(ofSize: 13, weight: .heavy),
+                .foregroundColor: NSColor.black.withAlphaComponent(0.82),
+            ]
+        )
+        let dot = NSBezierPath(ovalIn: NSRect(x: 15.5, y: 12, width: 5, height: 5))
+        health.color.setFill()
+        dot.fill()
+
+        image.unlockFocus()
+        image.isTemplate = false
+        return image
     }
 
     private func updatePopover(message: String? = nil) {
@@ -231,14 +307,15 @@ final class CodexProfileMenuBarApp: NSObject, NSApplicationDelegate, NSPopoverDe
     }
 
     private func switchProfile(_ name: String) {
-        statusItem.button?.title = "</> ... ⚪️"
-        updatePopover(message: "Switching to \(name)...")
+        statusItem.button?.image = makeStatusIcon(health: .unknown)
+        statusItem.button?.title = " ... ⚪️"
+        updatePopover(message: "正在切换到 \(name)...")
         DispatchQueue.global(qos: .userInitiated).async {
             let result = Self.runPython(arguments: ["app", name])
             DispatchQueue.main.async {
                 switch result {
                 case .success:
-                    self.updatePopover(message: "Switched to \(name).")
+                    self.updatePopover(message: "已切换到 \(name)。")
                     self.refreshStatus(nil)
                 case .failure(let error):
                     self.latestError = error
@@ -360,7 +437,14 @@ final class AccountManagerViewController: NSViewController {
 
         if let payload {
             for (index, profile) in payload.profiles.enumerated() {
-                content.addArrangedSubview(AccountCardView(profile: profile, index: index, switchAction: switchAction))
+                content.addArrangedSubview(
+                    AccountCardView(
+                        profile: profile,
+                        index: index,
+                        isActive: payload.activeProfile == profile.name,
+                        switchAction: switchAction
+                    )
+                )
             }
         }
 
@@ -371,14 +455,17 @@ final class AccountManagerViewController: NSViewController {
         let stack = NSStackView()
         stack.orientation = .vertical
         stack.spacing = 6
+        stack.alignment = .leading
 
-        let title = NSTextField(labelWithString: "CODEX ACCOUNT MANAGER")
+        let title = NSTextField(labelWithString: "CODEX 账号管家")
         title.font = NSFont.systemFont(ofSize: 18, weight: .heavy)
         title.textColor = NSColor(calibratedRed: 0.06, green: 0.18, blue: 0.17, alpha: 1)
+        title.alignment = .left
 
-        let updated = NSTextField(labelWithString: "Last Update: \(formatGeneratedAt(payload?.generatedAt))")
+        let updated = NSTextField(labelWithString: "更新：\(TimeText.beijingShort(payload?.generatedAt))")
         updated.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .medium)
         updated.textColor = NSColor(calibratedWhite: 0.18, alpha: 1)
+        updated.alignment = .left
 
         let lights = trafficLights()
 
@@ -394,8 +481,10 @@ final class AccountManagerViewController: NSViewController {
         row.spacing = 8
         row.alignment = .centerY
 
-        let minRemaining = payload?.profiles.compactMap { $0.rateLimits.primary?.remainingPercent }.min()
-        let health = AccountHealth(remaining: minRemaining)
+        let display = displayProfile()
+        let remaining = display?.rateLimits.primary?.remainingPercent
+            ?? payload?.profiles.compactMap { $0.rateLimits.primary?.remainingPercent }.min()
+        let health = AccountHealth(remaining: remaining)
         for item in [AccountHealth.green, .yellow, .red] {
             let dot = ColorDotView(color: item == health ? item.color : NSColor.systemGray.withAlphaComponent(0.25))
             dot.translatesAutoresizingMaskIntoConstraints = false
@@ -403,11 +492,19 @@ final class AccountManagerViewController: NSViewController {
             dot.heightAnchor.constraint(equalToConstant: 13).isActive = true
             row.addArrangedSubview(dot)
         }
-        let label = NSTextField(labelWithString: "\(health.label) · \(minRemaining.map { "\($0)% lowest primary" } ?? "no data")")
+        let scope = display.map { "当前：\($0.name)" } ?? "未记录当前账号"
+        let label = NSTextField(labelWithString: "\(health.label) · \(scope) · \(remaining.map { "\($0)% 5小时额度" } ?? "无数据")")
         label.font = NSFont.systemFont(ofSize: 12, weight: .semibold)
         label.textColor = NSColor(calibratedWhite: 0.18, alpha: 1)
         row.addArrangedSubview(label)
         return row
+    }
+
+    private func displayProfile() -> ProfileStatus? {
+        guard let payload, let active = payload.activeProfile else {
+            return nil
+        }
+        return payload.profiles.first { $0.name == active }
     }
 
     private func messageView(_ message: String) -> NSView {
@@ -419,21 +516,37 @@ final class AccountManagerViewController: NSViewController {
     }
 
     private func actionRow() -> NSView {
-        let row = NSStackView()
-        row.orientation = .horizontal
-        row.spacing = 10
-        row.alignment = .centerY
-
-        let refresh = NSButton(title: isRefreshing ? "Refreshing..." : "Refresh", target: self, action: #selector(refreshTapped))
-        refresh.bezelStyle = .rounded
-        refresh.isEnabled = !isRefreshing
-
-        let quit = NSButton(title: "Quit", target: self, action: #selector(quitTapped))
-        quit.bezelStyle = .rounded
-
-        row.addArrangedSubview(refresh)
-        row.addArrangedSubview(quit)
-        return row
+        let stack = NSStackView()
+        stack.orientation = .vertical
+        stack.spacing = 2
+        stack.addArrangedSubview(
+            ActionRowView(
+                icon: "💨",
+                title: isRefreshing ? "刷新中..." : "刷新",
+                shortcut: "⌘R",
+                isEnabled: !isRefreshing,
+                action: refreshAction
+            )
+        )
+        stack.addArrangedSubview(
+            ActionRowView(
+                icon: "🧰",
+                title: "偏好设置",
+                shortcut: "⌘,",
+                isEnabled: false,
+                action: {}
+            )
+        )
+        stack.addArrangedSubview(
+            ActionRowView(
+                icon: "🚪",
+                title: "退出",
+                shortcut: "⌘Q",
+                isEnabled: true,
+                action: quitAction
+            )
+        )
+        return stack
     }
 
     @objc private func refreshTapped() {
@@ -442,17 +555,6 @@ final class AccountManagerViewController: NSViewController {
 
     @objc private func quitTapped() {
         quitAction()
-    }
-
-    private func formatGeneratedAt(_ value: String?) -> String {
-        guard let value else {
-            return "--"
-        }
-        let formatter = ISO8601DateFormatter()
-        if let date = formatter.date(from: value) {
-            return date.formatted(date: .numeric, time: .shortened)
-        }
-        return value
     }
 }
 
@@ -469,7 +571,7 @@ final class AccountManagerView: NSView {
     }
 
     private func drawPattern() {
-        let symbols = ["</>", "{ }", "♥", "+", "⚡"]
+        let symbols = ["C", "{ }", "♥", "+", "⚡"]
         let color = NSColor.white.withAlphaComponent(0.26)
         for row in stride(from: 18, to: Int(bounds.height), by: 48) {
             for col in stride(from: 20, to: Int(bounds.width), by: 82) {
@@ -490,11 +592,13 @@ final class AccountManagerView: NSView {
 final class AccountCardView: NSView {
     private let profile: ProfileStatus
     private let index: Int
+    private let isActive: Bool
     private let switchAction: (String) -> Void
 
-    init(profile: ProfileStatus, index: Int, switchAction: @escaping (String) -> Void) {
+    init(profile: ProfileStatus, index: Int, isActive: Bool, switchAction: @escaping (String) -> Void) {
         self.profile = profile
         self.index = index
+        self.isActive = isActive
         self.switchAction = switchAction
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
@@ -534,8 +638,8 @@ final class AccountCardView: NSView {
         ])
 
         stack.addArrangedSubview(titleRow())
-        stack.addArrangedSubview(barRow(label: "Primary", window: profile.rateLimits.primary))
-        stack.addArrangedSubview(barRow(label: "Secondary", window: profile.rateLimits.secondary))
+        stack.addArrangedSubview(barRow(label: "5小时额度", window: profile.rateLimits.primary))
+        stack.addArrangedSubview(barRow(label: "7天额度", window: profile.rateLimits.secondary))
         stack.addArrangedSubview(footerRow())
     }
 
@@ -558,7 +662,7 @@ final class AccountCardView: NSView {
         name.textColor = NSColor.black
         name.lineBreakMode = .byTruncatingTail
 
-        let plan = NSTextField(labelWithString: "Plan: \(profile.rateLimits.planType?.uppercased() ?? "UNKNOWN")")
+        let plan = NSTextField(labelWithString: "套餐：\(profile.rateLimits.planType?.uppercased() ?? "UNKNOWN")")
         plan.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .bold)
         plan.textColor = NSColor(calibratedRed: 0.14, green: 0.28, blue: 0.46, alpha: 1)
 
@@ -587,19 +691,19 @@ final class AccountCardView: NSView {
         title.font = NSFont.systemFont(ofSize: 13, weight: .semibold)
         title.textColor = NSColor.black
         title.translatesAutoresizingMaskIntoConstraints = false
-        title.widthAnchor.constraint(equalToConstant: 74).isActive = true
+        title.widthAnchor.constraint(equalToConstant: 82).isActive = true
 
         let remaining = window?.remainingPercent
         let bar = PixelBarView(percent: remaining ?? 0, color: AccountHealth(remaining: remaining).color)
         bar.translatesAutoresizingMaskIntoConstraints = false
         bar.heightAnchor.constraint(equalToConstant: 20).isActive = true
 
-        let value = NSTextField(labelWithString: "\(remaining.map { "\($0)%" } ?? "--") REMAINING")
+        let value = NSTextField(labelWithString: "\(remaining.map { "\($0)%" } ?? "--") 剩余")
         value.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .bold)
         value.textColor = NSColor.black
         value.alignment = .right
         value.translatesAutoresizingMaskIntoConstraints = false
-        value.widthAnchor.constraint(equalToConstant: 112).isActive = true
+        value.widthAnchor.constraint(equalToConstant: 76).isActive = true
 
         row.addArrangedSubview(title)
         row.addArrangedSubview(bar)
@@ -615,8 +719,8 @@ final class AccountCardView: NSView {
 
         let primary = profile.rateLimits.primary?.remainingPercent
         let usage = usageLabel(remaining: primary)
-        let reset = formatReset(profile.rateLimits.primary?.resetsAt)
-        let detail = NSTextField(labelWithString: "Usage: \(usage) | Resets: \(reset)")
+        let reset = TimeText.beijingShort(profile.rateLimits.primary?.resetsAt)
+        let detail = NSTextField(labelWithString: "使用：\(usage) | 重置：\(reset)")
         detail.font = NSFont.systemFont(ofSize: 12, weight: .medium)
         detail.textColor = NSColor.black
         row.addArrangedSubview(detail)
@@ -625,9 +729,10 @@ final class AccountCardView: NSView {
         row.addArrangedSubview(spacer)
         spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
 
-        let button = NSButton(title: index % 2 == 0 ? "DEPLOY!" : "LET'S GO!", target: self, action: #selector(switchTapped))
+        let button = NSButton(title: isActive ? "已部署 ✓" : "切过去!", target: self, action: #selector(switchTapped))
         button.bezelStyle = .rounded
         button.font = NSFont.monospacedSystemFont(ofSize: 13, weight: .heavy)
+        button.isEnabled = !isActive
         row.addArrangedSubview(button)
 
         return row
@@ -639,22 +744,15 @@ final class AccountCardView: NSView {
 
     private func usageLabel(remaining: Int?) -> String {
         guard let remaining else {
-            return "Unknown"
+            return "未知"
         }
         if remaining < 35 {
-            return "High"
+            return "偏高"
         }
         if remaining < 70 {
-            return "Medium"
+            return "中等"
         }
-        return "Minimal"
-    }
-
-    private func formatReset(_ value: TimeInterval?) -> String {
-        guard let value else {
-            return "--"
-        }
-        return Date(timeIntervalSince1970: value).formatted(date: .numeric, time: .shortened)
+        return "充足"
     }
 }
 
@@ -691,6 +789,100 @@ final class PixelBarView: NSView {
         for x in stride(from: fillRect.minX + 8, to: fillRect.maxX, by: 18) {
             NSBezierPath(ovalIn: NSRect(x: x, y: fillRect.midY, width: 3, height: 3)).fill()
         }
+    }
+}
+
+final class ActionRowView: NSView {
+    private let action: () -> Void
+    private let isRowEnabled: Bool
+    private var isHovering = false
+
+    init(icon: String, title: String, shortcut: String, isEnabled: Bool, action: @escaping () -> Void) {
+        self.action = action
+        self.isRowEnabled = isEnabled
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+        heightAnchor.constraint(equalToConstant: 36).isActive = true
+        wantsLayer = true
+
+        let row = NSStackView()
+        row.orientation = .horizontal
+        row.spacing = 10
+        row.alignment = .centerY
+        row.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(row)
+
+        NSLayoutConstraint.activate([
+            row.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            row.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+            row.centerYAnchor.constraint(equalTo: centerYAnchor),
+        ])
+
+        let iconLabel = NSTextField(labelWithString: icon)
+        iconLabel.font = NSFont.systemFont(ofSize: 20)
+        iconLabel.translatesAutoresizingMaskIntoConstraints = false
+        iconLabel.widthAnchor.constraint(equalToConstant: 28).isActive = true
+
+        let titleLabel = NSTextField(labelWithString: title)
+        titleLabel.font = NSFont.systemFont(ofSize: 15, weight: .semibold)
+        titleLabel.textColor = isEnabled ? NSColor.black.withAlphaComponent(0.78) : NSColor.black.withAlphaComponent(0.36)
+
+        let spacer = NSView()
+        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+
+        let shortcutLabel = NSTextField(labelWithString: shortcut)
+        shortcutLabel.font = NSFont.monospacedSystemFont(ofSize: 13, weight: .bold)
+        shortcutLabel.textColor = NSColor.black.withAlphaComponent(isEnabled ? 0.45 : 0.22)
+
+        row.addArrangedSubview(iconLabel)
+        row.addArrangedSubview(titleLabel)
+        row.addArrangedSubview(spacer)
+        row.addArrangedSubview(shortcutLabel)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach { removeTrackingArea($0) }
+        addTrackingArea(
+            NSTrackingArea(
+                rect: bounds,
+                options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+                owner: self,
+                userInfo: nil
+            )
+        )
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        guard isRowEnabled else {
+            return
+        }
+        isHovering = true
+        needsDisplay = true
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        isHovering = false
+        needsDisplay = true
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        guard isRowEnabled else {
+            return
+        }
+        action()
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        guard isHovering else {
+            return
+        }
+        NSColor.white.withAlphaComponent(0.38).setFill()
+        NSBezierPath(roundedRect: bounds.insetBy(dx: 2, dy: 2), xRadius: 10, yRadius: 10).fill()
     }
 }
 

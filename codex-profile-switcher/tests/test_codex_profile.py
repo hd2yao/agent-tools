@@ -275,17 +275,20 @@ class CommandTests(unittest.TestCase):
         calls = []
         old_quit = codex_profile.quit_codex_desktop
         old_run = codex_profile.run_codex
+        old_record = codex_profile.record_active_profile
         try:
             codex_profile.quit_codex_desktop = lambda: calls.append(("quit", None))
             codex_profile.run_codex = lambda home, args: calls.append((home, list(args))) or 0
+            codex_profile.record_active_profile = lambda name: calls.append(("active", name))
 
             code = main(["app", "account-a"])
         finally:
             codex_profile.quit_codex_desktop = old_quit
             codex_profile.run_codex = old_run
+            codex_profile.record_active_profile = old_record
 
         self.assertEqual(code, 0)
-        self.assertEqual(calls, [("quit", None), (profile, ["app"])])
+        self.assertEqual(calls, [("quit", None), (profile, ["app"]), ("active", "account-a")])
 
     def test_app_command_can_skip_restart(self):
         import codex_profile
@@ -296,17 +299,34 @@ class CommandTests(unittest.TestCase):
         calls = []
         old_quit = codex_profile.quit_codex_desktop
         old_run = codex_profile.run_codex
+        old_record = codex_profile.record_active_profile
         try:
             codex_profile.quit_codex_desktop = lambda: calls.append(("quit", None))
             codex_profile.run_codex = lambda home, args: calls.append((home, list(args))) or 0
+            codex_profile.record_active_profile = lambda name: calls.append(("active", name))
 
             code = main(["app", "account-a", "--no-restart"])
         finally:
             codex_profile.quit_codex_desktop = old_quit
             codex_profile.run_codex = old_run
+            codex_profile.record_active_profile = old_record
 
         self.assertEqual(code, 0)
-        self.assertEqual(calls, [(profile, ["app"])])
+        self.assertEqual(calls, [(profile, ["app"]), ("active", "account-a")])
+
+    def test_active_profile_roundtrip(self):
+        from codex_profile import read_active_profile, record_active_profile
+
+        record_active_profile("account-a")
+
+        self.assertEqual(read_active_profile(), "account-a")
+
+    def test_status_payload_includes_active_profile(self):
+        from codex_profile import build_status_payload, record_active_profile
+
+        record_active_profile("account-a")
+
+        self.assertEqual(build_status_payload()["active_profile"], "account-a")
 
     def test_ui_command_starts_dashboard(self):
         import codex_profile

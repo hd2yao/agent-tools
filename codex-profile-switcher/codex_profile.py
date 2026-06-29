@@ -47,6 +47,7 @@ SHARED_FILE_ENTRIES = (
 SHARED_STATE_ENTRIES = (*SHARED_DIRECTORY_ENTRIES, *SHARED_FILE_ENTRIES)
 SHARED_STATE_LINKS = {"sqlite/state_5.sqlite": "state_5.sqlite"}
 PROFILE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
+ACTIVE_PROFILE_FILE = ".codex-profile-switcher-active.json"
 
 
 def validate_profile_name(name: str) -> str:
@@ -270,6 +271,30 @@ def run_codex(home: Path, args: Sequence[str]) -> int:
         return 130
 
 
+def record_active_profile(name: str) -> None:
+    target = get_shared_home() / ACTIVE_PROFILE_FILE
+    target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    target.write_text(
+        json.dumps({"active_profile": name}, ensure_ascii=False, separators=(",", ":")) + "\n",
+        encoding="utf-8",
+    )
+    target.chmod(0o600)
+
+
+def read_active_profile() -> str | None:
+    target = get_shared_home() / ACTIVE_PROFILE_FILE
+    if not target.is_file():
+        return None
+    try:
+        value = json.loads(target.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    name = value.get("active_profile")
+    if isinstance(name, str) and PROFILE_NAME_RE.fullmatch(name):
+        return name
+    return None
+
+
 def quit_codex_desktop() -> None:
     subprocess.run(
         ["osascript", "-e", 'tell application "Codex" to quit'],
@@ -321,7 +346,10 @@ def cmd_app(args: argparse.Namespace) -> int:
     path = existing_profile(get_profile_root(), args.name)
     if args.restart:
         quit_codex_desktop()
-    return run_codex(path, ["app"])
+    code = run_codex(path, ["app"])
+    if code == 0:
+        record_active_profile(args.name)
+    return code
 
 
 def cmd_login(args: argparse.Namespace) -> int:
@@ -359,7 +387,9 @@ def cmd_ui(args: argparse.Namespace) -> int:
 def build_status_payload() -> dict:
     from codex_profile_dashboard import build_profiles_payload
 
-    return build_profiles_payload(get_profile_root(), get_shared_home())
+    payload = build_profiles_payload(get_profile_root(), get_shared_home())
+    payload["active_profile"] = read_active_profile()
+    return payload
 
 
 def cmd_status(args: argparse.Namespace) -> int:
