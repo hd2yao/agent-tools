@@ -68,6 +68,7 @@ python3 codex_profile.py login account-a
 python3 codex_profile.py app account-a
 python3 codex_profile.py use account-a -- --version
 python3 codex_profile.py doctor account-a
+python3 codex_profile.py ui
 ```
 
 Profiles are stored in:
@@ -135,19 +136,64 @@ Both shortcuts call `codex_profile.py app <profile>`, so they restart Codex
 Desktop and then open it with the selected profile. For CLI commands, keep
 using `python3 codex_profile.py use <profile> -- <codex-args>`.
 
+## Local Dashboard
+
+Start the browser dashboard:
+
+```bash
+python3 codex_profile.py ui
+```
+
+By default it serves a local-only UI at:
+
+```text
+http://127.0.0.1:8765
+```
+
+Use a custom port or keep the browser closed:
+
+```bash
+python3 codex_profile.py ui --port 9000 --no-open
+```
+
+The dashboard shows:
+
+- profile login/config status
+- Codex plan type and limit id
+- primary and secondary rate limit windows
+- reset time for each limit window
+- available reset credits when app-server provides them
+- Codex usage summary from `account/usage/read`
+- latest local token snapshot from shared rollout logs
+- shared SQLite history thread count and token total
+
+The data source priority is:
+
+1. Codex app-server JSON-RPC with each profile's `CODEX_HOME`.
+2. Local `sessions` and `archived_sessions` rollout `token_count` events.
+3. Shared `state_5.sqlite` history totals.
+
+The dashboard does not read or print token contents from `auth.json`. It checks
+whether auth/config files exist, then asks Codex app-server for account status.
+The HTTP server binds to `127.0.0.1` by default and does not call direct
+`chatgpt.com/backend-api/wham/*` endpoints.
+
+The account switch button calls the same Desktop launch path as:
+
+```bash
+python3 codex_profile.py app <profile>
+```
+
+That means Codex Desktop is restarted before opening with the selected profile,
+so the app-server does not keep a stale `CODEX_HOME`.
+
 ## Future GUI Plan
 
-1. Harden the profile layer: keep the shared-vs-profile-specific manifest in
-   code, add a repair command, and make backups/rollback explicit.
-2. Add app status detection: show the active Desktop `CODEX_HOME`, running
-   app-server PID, and whether the visible app matches the selected profile.
-3. Build a small macOS menu-bar app or lightweight desktop UI with one-click
-   switch buttons, login status, repair, doctor, and open/restart actions.
-4. Add usage display in two tiers: reliable local usage/session summaries first;
-   true account quota only after confirming a stable supported source for the
-   signed-in Codex account.
-5. Package it with a signed app bundle and a simple update path once the CLI
-   behavior is stable.
+1. Add active Desktop `CODEX_HOME` detection.
+2. Add login and doctor buttons to the dashboard.
+3. Add background refresh and stale-data warnings.
+4. Package the dashboard as a small Tauri or menu-bar app.
+5. Add signing and a simple update path once the UI behavior is stable.
 
 ## Verification
 
@@ -157,7 +203,12 @@ Current verification results:
 - `python3 codex_profile.py --help`
 - `CODEX_PROFILE_ROOT=.tmp-smoke python3 codex_profile.py init smoke-test`
 - `CODEX_PROFILE_ROOT=.tmp-smoke python3 codex_profile.py use smoke-test -- --version`
+- `python3 -m py_compile codex_profile.py codex_profile_dashboard.py`
+- `python3 -m unittest tests/test_codex_profile.py tests/test_dashboard.py`
+- `sh -n codex-hd-master codex-hd-sarah-blackwell`
+- `curl http://127.0.0.1:8765/api/profiles`
 
 ## Status
 
-MVP implemented. Future GUI work can reuse the same profile root and commands.
+CLI and local dashboard MVP implemented. Future app packaging can reuse the
+same profile root, shared state layout, and dashboard APIs.
