@@ -4,6 +4,13 @@ const state = {
 
 const $ = (id) => document.getElementById(id);
 const number = (value) => new Intl.NumberFormat().format(value || 0);
+const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({
+  "&": "&amp;",
+  "<": "&lt;",
+  ">": "&gt;",
+  "\"": "&quot;",
+  "'": "&#39;",
+})[char]);
 
 function formatReset(value) {
   if (!value) return "未提供";
@@ -13,7 +20,7 @@ function formatReset(value) {
 }
 
 function badge(text, kind = "") {
-  return `<span class="badge ${kind}">${text}</span>`;
+  return `<span class="badge ${kind}">${escapeHtml(text)}</span>`;
 }
 
 function windowRow(name, value) {
@@ -23,7 +30,7 @@ function windowRow(name, value) {
   return `
     <div class="window-row">
       <span>${name}</span>
-      <span>${value.remaining_percent}% 剩余，${formatReset(value.resets_at)} 重置</span>
+      <span>${value.remaining_percent}% 剩余，${escapeHtml(formatReset(value.resets_at))} 重置</span>
     </div>
   `;
 }
@@ -42,7 +49,7 @@ function renderProfile(profile) {
   return `
     <article class="profile-card">
       <div class="card-head">
-        <div class="profile-name">${profile.name}</div>
+        <div class="profile-name">${escapeHtml(profile.name)}</div>
       </div>
       <div class="badges">
         ${badge(`auth ${profile.auth}`, authKind)}
@@ -52,7 +59,7 @@ function renderProfile(profile) {
       <div class="quota">
         <div>
           <span class="label">计划</span>
-          <span class="value">${plan}</span>
+          <span class="value">${escapeHtml(plan)}</span>
         </div>
         <div>
           <span class="label">剩余额度</span>
@@ -60,11 +67,11 @@ function renderProfile(profile) {
         </div>
         <div>
           <span class="label">重置次数</span>
-          <span class="value">${credits}</span>
+          <span class="value">${escapeHtml(credits)}</span>
         </div>
         <div>
           <span class="label">Limit</span>
-          <span class="value">${limits.limit_id || "-"}</span>
+          <span class="value">${escapeHtml(limits.limit_id || "-")}</span>
         </div>
       </div>
       <div class="windows">
@@ -72,7 +79,7 @@ function renderProfile(profile) {
         ${windowRow("次窗口", secondary)}
       </div>
       <div class="actions">
-        <button class="primary" data-switch="${profile.name}" type="button">切换到这个账号</button>
+        <button class="primary" data-switch="${escapeHtml(profile.name)}" type="button">切换到这个账号</button>
       </div>
     </article>
   `;
