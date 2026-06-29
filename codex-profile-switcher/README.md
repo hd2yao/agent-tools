@@ -203,9 +203,16 @@ open "build/Codex Profile Switcher.app"
 ```
 
 The app runs as a menu bar accessory. It does not show a Dock icon. The status
-item displays the lowest primary remaining quota percent, and the menu shows
-each profile with plan, auth/config state, primary/secondary reset windows, and
-switch actions.
+item displays the active profile's 5-hour remaining quota percent and a
+red/yellow/green health light. The popover shows each profile with plan,
+auth/config state, 5-hour and 7-day reset windows, and switch actions.
+
+The popover stays open when clicking elsewhere. Click the menu bar icon again
+to close it.
+
+The app refreshes status on launch, after a profile switch, and every 60
+seconds while it is running. Manual refresh is still available for immediate
+checks.
 
 The app is a thin native Swift/AppKit wrapper around the existing CLI:
 

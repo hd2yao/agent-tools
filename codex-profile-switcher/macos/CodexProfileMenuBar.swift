@@ -156,6 +156,7 @@ final class CodexProfileMenuBarApp: NSObject, NSApplicationDelegate, NSPopoverDe
     private var latestPayload: DashboardPayload?
     private var latestError: String?
     private var isRefreshing = false
+    private var refreshTimer: Timer?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -163,6 +164,7 @@ final class CodexProfileMenuBarApp: NSObject, NSApplicationDelegate, NSPopoverDe
         configurePopover()
         updatePopover()
         refreshStatus(nil)
+        startAutoRefresh()
     }
 
     private func configureStatusItem() {
@@ -179,10 +181,18 @@ final class CodexProfileMenuBarApp: NSObject, NSApplicationDelegate, NSPopoverDe
     }
 
     private func configurePopover() {
-        popover.behavior = .transient
+        popover.behavior = .applicationDefined
         popover.animates = true
         popover.delegate = self
         popover.contentSize = NSSize(width: 460, height: 560)
+    }
+
+    private func startAutoRefresh() {
+        refreshTimer?.invalidate()
+        refreshTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+            self?.refreshStatus(nil)
+        }
+        RunLoop.main.add(refreshTimer!, forMode: .common)
     }
 
     @objc private func togglePopover(_ sender: Any?) {
@@ -419,6 +429,7 @@ final class AccountManagerViewController: NSViewController {
         let content = NSStackView()
         content.orientation = .vertical
         content.spacing = 14
+        content.alignment = .leading
         content.translatesAutoresizingMaskIntoConstraints = false
         root.addSubview(content)
 
@@ -456,6 +467,8 @@ final class AccountManagerViewController: NSViewController {
         stack.orientation = .vertical
         stack.spacing = 6
         stack.alignment = .leading
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        stack.widthAnchor.constraint(equalToConstant: 424).isActive = true
 
         let title = NSTextField(labelWithString: "CODEX 账号管家")
         title.font = NSFont.systemFont(ofSize: 18, weight: .heavy)
@@ -511,7 +524,10 @@ final class AccountManagerViewController: NSViewController {
         let label = NSTextField(labelWithString: message)
         label.font = NSFont.systemFont(ofSize: 12, weight: .semibold)
         label.textColor = NSColor(calibratedRed: 0.15, green: 0.24, blue: 0.38, alpha: 1)
+        label.alignment = .left
         label.lineBreakMode = .byTruncatingTail
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.widthAnchor.constraint(equalToConstant: 424).isActive = true
         return label
     }
 
@@ -519,29 +535,20 @@ final class AccountManagerViewController: NSViewController {
         let stack = NSStackView()
         stack.orientation = .vertical
         stack.spacing = 2
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        stack.widthAnchor.constraint(equalToConstant: 424).isActive = true
         stack.addArrangedSubview(
             ActionRowView(
                 icon: "💨",
                 title: isRefreshing ? "刷新中..." : "刷新",
-                shortcut: "⌘R",
                 isEnabled: !isRefreshing,
                 action: refreshAction
             )
         )
         stack.addArrangedSubview(
             ActionRowView(
-                icon: "🧰",
-                title: "偏好设置",
-                shortcut: "⌘,",
-                isEnabled: false,
-                action: {}
-            )
-        )
-        stack.addArrangedSubview(
-            ActionRowView(
                 icon: "🚪",
                 title: "退出",
-                shortcut: "⌘Q",
                 isEnabled: true,
                 action: quitAction
             )
@@ -602,6 +609,7 @@ final class AccountCardView: NSView {
         self.switchAction = switchAction
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
+        widthAnchor.constraint(equalToConstant: 424).isActive = true
         heightAnchor.constraint(equalToConstant: 176).isActive = true
         wantsLayer = true
         layer?.cornerRadius = 18
@@ -649,22 +657,27 @@ final class AccountCardView: NSView {
         row.spacing = 10
         row.alignment = .centerY
 
-        let avatar = NSTextField(labelWithString: index % 2 == 0 ? "🤖" : "👩🏻‍💻")
-        avatar.font = NSFont.systemFont(ofSize: 34)
+        let avatar = ProfileBadgeView(name: profile.name, index: index)
+        avatar.translatesAutoresizingMaskIntoConstraints = false
+        avatar.widthAnchor.constraint(equalToConstant: 58).isActive = true
+        avatar.heightAnchor.constraint(equalToConstant: 50).isActive = true
         row.addArrangedSubview(avatar)
 
         let text = NSStackView()
         text.orientation = .vertical
         text.spacing = 2
+        text.alignment = .leading
 
         let name = NSTextField(labelWithString: profile.name)
         name.font = NSFont.systemFont(ofSize: 20, weight: .heavy)
         name.textColor = NSColor.black
+        name.alignment = .left
         name.lineBreakMode = .byTruncatingTail
 
         let plan = NSTextField(labelWithString: "套餐：\(profile.rateLimits.planType?.uppercased() ?? "UNKNOWN")")
         plan.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .bold)
         plan.textColor = NSColor(calibratedRed: 0.14, green: 0.28, blue: 0.46, alpha: 1)
+        plan.alignment = .left
 
         text.addArrangedSubview(name)
         text.addArrangedSubview(plan)
@@ -792,12 +805,66 @@ final class PixelBarView: NSView {
     }
 }
 
+final class ProfileBadgeView: NSView {
+    private let name: String
+    private let index: Int
+
+    init(name: String, index: Int) {
+        self.name = name
+        self.index = index
+        super.init(frame: .zero)
+        wantsLayer = true
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let rect = bounds.insetBy(dx: 3, dy: 3)
+        let path = NSBezierPath(roundedRect: rect, xRadius: 14, yRadius: 14)
+        let colors = index % 2 == 0
+            ? [
+                NSColor(calibratedRed: 0.46, green: 0.90, blue: 0.85, alpha: 1),
+                NSColor(calibratedRed: 0.38, green: 0.62, blue: 1.0, alpha: 1),
+            ]
+            : [
+                NSColor(calibratedRed: 0.97, green: 0.64, blue: 0.88, alpha: 1),
+                NSColor(calibratedRed: 0.60, green: 0.62, blue: 1.0, alpha: 1),
+            ]
+        NSGradient(colors: colors)?.draw(in: path, angle: 315)
+        NSColor.white.withAlphaComponent(0.72).setStroke()
+        path.lineWidth = 2
+        path.stroke()
+
+        let label = initials(from: name) as NSString
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.monospacedSystemFont(ofSize: 16, weight: .heavy),
+            .foregroundColor: NSColor.white,
+        ]
+        let size = label.size(withAttributes: attributes)
+        label.draw(
+            at: CGPoint(x: bounds.midX - size.width / 2, y: bounds.midY - size.height / 2 - 1),
+            withAttributes: attributes
+        )
+    }
+
+    private func initials(from value: String) -> String {
+        let parts = value
+            .split(separator: "-")
+            .filter { !$0.isEmpty && $0.lowercased() != "hd" }
+        let source = parts.isEmpty ? value.split(separator: "-") : parts
+        let initials = source.prefix(2).compactMap { $0.first }.map { String($0).uppercased() }.joined()
+        return initials.isEmpty ? "C" : initials
+    }
+}
+
 final class ActionRowView: NSView {
     private let action: () -> Void
     private let isRowEnabled: Bool
     private var isHovering = false
 
-    init(icon: String, title: String, shortcut: String, isEnabled: Bool, action: @escaping () -> Void) {
+    init(icon: String, title: String, isEnabled: Bool, action: @escaping () -> Void) {
         self.action = action
         self.isRowEnabled = isEnabled
         super.init(frame: .zero)
@@ -830,14 +897,9 @@ final class ActionRowView: NSView {
         let spacer = NSView()
         spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
 
-        let shortcutLabel = NSTextField(labelWithString: shortcut)
-        shortcutLabel.font = NSFont.monospacedSystemFont(ofSize: 13, weight: .bold)
-        shortcutLabel.textColor = NSColor.black.withAlphaComponent(isEnabled ? 0.45 : 0.22)
-
         row.addArrangedSubview(iconLabel)
         row.addArrangedSubview(titleLabel)
         row.addArrangedSubview(spacer)
-        row.addArrangedSubview(shortcutLabel)
     }
 
     required init?(coder: NSCoder) {
