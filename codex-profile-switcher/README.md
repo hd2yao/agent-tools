@@ -203,12 +203,18 @@ open "build/Codex Profile Switcher.app"
 ```
 
 The app runs as a menu bar accessory. It does not show a Dock icon. The status
-item displays the active profile's 5-hour remaining quota percent and a
-red/yellow/green health light. The popover shows each profile with plan,
-auth/config state, 5-hour and 7-day reset windows, and switch actions.
+item displays the active profile's 5-hour remaining quota percent and a runtime
+state light:
 
-The popover stays open when clicking elsewhere. Click the menu bar icon again
-to close it.
+- green: a Codex conversation process is running, or Codex produced output in
+  the last 90 seconds
+- yellow: no live process was found, but there was Codex activity in the last 15
+  minutes
+- red: no live process or recent Codex activity was found
+
+The popover closes when clicking elsewhere, matching normal menu bar behavior.
+It shows each profile with plan, auth/config state, 5-hour and 7-day reset
+windows, and switch actions.
 
 The app refreshes status on launch, after a profile switch, and every 60
 seconds while it is running. Manual refresh is still available for immediate

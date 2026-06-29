@@ -4,12 +4,32 @@ import Foundation
 struct DashboardPayload: Decodable {
     let generatedAt: String
     let activeProfile: String?
+    let runtimeStatus: RuntimeStatus?
     let profiles: [ProfileStatus]
 
     enum CodingKeys: String, CodingKey {
         case generatedAt = "generated_at"
         case activeProfile = "active_profile"
+        case runtimeStatus = "runtime_status"
         case profiles
+    }
+}
+
+struct RuntimeStatus: Decodable {
+    let state: String
+    let light: String
+    let label: String
+    let activeProcessCount: Int
+    let recentProcessCount: Int
+    let latestActivityAgeMs: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case state
+        case light
+        case label
+        case activeProcessCount = "active_process_count"
+        case recentProcessCount = "recent_process_count"
+        case latestActivityAgeMs = "latest_activity_age_ms"
     }
 }
 
@@ -122,6 +142,65 @@ enum AccountHealth {
     }
 }
 
+enum RuntimeLight {
+    case green
+    case yellow
+    case red
+    case unknown
+
+    init(status: RuntimeStatus?) {
+        switch status?.light {
+        case "green":
+            self = .green
+        case "yellow":
+            self = .yellow
+        case "red":
+            self = .red
+        default:
+            self = .unknown
+        }
+    }
+
+    var emoji: String {
+        switch self {
+        case .green:
+            return "🟢"
+        case .yellow:
+            return "🟡"
+        case .red:
+            return "🔴"
+        case .unknown:
+            return "⚪️"
+        }
+    }
+
+    var color: NSColor {
+        switch self {
+        case .green:
+            return NSColor.systemGreen
+        case .yellow:
+            return NSColor.systemYellow
+        case .red:
+            return NSColor.systemRed
+        case .unknown:
+            return NSColor.systemGray
+        }
+    }
+
+    var label: String {
+        switch self {
+        case .green:
+            return "运行中"
+        case .yellow:
+            return "待接手"
+        case .red:
+            return "空闲"
+        case .unknown:
+            return "未知"
+        }
+    }
+}
+
 enum TimeText {
     static func beijingShort(_ value: String?) -> String {
         guard let value else {
@@ -171,7 +250,7 @@ final class CodexProfileMenuBarApp: NSObject, NSApplicationDelegate, NSPopoverDe
         guard let button = statusItem.button else {
             return
         }
-        button.image = makeStatusIcon(health: .unknown)
+        button.image = makeStatusIcon(color: RuntimeLight.unknown.color)
         button.imagePosition = .imageLeft
         button.title = " -- ⚪️"
         button.font = NSFont.monospacedSystemFont(ofSize: 13, weight: .semibold)
@@ -181,7 +260,7 @@ final class CodexProfileMenuBarApp: NSObject, NSApplicationDelegate, NSPopoverDe
     }
 
     private func configurePopover() {
-        popover.behavior = .applicationDefined
+        popover.behavior = .transient
         popover.animates = true
         popover.delegate = self
         popover.contentSize = NSSize(width: 460, height: 560)
@@ -212,7 +291,7 @@ final class CodexProfileMenuBarApp: NSObject, NSApplicationDelegate, NSPopoverDe
             return
         }
         isRefreshing = true
-        statusItem.button?.image = makeStatusIcon(health: .unknown)
+        statusItem.button?.image = makeStatusIcon(color: RuntimeLight.unknown.color)
         statusItem.button?.title = " ... ⚪️"
         latestError = nil
         updatePopover(message: "正在刷新 Codex 账号...")
@@ -253,16 +332,16 @@ final class CodexProfileMenuBarApp: NSObject, NSApplicationDelegate, NSPopoverDe
 
     private func updateStatusTitle() {
         if latestError != nil {
-            statusItem.button?.image = makeStatusIcon(health: .red)
+            statusItem.button?.image = makeStatusIcon(color: RuntimeLight.red.color)
             statusItem.button?.title = " ! 🔴"
             return
         }
         let remaining = displayProfile()?.rateLimits.primary?.remainingPercent
             ?? latestPayload?.profiles.compactMap { $0.rateLimits.primary?.remainingPercent }.min()
-        let health = AccountHealth(remaining: remaining)
+        let runtime = RuntimeLight(status: latestPayload?.runtimeStatus)
         let percent = remaining.map { "\($0)%" } ?? "--"
-        statusItem.button?.image = makeStatusIcon(health: health)
-        statusItem.button?.title = " \(percent) \(health.emoji)"
+        statusItem.button?.image = makeStatusIcon(color: runtime.color)
+        statusItem.button?.title = " \(percent) \(runtime.emoji)"
     }
 
     private func displayProfile() -> ProfileStatus? {
@@ -272,7 +351,7 @@ final class CodexProfileMenuBarApp: NSObject, NSApplicationDelegate, NSPopoverDe
         return payload.profiles.first { $0.name == active }
     }
 
-    private func makeStatusIcon(health: AccountHealth) -> NSImage {
+    private func makeStatusIcon(color: NSColor) -> NSImage {
         let size = NSSize(width: 22, height: 18)
         let image = NSImage(size: size)
         image.lockFocus()
@@ -297,7 +376,7 @@ final class CodexProfileMenuBarApp: NSObject, NSApplicationDelegate, NSPopoverDe
             ]
         )
         let dot = NSBezierPath(ovalIn: NSRect(x: 15.5, y: 12, width: 5, height: 5))
-        health.color.setFill()
+        color.setFill()
         dot.fill()
 
         image.unlockFocus()
@@ -317,7 +396,7 @@ final class CodexProfileMenuBarApp: NSObject, NSApplicationDelegate, NSPopoverDe
     }
 
     private func switchProfile(_ name: String) {
-        statusItem.button?.image = makeStatusIcon(health: .unknown)
+        statusItem.button?.image = makeStatusIcon(color: RuntimeLight.unknown.color)
         statusItem.button?.title = " ... ⚪️"
         updatePopover(message: "正在切换到 \(name)...")
         DispatchQueue.global(qos: .userInitiated).async {
@@ -494,23 +573,38 @@ final class AccountManagerViewController: NSViewController {
         row.spacing = 8
         row.alignment = .centerY
 
-        let display = displayProfile()
-        let remaining = display?.rateLimits.primary?.remainingPercent
-            ?? payload?.profiles.compactMap { $0.rateLimits.primary?.remainingPercent }.min()
-        let health = AccountHealth(remaining: remaining)
-        for item in [AccountHealth.green, .yellow, .red] {
-            let dot = ColorDotView(color: item == health ? item.color : NSColor.systemGray.withAlphaComponent(0.25))
+        let runtime = RuntimeLight(status: payload?.runtimeStatus)
+        for item in [RuntimeLight.green, .yellow, .red] {
+            let dot = ColorDotView(color: item == runtime ? item.color : NSColor.systemGray.withAlphaComponent(0.25))
             dot.translatesAutoresizingMaskIntoConstraints = false
             dot.widthAnchor.constraint(equalToConstant: 13).isActive = true
             dot.heightAnchor.constraint(equalToConstant: 13).isActive = true
             row.addArrangedSubview(dot)
         }
-        let scope = display.map { "当前：\($0.name)" } ?? "未记录当前账号"
-        let label = NSTextField(labelWithString: "\(health.label) · \(scope) · \(remaining.map { "\($0)% 5小时额度" } ?? "无数据")")
+        let label = NSTextField(labelWithString: runtimeSummary(runtimeStatus: payload?.runtimeStatus, runtime: runtime))
         label.font = NSFont.systemFont(ofSize: 12, weight: .semibold)
         label.textColor = NSColor(calibratedWhite: 0.18, alpha: 1)
         row.addArrangedSubview(label)
         return row
+    }
+
+    private func runtimeSummary(runtimeStatus: RuntimeStatus?, runtime: RuntimeLight) -> String {
+        guard let runtimeStatus else {
+            return "\(runtime.label) · 尚未读取运行状态"
+        }
+        switch runtime {
+        case .green:
+            if runtimeStatus.activeProcessCount > 0 {
+                return "\(runtime.label) · \(runtimeStatus.activeProcessCount) 个对话进程正在运行"
+            }
+            return "\(runtime.label) · 最近 90 秒内有 Codex 输出"
+        case .yellow:
+            return "\(runtime.label) · 最近 15 分钟内有活动，可能等你继续"
+        case .red:
+            return "\(runtime.label) · 当前没有运行中的对话"
+        case .unknown:
+            return "\(runtime.label) · 尚未读取运行状态"
+        }
     }
 
     private func displayProfile() -> ProfileStatus? {
@@ -687,10 +781,19 @@ final class AccountCardView: NSView {
         row.addArrangedSubview(spacer)
         spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
 
-        let health = AccountHealth(remaining: profile.rateLimits.primary?.remainingPercent)
-        let dot = NSTextField(labelWithString: health.emoji)
-        dot.font = NSFont.systemFont(ofSize: 18)
-        row.addArrangedSubview(dot)
+        if isActive {
+            let badge = NSTextField(labelWithString: "当前")
+            badge.font = NSFont.systemFont(ofSize: 12, weight: .bold)
+            badge.textColor = NSColor(calibratedRed: 0.1, green: 0.33, blue: 0.28, alpha: 1)
+            badge.alignment = .center
+            badge.wantsLayer = true
+            badge.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.55).cgColor
+            badge.layer?.cornerRadius = 8
+            badge.translatesAutoresizingMaskIntoConstraints = false
+            badge.widthAnchor.constraint(equalToConstant: 42).isActive = true
+            badge.heightAnchor.constraint(equalToConstant: 22).isActive = true
+            row.addArrangedSubview(badge)
+        }
         return row
     }
 

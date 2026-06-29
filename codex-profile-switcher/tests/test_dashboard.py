@@ -156,6 +156,82 @@ class ProfileApiTests(unittest.TestCase):
             self.assertEqual(result["tokens_used"], 25)
 
 
+class RuntimeStatusTests(unittest.TestCase):
+    def test_runtime_status_is_green_with_live_process(self):
+        from codex_profile_dashboard import read_runtime_status
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shared = root / "shared"
+            profiles = root / "profiles"
+            path = shared / "process_manager" / "chat_processes.json"
+            path.parent.mkdir(parents=True)
+            path.write_text(
+                json.dumps([{"osPid": 123, "updatedAtMs": 1000}]),
+                encoding="utf-8",
+            )
+
+            result = read_runtime_status(
+                shared,
+                profiles,
+                now_ms=10_000,
+                pid_alive=lambda pid: pid == 123,
+            )
+
+            self.assertEqual(result["state"], "running")
+            self.assertEqual(result["light"], "green")
+            self.assertEqual(result["active_process_count"], 1)
+
+    def test_runtime_status_is_yellow_with_recent_activity(self):
+        from codex_profile_dashboard import read_runtime_status
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shared = root / "shared"
+            profiles = root / "profiles"
+            path = shared / "process_manager" / "chat_processes.json"
+            path.parent.mkdir(parents=True)
+            path.write_text(
+                json.dumps([{"osPid": 123, "updatedAtMs": 1000}]),
+                encoding="utf-8",
+            )
+
+            result = read_runtime_status(
+                shared,
+                profiles,
+                now_ms=61_000,
+                pid_alive=lambda pid: False,
+            )
+
+            self.assertEqual(result["state"], "waiting")
+            self.assertEqual(result["light"], "yellow")
+            self.assertEqual(result["recent_process_count"], 1)
+
+    def test_runtime_status_is_red_without_recent_activity(self):
+        from codex_profile_dashboard import read_runtime_status
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shared = root / "shared"
+            profiles = root / "profiles"
+            path = shared / "process_manager" / "chat_processes.json"
+            path.parent.mkdir(parents=True)
+            path.write_text(
+                json.dumps([{"osPid": 123, "updatedAtMs": 1000}]),
+                encoding="utf-8",
+            )
+
+            result = read_runtime_status(
+                shared,
+                profiles,
+                now_ms=1_000_000,
+                pid_alive=lambda pid: False,
+            )
+
+            self.assertEqual(result["state"], "idle")
+            self.assertEqual(result["light"], "red")
+
+
 class DashboardServerTests(unittest.TestCase):
     def test_switch_endpoint_calls_callback(self):
         from codex_profile_dashboard import make_handler

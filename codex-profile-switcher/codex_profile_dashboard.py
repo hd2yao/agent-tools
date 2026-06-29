@@ -29,6 +29,8 @@ DEFAULT_USAGE = {
 }
 PROFILE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 WEB_ROOT = Path(__file__).resolve().parent / "web"
+RUNTIME_GREEN_ROLLOUT_MS = 90_000
+RUNTIME_RECENT_ACTIVITY_MS = 15 * 60_000
 
 
 def normalize_window(value: dict | None) -> dict | None:
@@ -148,6 +150,114 @@ def read_sqlite_history_summary(shared_home: Path) -> dict:
         "thread_count": int(row[0] or 0),
         "tokens_used": int(row[1] or 0),
         "error": None,
+    }
+
+
+def _default_pid_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
+
+
+def _chat_process_files(shared_home: Path, profile_root: Path) -> list[Path]:
+    paths = [shared_home / "process_manager" / "chat_processes.json"]
+    if profile_root.exists():
+        paths.extend(
+            profile / "process_manager" / "chat_processes.json"
+            for profile in sorted(path for path in profile_root.iterdir() if path.is_dir())
+        )
+    return paths
+
+
+def _read_chat_processes(path: Path) -> list[dict]:
+    if not path.is_file():
+        return []
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    return [item for item in value if isinstance(item, dict)] if isinstance(value, list) else []
+
+
+def _latest_rollout_mtime_ms(shared_home: Path) -> int | None:
+    latest = None
+    for root in (shared_home / "sessions", shared_home / "archived_sessions"):
+        if not root.exists():
+            continue
+        for path in root.rglob("rollout-*.jsonl"):
+            try:
+                mtime = int(path.stat().st_mtime * 1000)
+            except OSError:
+                continue
+            latest = mtime if latest is None else max(latest, mtime)
+    return latest
+
+
+def read_runtime_status(
+    shared_home: Path,
+    profile_root: Path,
+    *,
+    now_ms: int | None = None,
+    pid_alive: Callable[[int], bool] = _default_pid_alive,
+) -> dict:
+    now = now_ms if now_ms is not None else int(time.time() * 1000)
+    active_process_count = 0
+    recent_process_count = 0
+    latest_activity_at_ms = None
+    sources_checked = 0
+
+    for path in _chat_process_files(shared_home, profile_root):
+        sources_checked += 1
+        for item in _read_chat_processes(path):
+            updated = item.get("updatedAtMs") or item.get("startedAtMs")
+            if isinstance(updated, int):
+                latest_activity_at_ms = (
+                    updated
+                    if latest_activity_at_ms is None
+                    else max(latest_activity_at_ms, updated)
+                )
+                if now - updated <= RUNTIME_RECENT_ACTIVITY_MS:
+                    recent_process_count += 1
+            pid = item.get("osPid")
+            if isinstance(pid, int) and pid_alive(pid):
+                active_process_count += 1
+
+    latest_rollout_at_ms = _latest_rollout_mtime_ms(shared_home)
+    if latest_rollout_at_ms is not None:
+        latest_activity_at_ms = (
+            latest_rollout_at_ms
+            if latest_activity_at_ms is None
+            else max(latest_activity_at_ms, latest_rollout_at_ms)
+        )
+
+    latest_age_ms = None if latest_activity_at_ms is None else max(0, now - latest_activity_at_ms)
+    if active_process_count > 0 or (
+        latest_rollout_at_ms is not None and now - latest_rollout_at_ms <= RUNTIME_GREEN_ROLLOUT_MS
+    ):
+        state = "running"
+        light = "green"
+        label = "运行中"
+    elif latest_age_ms is not None and latest_age_ms <= RUNTIME_RECENT_ACTIVITY_MS:
+        state = "waiting"
+        light = "yellow"
+        label = "待接手"
+    else:
+        state = "idle"
+        light = "red"
+        label = "空闲"
+
+    return {
+        "state": state,
+        "light": light,
+        "label": label,
+        "active_process_count": active_process_count,
+        "recent_process_count": recent_process_count,
+        "latest_activity_at_ms": latest_activity_at_ms,
+        "latest_activity_age_ms": latest_age_ms,
+        "latest_rollout_at_ms": latest_rollout_at_ms,
+        "sources_checked": sources_checked,
     }
 
 

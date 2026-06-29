@@ -385,10 +385,11 @@ def cmd_ui(args: argparse.Namespace) -> int:
 
 
 def build_status_payload() -> dict:
-    from codex_profile_dashboard import build_profiles_payload
+    from codex_profile_dashboard import build_profiles_payload, read_runtime_status
 
     payload = build_profiles_payload(get_profile_root(), get_shared_home())
     payload["active_profile"] = read_active_profile()
+    payload["runtime_status"] = read_runtime_status(get_shared_home(), get_profile_root())
     return payload
 
 
