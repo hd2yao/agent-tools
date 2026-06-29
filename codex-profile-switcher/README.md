@@ -69,6 +69,7 @@ python3 codex_profile.py app account-a
 python3 codex_profile.py use account-a -- --version
 python3 codex_profile.py doctor account-a
 python3 codex_profile.py ui
+python3 codex_profile.py status --json
 ```
 
 Profiles are stored in:
@@ -187,12 +188,40 @@ python3 codex_profile.py app <profile>
 That means Codex Desktop is restarted before opening with the selected profile,
 so the app-server does not keep a stale `CODEX_HOME`.
 
+## macOS Menu Bar App
+
+Build the local menu bar app:
+
+```bash
+./build-menubar-app.sh
+```
+
+Open it:
+
+```bash
+open "build/Codex Profile Switcher.app"
+```
+
+The app runs as a menu bar accessory. It does not show a Dock icon. The status
+item displays the lowest primary remaining quota percent, and the menu shows
+each profile with plan, auth/config state, primary/secondary reset windows, and
+switch actions.
+
+The app is a thin native Swift/AppKit wrapper around the existing CLI:
+
+```bash
+python3 codex_profile.py status --json
+python3 codex_profile.py app <profile>
+```
+
+The generated `.app` is local build output and is not committed to git.
+
 ## Future GUI Plan
 
 1. Add active Desktop `CODEX_HOME` detection.
-2. Add login and doctor buttons to the dashboard.
+2. Add login and doctor buttons to the menu bar app.
 3. Add background refresh and stale-data warnings.
-4. Package the dashboard as a small Tauri or menu-bar app.
+4. Add launch-at-login support.
 5. Add signing and a simple update path once the UI behavior is stable.
 
 ## Verification
@@ -205,10 +234,10 @@ Current verification results:
 - `CODEX_PROFILE_ROOT=.tmp-smoke python3 codex_profile.py use smoke-test -- --version`
 - `python3 -m py_compile codex_profile.py codex_profile_dashboard.py`
 - `python3 -m unittest tests/test_codex_profile.py tests/test_dashboard.py`
-- `sh -n codex-hd-master codex-hd-sarah-blackwell`
-- `curl http://127.0.0.1:8765/api/profiles`
+- `sh -n codex-hd-master codex-hd-sarah-blackwell build-menubar-app.sh`
+- `./build-menubar-app.sh`
+- `/usr/bin/env python3 "build/Codex Profile Switcher.app/Contents/Resources/codex-profile-switcher/codex_profile.py" status --json`
 
 ## Status
 
-CLI and local dashboard MVP implemented. Future app packaging can reuse the
-same profile root, shared state layout, and dashboard APIs.
+CLI, local dashboard, and native macOS menu bar MVP implemented.
