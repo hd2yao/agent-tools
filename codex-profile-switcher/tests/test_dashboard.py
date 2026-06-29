@@ -1,7 +1,10 @@
 import json
 import tempfile
 import unittest
+from http.client import HTTPConnection
+from http.server import ThreadingHTTPServer
 from pathlib import Path
+from threading import Thread
 
 
 class DashboardNormalizationTests(unittest.TestCase):
@@ -83,6 +86,24 @@ class LocalTokenSnapshotTests(unittest.TestCase):
             self.assertEqual(result["latest_timestamp"], "2026-06-29T01:00:00Z")
             self.assertEqual(result["rate_limits"]["primary"]["used_percent"], 8)
 
+    def test_token_snapshot_skips_non_dict_messages(self):
+        from codex_profile_dashboard import read_local_token_snapshot
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            rollout = root / "sessions" / "2026" / "06" / "29" / "rollout-test.jsonl"
+            rollout.parent.mkdir(parents=True)
+            rollout.write_text(
+                json.dumps({"payload": {"type": "event_msg", "message": "plain text"}})
+                + "\n",
+                encoding="utf-8",
+            )
+
+            result = read_local_token_snapshot(root)
+
+            self.assertEqual(result["event_count"], 0)
+            self.assertEqual(result["bad_line_count"], 0)
+
 
 class AppServerClientTests(unittest.TestCase):
     def test_build_rpc_request(self):
@@ -133,6 +154,40 @@ class ProfileApiTests(unittest.TestCase):
             self.assertTrue(result["available"])
             self.assertEqual(result["thread_count"], 2)
             self.assertEqual(result["tokens_used"], 25)
+
+
+class DashboardServerTests(unittest.TestCase):
+    def test_switch_endpoint_calls_callback(self):
+        from codex_profile_dashboard import make_handler
+
+        calls = []
+        handler = make_handler(
+            Path("/tmp/profiles"),
+            Path("/tmp/shared"),
+            switch_profile=lambda name: calls.append(name) or 0,
+        )
+        server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        thread = Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            body = json.dumps({"name": "account-a"})
+            conn = HTTPConnection("127.0.0.1", server.server_port, timeout=5)
+            conn.request(
+                "POST",
+                "/api/switch",
+                body=body,
+                headers={"Content-Type": "application/json"},
+            )
+            response = conn.getresponse()
+            payload = json.loads(response.read().decode("utf-8"))
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
+
+        self.assertEqual(response.status, 200)
+        self.assertEqual(payload, {"ok": True, "returncode": 0})
+        self.assertEqual(calls, ["account-a"])
 
 
 if __name__ == "__main__":

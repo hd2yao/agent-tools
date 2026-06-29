@@ -334,6 +334,28 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     return run_codex(path, ["doctor"])
 
 
+def switch_profile_from_dashboard(name: str) -> int:
+    args = argparse.Namespace(name=name, restart=True)
+    return cmd_app(args)
+
+
+def run_dashboard(host: str, port: int, open_browser: bool) -> int:
+    from codex_profile_dashboard import serve_dashboard
+
+    return serve_dashboard(
+        profile_root=get_profile_root(),
+        shared_home=get_shared_home(),
+        host=host,
+        port=port,
+        open_browser=open_browser,
+        switch_profile=switch_profile_from_dashboard,
+    )
+
+
+def cmd_ui(args: argparse.Namespace) -> int:
+    return run_dashboard(args.host, args.port, args.open_browser)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="codex-profile",
@@ -378,6 +400,18 @@ def build_parser() -> argparse.ArgumentParser:
     doctor_parser = subparsers.add_parser("doctor", help="run codex doctor with a profile")
     doctor_parser.add_argument("name")
     doctor_parser.set_defaults(func=cmd_doctor)
+
+    ui_parser = subparsers.add_parser("ui", help="open the local profile dashboard")
+    ui_parser.add_argument("--host", default="127.0.0.1")
+    ui_parser.add_argument("--port", type=int, default=8765)
+    ui_parser.add_argument(
+        "--no-open",
+        dest="open_browser",
+        action="store_false",
+        default=True,
+        help="do not open the dashboard in the default browser",
+    )
+    ui_parser.set_defaults(func=cmd_ui)
 
     return parser
 

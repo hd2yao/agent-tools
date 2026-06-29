@@ -307,6 +307,24 @@ class CommandTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(calls, [(profile, ["app"])])
 
+    def test_ui_command_starts_dashboard(self):
+        import codex_profile
+        from codex_profile import main
+
+        calls = []
+        old_run = codex_profile.run_dashboard
+        try:
+            codex_profile.run_dashboard = lambda host, port, open_browser: (
+                calls.append((host, port, open_browser)) or 0
+            )
+
+            code = main(["ui", "--port", "9000", "--no-open"])
+        finally:
+            codex_profile.run_dashboard = old_run
+
+        self.assertEqual(code, 0)
+        self.assertEqual(calls, [("127.0.0.1", 9000, False)])
+
 
 if __name__ == "__main__":
     unittest.main()

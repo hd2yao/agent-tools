@@ -65,7 +65,11 @@ def _usage_value(usage: dict, key: str) -> int:
 
 def _extract_token_count(row: dict) -> tuple[dict, dict | None] | None:
     payload = row.get("payload") or {}
+    if not isinstance(payload, dict):
+        return None
     message = payload.get("message") or {}
+    if not isinstance(message, dict):
+        return None
     if payload.get("type") == "token_count":
         message = payload
     if row.get("type") == "token_count":
@@ -336,6 +340,19 @@ def make_handler(
                 return
             if self.path in {"/app.js", "/styles.css"}:
                 _static_response(self, WEB_ROOT / self.path.lstrip("/"))
+                return
+            self.send_error(HTTPStatus.NOT_FOUND)
+
+        def do_HEAD(self) -> None:
+            if self.path == "/" or self.path == "/index.html":
+                path = WEB_ROOT / "index.html"
+                if not path.is_file():
+                    self.send_error(HTTPStatus.NOT_FOUND)
+                    return
+                self.send_response(HTTPStatus.OK)
+                self.send_header("Content-Type", "text/html")
+                self.send_header("Content-Length", str(path.stat().st_size))
+                self.end_headers()
                 return
             self.send_error(HTTPStatus.NOT_FOUND)
 
