@@ -356,6 +356,26 @@ def cmd_ui(args: argparse.Namespace) -> int:
     return run_dashboard(args.host, args.port, args.open_browser)
 
 
+def build_status_payload() -> dict:
+    from codex_profile_dashboard import build_profiles_payload
+
+    return build_profiles_payload(get_profile_root(), get_shared_home())
+
+
+def cmd_status(args: argparse.Namespace) -> int:
+    payload = build_status_payload()
+    if args.json:
+        print(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
+        return 0
+    for profile in payload.get("profiles", []):
+        limits = profile.get("rate_limits") or {}
+        primary = limits.get("primary") or {}
+        remaining = primary.get("remaining_percent")
+        remaining_text = "-" if remaining is None else f"{remaining}%"
+        print(f"{profile.get('name')}\t{profile.get('auth')}\t{remaining_text}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="codex-profile",
@@ -412,6 +432,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="do not open the dashboard in the default browser",
     )
     ui_parser.set_defaults(func=cmd_ui)
+
+    status_parser = subparsers.add_parser(
+        "status",
+        help="print profile account status for local integrations",
+    )
+    status_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="print compact JSON status",
+    )
+    status_parser.set_defaults(func=cmd_status)
 
     return parser
 

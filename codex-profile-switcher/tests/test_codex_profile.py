@@ -1,4 +1,5 @@
 import io
+import json
 import os
 import tempfile
 import unittest
@@ -324,6 +325,27 @@ class CommandTests(unittest.TestCase):
 
         self.assertEqual(code, 0)
         self.assertEqual(calls, [("127.0.0.1", 9000, False)])
+
+    def test_status_command_prints_json(self):
+        import codex_profile
+        from codex_profile import main
+
+        old_build = codex_profile.build_status_payload
+        try:
+            codex_profile.build_status_payload = lambda: {
+                "profiles": [{"name": "account-a", "auth": "present"}]
+            }
+            out = io.StringIO()
+            with redirect_stdout(out):
+                code = main(["status", "--json"])
+        finally:
+            codex_profile.build_status_payload = old_build
+
+        self.assertEqual(code, 0)
+        self.assertEqual(
+            json.loads(out.getvalue()),
+            {"profiles": [{"name": "account-a", "auth": "present"}]},
+        )
 
 
 if __name__ == "__main__":
