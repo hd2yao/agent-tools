@@ -272,9 +272,13 @@ The generated `.app` is local build output and is not committed to git.
 
 ## Future GUI Plan
 
-1. Add login and doctor buttons to the menu bar app.
-2. Add launch-at-login support.
-3. Add signing and a simple update path once the UI behavior is stable.
+1. Show reset credit count and reset-credit expiration time when Codex app-server
+   exposes them.
+2. Add token usage charts by account and model, including input, output,
+   reasoning, and cached input tokens.
+3. Add login and doctor buttons to the menu bar app.
+4. Add launch-at-login support.
+5. Add signing and a simple update path once the UI behavior is stable.
 
 ## Verification
 
