@@ -274,21 +274,102 @@ class CommandTests(unittest.TestCase):
         profile.mkdir()
         calls = []
         old_quit = codex_profile.quit_codex_desktop
+        old_wait = codex_profile.wait_for_codex_desktop_exit
+        old_launch = codex_profile.wait_for_codex_desktop_launch
         old_run = codex_profile.run_codex
         old_record = codex_profile.record_active_profile
         try:
             codex_profile.quit_codex_desktop = lambda: calls.append(("quit", None))
+            codex_profile.wait_for_codex_desktop_exit = lambda: calls.append(("wait", None)) or True
+            codex_profile.wait_for_codex_desktop_launch = lambda: calls.append(("launch", None)) or True
             codex_profile.run_codex = lambda home, args: calls.append((home, list(args))) or 0
             codex_profile.record_active_profile = lambda name: calls.append(("active", name))
 
             code = main(["app", "account-a"])
         finally:
             codex_profile.quit_codex_desktop = old_quit
+            codex_profile.wait_for_codex_desktop_exit = old_wait
+            codex_profile.wait_for_codex_desktop_launch = old_launch
             codex_profile.run_codex = old_run
             codex_profile.record_active_profile = old_record
 
         self.assertEqual(code, 0)
-        self.assertEqual(calls, [("quit", None), (profile, ["app"]), ("active", "account-a")])
+        self.assertEqual(
+            calls,
+            [
+                ("quit", None),
+                ("wait", None),
+                (profile, ["app"]),
+                ("launch", None),
+                ("active", "account-a"),
+            ],
+        )
+
+    def test_app_command_aborts_when_desktop_does_not_quit(self):
+        import codex_profile
+        from codex_profile import main
+
+        profile = self.root / "account-a"
+        profile.mkdir()
+        calls = []
+        old_quit = codex_profile.quit_codex_desktop
+        old_wait = codex_profile.wait_for_codex_desktop_exit
+        old_launch = codex_profile.wait_for_codex_desktop_launch
+        old_run = codex_profile.run_codex
+        old_record = codex_profile.record_active_profile
+        try:
+            codex_profile.quit_codex_desktop = lambda: calls.append(("quit", None))
+            codex_profile.wait_for_codex_desktop_exit = lambda: calls.append(("wait", None)) or False
+            codex_profile.wait_for_codex_desktop_launch = lambda: calls.append(("launch", None)) or True
+            codex_profile.run_codex = lambda home, args: calls.append((home, list(args))) or 0
+            codex_profile.record_active_profile = lambda name: calls.append(("active", name))
+
+            err = io.StringIO()
+            with redirect_stderr(err):
+                code = main(["app", "account-a"])
+        finally:
+            codex_profile.quit_codex_desktop = old_quit
+            codex_profile.wait_for_codex_desktop_exit = old_wait
+            codex_profile.wait_for_codex_desktop_launch = old_launch
+            codex_profile.run_codex = old_run
+            codex_profile.record_active_profile = old_record
+
+        self.assertEqual(code, 1)
+        self.assertEqual(calls, [("quit", None), ("wait", None)])
+        self.assertIn("did not quit", err.getvalue())
+
+    def test_app_command_aborts_when_desktop_does_not_launch(self):
+        import codex_profile
+        from codex_profile import main
+
+        profile = self.root / "account-a"
+        profile.mkdir()
+        calls = []
+        old_quit = codex_profile.quit_codex_desktop
+        old_wait = codex_profile.wait_for_codex_desktop_exit
+        old_launch = codex_profile.wait_for_codex_desktop_launch
+        old_run = codex_profile.run_codex
+        old_record = codex_profile.record_active_profile
+        try:
+            codex_profile.quit_codex_desktop = lambda: calls.append(("quit", None))
+            codex_profile.wait_for_codex_desktop_exit = lambda: calls.append(("wait", None)) or True
+            codex_profile.wait_for_codex_desktop_launch = lambda: calls.append(("launch", None)) or False
+            codex_profile.run_codex = lambda home, args: calls.append((home, list(args))) or 0
+            codex_profile.record_active_profile = lambda name: calls.append(("active", name))
+
+            err = io.StringIO()
+            with redirect_stderr(err):
+                code = main(["app", "account-a"])
+        finally:
+            codex_profile.quit_codex_desktop = old_quit
+            codex_profile.wait_for_codex_desktop_exit = old_wait
+            codex_profile.wait_for_codex_desktop_launch = old_launch
+            codex_profile.run_codex = old_run
+            codex_profile.record_active_profile = old_record
+
+        self.assertEqual(code, 1)
+        self.assertEqual(calls, [("quit", None), ("wait", None), (profile, ["app"]), ("launch", None)])
+        self.assertIn("did not launch", err.getvalue())
 
     def test_app_command_can_skip_restart(self):
         import codex_profile
@@ -298,21 +379,27 @@ class CommandTests(unittest.TestCase):
         profile.mkdir()
         calls = []
         old_quit = codex_profile.quit_codex_desktop
+        old_wait = codex_profile.wait_for_codex_desktop_exit
+        old_launch = codex_profile.wait_for_codex_desktop_launch
         old_run = codex_profile.run_codex
         old_record = codex_profile.record_active_profile
         try:
             codex_profile.quit_codex_desktop = lambda: calls.append(("quit", None))
+            codex_profile.wait_for_codex_desktop_exit = lambda: calls.append(("wait", None)) or True
+            codex_profile.wait_for_codex_desktop_launch = lambda: calls.append(("launch", None)) or True
             codex_profile.run_codex = lambda home, args: calls.append((home, list(args))) or 0
             codex_profile.record_active_profile = lambda name: calls.append(("active", name))
 
             code = main(["app", "account-a", "--no-restart"])
         finally:
             codex_profile.quit_codex_desktop = old_quit
+            codex_profile.wait_for_codex_desktop_exit = old_wait
+            codex_profile.wait_for_codex_desktop_launch = old_launch
             codex_profile.run_codex = old_run
             codex_profile.record_active_profile = old_record
 
         self.assertEqual(code, 0)
-        self.assertEqual(calls, [(profile, ["app"]), ("active", "account-a")])
+        self.assertEqual(calls, [(profile, ["app"]), ("launch", None), ("active", "account-a")])
 
     def test_active_profile_roundtrip(self):
         from codex_profile import read_active_profile, record_active_profile

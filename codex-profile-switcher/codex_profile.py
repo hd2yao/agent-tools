@@ -11,6 +11,7 @@ import shutil
 import sqlite3
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Mapping, Sequence
 
@@ -304,6 +305,35 @@ def quit_codex_desktop() -> None:
     )
 
 
+def codex_desktop_is_running() -> bool:
+    result = subprocess.run(
+        ["osascript", "-e", 'application "Codex" is running'],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        text=True,
+        check=False,
+    )
+    return result.returncode == 0 and result.stdout.strip().lower() == "true"
+
+
+def wait_for_codex_desktop_exit(timeout_seconds: float = 12.0) -> bool:
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        if not codex_desktop_is_running():
+            return True
+        time.sleep(0.25)
+    return not codex_desktop_is_running()
+
+
+def wait_for_codex_desktop_launch(timeout_seconds: float = 12.0) -> bool:
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        if codex_desktop_is_running():
+            return True
+        time.sleep(0.25)
+    return codex_desktop_is_running()
+
+
 def cmd_init(args: argparse.Namespace) -> int:
     path = ensure_profile(get_profile_root(), args.name)
     print(f"created: {path}")
@@ -346,10 +376,23 @@ def cmd_app(args: argparse.Namespace) -> int:
     path = existing_profile(get_profile_root(), args.name)
     if args.restart:
         quit_codex_desktop()
+        if not wait_for_codex_desktop_exit():
+            print(
+                "Codex Desktop did not quit within 12 seconds; switch aborted.",
+                file=sys.stderr,
+            )
+            return 1
     code = run_codex(path, ["app"])
-    if code == 0:
-        record_active_profile(args.name)
-    return code
+    if code != 0:
+        return code
+    if not wait_for_codex_desktop_launch():
+        print(
+            "Codex Desktop did not launch within 12 seconds after `codex app`.",
+            file=sys.stderr,
+        )
+        return 1
+    record_active_profile(args.name)
+    return 0
 
 
 def cmd_login(args: argparse.Namespace) -> int:

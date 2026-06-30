@@ -206,8 +206,7 @@ enum TimeText {
         guard let value else {
             return "--"
         }
-        let parser = ISO8601DateFormatter()
-        if let date = parser.date(from: value) {
+        if let date = parseISO8601(value) {
             return beijingShort(date)
         }
         return value
@@ -227,6 +226,17 @@ enum TimeText {
         formatter.dateFormat = "yy年M月d日 HH:mm"
         return formatter.string(from: date)
     }
+
+    private static func parseISO8601(_ value: String) -> Date? {
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = fractional.date(from: value) {
+            return date
+        }
+        let plain = ISO8601DateFormatter()
+        plain.formatOptions = [.withInternetDateTime]
+        return plain.date(from: value)
+    }
 }
 
 final class CodexProfileMenuBarApp: NSObject, NSApplicationDelegate, NSPopoverDelegate {
@@ -236,14 +246,20 @@ final class CodexProfileMenuBarApp: NSObject, NSApplicationDelegate, NSPopoverDe
     private var latestError: String?
     private var isRefreshing = false
     private var refreshTimer: Timer?
+    private var globalEventMonitor: Any?
+    private var localEventMonitor: Any?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         configureStatusItem()
         configurePopover()
         updatePopover()
-        refreshStatus(nil)
+        refreshStatus(showProgress: false)
         startAutoRefresh()
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        stopPopoverDismissMonitors()
     }
 
     private func configureStatusItem() {
@@ -260,7 +276,7 @@ final class CodexProfileMenuBarApp: NSObject, NSApplicationDelegate, NSPopoverDe
     }
 
     private func configurePopover() {
-        popover.behavior = .transient
+        popover.behavior = .applicationDefined
         popover.animates = true
         popover.delegate = self
         popover.contentSize = NSSize(width: 460, height: 560)
@@ -269,7 +285,7 @@ final class CodexProfileMenuBarApp: NSObject, NSApplicationDelegate, NSPopoverDe
     private func startAutoRefresh() {
         refreshTimer?.invalidate()
         refreshTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
-            self?.refreshStatus(nil)
+            self?.refreshStatus(showProgress: false)
         }
         RunLoop.main.add(refreshTimer!, forMode: .common)
     }
@@ -283,18 +299,23 @@ final class CodexProfileMenuBarApp: NSObject, NSApplicationDelegate, NSPopoverDe
         } else {
             updatePopover()
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+            startPopoverDismissMonitors()
         }
     }
 
     @objc private func refreshStatus(_ sender: Any?) {
+        refreshStatus(showProgress: true)
+    }
+
+    private func refreshStatus(showProgress: Bool) {
         if isRefreshing {
             return
         }
         isRefreshing = true
-        statusItem.button?.image = makeStatusIcon(color: RuntimeLight.unknown.color)
-        statusItem.button?.title = " ... ⚪️"
         latestError = nil
-        updatePopover(message: "正在刷新 Codex 账号...")
+        if showProgress {
+            updatePopover(message: "正在刷新 Codex 账号...")
+        }
         DispatchQueue.global(qos: .userInitiated).async {
             let result = Self.runPython(arguments: ["status", "--json"])
             DispatchQueue.main.async {
@@ -309,6 +330,50 @@ final class CodexProfileMenuBarApp: NSObject, NSApplicationDelegate, NSPopoverDe
                 }
             }
         }
+    }
+
+    func popoverDidClose(_ notification: Notification) {
+        stopPopoverDismissMonitors()
+    }
+
+    private func startPopoverDismissMonitors() {
+        stopPopoverDismissMonitors()
+        globalEventMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
+            DispatchQueue.main.async {
+                self?.closePopoverFromOutsideClick()
+            }
+        }
+        localEventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
+            guard let self, self.popover.isShown else {
+                return event
+            }
+            if event.window === self.popover.contentViewController?.view.window {
+                return event
+            }
+            if event.window === self.statusItem.button?.window {
+                return event
+            }
+            self.closePopoverFromOutsideClick()
+            return event
+        }
+    }
+
+    private func stopPopoverDismissMonitors() {
+        if let globalEventMonitor {
+            NSEvent.removeMonitor(globalEventMonitor)
+            self.globalEventMonitor = nil
+        }
+        if let localEventMonitor {
+            NSEvent.removeMonitor(localEventMonitor)
+            self.localEventMonitor = nil
+        }
+    }
+
+    private func closePopoverFromOutsideClick() {
+        guard popover.isShown else {
+            return
+        }
+        popover.performClose(nil)
     }
 
     private func handleStatusOutput(_ output: String) {
@@ -405,7 +470,7 @@ final class CodexProfileMenuBarApp: NSObject, NSApplicationDelegate, NSPopoverDe
                 switch result {
                 case .success:
                     self.updatePopover(message: "已切换到 \(name)。")
-                    self.refreshStatus(nil)
+                    self.refreshStatus(showProgress: false)
                 case .failure(let error):
                     self.latestError = error
                     self.updateStatusTitle()
@@ -642,7 +707,7 @@ final class AccountManagerViewController: NSViewController {
         stack.addArrangedSubview(
             ActionRowView(
                 icon: "🚪",
-                title: "退出",
+                title: "退出账号管家",
                 isEnabled: true,
                 action: quitAction
             )
@@ -835,10 +900,12 @@ final class AccountCardView: NSView {
 
         let primary = profile.rateLimits.primary?.remainingPercent
         let usage = usageLabel(remaining: primary)
-        let reset = TimeText.beijingShort(profile.rateLimits.primary?.resetsAt)
-        let detail = NSTextField(labelWithString: "使用：\(usage) | 重置：\(reset)")
+        let primaryReset = TimeText.beijingShort(profile.rateLimits.primary?.resetsAt)
+        let secondaryReset = TimeText.beijingShort(profile.rateLimits.secondary?.resetsAt)
+        let detail = NSTextField(labelWithString: "使用：\(usage) | 5小时：\(primaryReset) | 7天：\(secondaryReset)")
         detail.font = NSFont.systemFont(ofSize: 12, weight: .medium)
         detail.textColor = NSColor.black
+        detail.lineBreakMode = .byTruncatingTail
         row.addArrangedSubview(detail)
 
         let spacer = NSView()

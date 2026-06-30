@@ -202,6 +202,13 @@ Open it:
 open "build/Codex Profile Switcher.app"
 ```
 
+Install it as a local user app:
+
+```bash
+./install-menubar-app.sh
+open "$HOME/Applications/Codex Profile Switcher.app"
+```
+
 The app runs as a menu bar accessory. It does not show a Dock icon. The status
 item displays the active profile's 5-hour remaining quota percent and a runtime
 state light:
@@ -217,8 +224,12 @@ It shows each profile with plan, auth/config state, 5-hour and 7-day reset
 windows, and switch actions.
 
 The app refreshes status on launch, after a profile switch, and every 60
-seconds while it is running. Manual refresh is still available for immediate
-checks.
+seconds while it is running. Background refresh updates the status item without
+showing a temporary loading state. Manual refresh is still available for
+immediate checks.
+
+The quit row exits only the menu bar account manager. It does not quit Codex
+Desktop. Start it again by opening the installed app.
 
 The app is a thin native Swift/AppKit wrapper around the existing CLI:
 
