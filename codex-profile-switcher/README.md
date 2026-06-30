@@ -38,6 +38,12 @@ AGENTS.md
 models_cache.json
 ```
 
+The tool also links new top-level entries that already exist in the shared
+Codex home, such as `hooks` and `hooks.json`, unless they are known
+account-specific or runtime-local files. This keeps future local Codex features
+visible after switching profiles without requiring a code change for every new
+directory name.
+
 `.codex-global-state.json` is included because Codex Desktop uses it for local
 project ordering, saved workspace roots, and thread workspace hints. Without
 sharing it, the SQLite history can be shared while the left sidebar still looks

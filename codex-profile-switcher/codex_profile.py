@@ -47,6 +47,25 @@ SHARED_FILE_ENTRIES = (
 )
 SHARED_STATE_ENTRIES = (*SHARED_DIRECTORY_ENTRIES, *SHARED_FILE_ENTRIES)
 SHARED_STATE_LINKS = {"sqlite/state_5.sqlite": "state_5.sqlite"}
+PROFILE_LOCAL_ENTRY_NAMES = {
+    ".DS_Store",
+    ".app-server-state-reconciled-v1",
+    ".codex-profile-switcher-active.json",
+    ".personality_migration",
+    ".tmp",
+    "auth.json",
+    "config.toml",
+    "goals_1.sqlite",
+    "installation_id",
+    "log",
+    "logs_2.sqlite",
+    "memories_1.sqlite",
+    "process_manager",
+    "tmp",
+    "version.json",
+}
+PROFILE_LOCAL_PREFIXES = ("auth.json", "chrome-native-hosts", "config.toml")
+PROFILE_LOCAL_SUFFIXES = ("-shm", "-wal")
 PROFILE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 ACTIVE_PROFILE_FILE = ".codex-profile-switcher-active.json"
 
@@ -200,32 +219,56 @@ def _merge_existing_entry(source: Path, target: Path) -> None:
     raise RuntimeError(f"cannot share incompatible Codex state entry: {source}")
 
 
+def _is_profile_local_entry(name: str) -> bool:
+    if name in PROFILE_LOCAL_ENTRY_NAMES:
+        return True
+    if name.startswith(PROFILE_LOCAL_PREFIXES):
+        return True
+    return name.endswith(PROFILE_LOCAL_SUFFIXES)
+
+
+def _handled_shared_link_roots() -> set[str]:
+    return {link_name.split("/", 1)[0] for link_name in SHARED_STATE_LINKS}
+
+
+def _existing_dynamic_shared_entry_names(shared_home: Path) -> list[str]:
+    if not shared_home.exists():
+        return []
+    handled = set(SHARED_STATE_ENTRIES) | _handled_shared_link_roots()
+    names = []
+    for path in sorted(shared_home.iterdir(), key=lambda item: item.name):
+        name = path.name
+        if name in handled or _is_profile_local_entry(name):
+            continue
+        names.append(name)
+    return names
+
+
+def _link_shared_entry(link: Path, target: Path) -> None:
+    if link.is_symlink():
+        if link.resolve() != target.resolve():
+            link.unlink()
+            link.symlink_to(target, target_is_directory=target.is_dir())
+        return
+    if link.exists():
+        _merge_existing_entry(link, target)
+    link.symlink_to(target, target_is_directory=target.is_dir())
+
+
 def prepare_profile_home(profile: Path, shared_home: Path) -> Path:
     profile.mkdir(parents=True, exist_ok=True, mode=0o700)
     profile.chmod(0o700)
     for name in SHARED_STATE_ENTRIES:
         link = profile / name
         target = _ensure_shared_target(shared_home, name)
-        if link.is_symlink():
-            if link.resolve() != target.resolve():
-                link.unlink()
-                link.symlink_to(target, target_is_directory=target.is_dir())
-            continue
-        if link.exists():
-            _merge_existing_entry(link, target)
-        link.symlink_to(target, target_is_directory=target.is_dir())
+        _link_shared_entry(link, target)
     for link_name, target_name in SHARED_STATE_LINKS.items():
         link = profile / link_name
         target = _ensure_shared_target(shared_home, target_name)
         link.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-        if link.is_symlink():
-            if link.resolve() != target.resolve():
-                link.unlink()
-                link.symlink_to(target, target_is_directory=target.is_dir())
-            continue
-        if link.exists():
-            _merge_existing_entry(link, target)
-        link.symlink_to(target, target_is_directory=target.is_dir())
+        _link_shared_entry(link, target)
+    for name in _existing_dynamic_shared_entry_names(shared_home):
+        _link_shared_entry(profile / name, shared_home / name)
     return profile
 
 

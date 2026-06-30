@@ -182,6 +182,61 @@ class ProfileHelperTests(unittest.TestCase):
                     '{"shared":["one"],"profile":["one"]}\n',
                 )
 
+    def test_prepare_profile_links_new_shared_entries_from_shared_home(self):
+        from codex_profile import prepare_profile_home
+
+        profile = self.root / "account-a"
+        shared_home = self.root / "shared-codex"
+        profile.mkdir()
+        shared_home.mkdir()
+        (shared_home / "hooks").mkdir()
+        (shared_home / "hooks" / "notify.sh").write_text("#!/bin/sh\n", encoding="utf-8")
+        (shared_home / "hooks.json").write_text('{"enabled":true}\n', encoding="utf-8")
+
+        prepare_profile_home(profile, shared_home)
+
+        hooks_link = profile / "hooks"
+        self.assertTrue(hooks_link.is_symlink())
+        self.assertEqual(hooks_link.resolve(), (shared_home / "hooks").resolve())
+
+        hooks_json_link = profile / "hooks.json"
+        self.assertTrue(hooks_json_link.is_symlink())
+        self.assertEqual(hooks_json_link.resolve(), (shared_home / "hooks.json").resolve())
+
+    def test_prepare_profile_does_not_share_new_private_or_runtime_entries(self):
+        from codex_profile import prepare_profile_home
+
+        profile = self.root / "account-a"
+        shared_home = self.root / "shared-codex"
+        profile.mkdir()
+        shared_home.mkdir()
+        for name in (
+            ".codex-profile-switcher-active.json",
+            "auth.json",
+            "config.toml",
+            "tmp",
+            "process_manager",
+            "logs_2.sqlite-wal",
+        ):
+            path = shared_home / name
+            if "." not in name and name != "config.toml":
+                path.mkdir()
+            else:
+                path.write_text("private\n", encoding="utf-8")
+
+        prepare_profile_home(profile, shared_home)
+
+        for name in (
+            ".codex-profile-switcher-active.json",
+            "auth.json",
+            "config.toml",
+            "tmp",
+            "process_manager",
+            "logs_2.sqlite-wal",
+        ):
+            with self.subTest(name=name):
+                self.assertFalse((profile / name).is_symlink())
+
     def test_prepare_profile_merges_and_links_global_state(self):
         from codex_profile import prepare_profile_home
 
