@@ -231,6 +231,36 @@ immediate checks.
 The quit row exits only the menu bar account manager. It does not quit Codex
 Desktop. Start it again by opening the installed app.
 
+### Launch ownership
+
+Codex Desktop reads `CODEX_HOME` when its process starts. For profile switching,
+the reliable entry point is therefore the account manager, not double-clicking
+`/Applications/Codex.app` directly.
+
+When the account manager opens Codex, it records the selected profile and the
+Codex Desktop process id. The menu bar UI reports whether the current Desktop
+process is still managed by the switcher. If Codex was opened manually, the UI
+shows that state and offers a one-click repair action: open/restart Codex with
+the current profile.
+
+Directly opening Codex.app still works, but it uses the default `~/.codex`
+route. That path is not profile-aware, so it should be treated as outside the
+switcher's account isolation model.
+
+### Another Mac
+
+Do not copy `auth.json` or other credential files between machines. On a new
+Mac:
+
+1. Clone this repo.
+2. Run `./install-menubar-app.sh`.
+3. Create the same profile names.
+4. Log in to each profile locally with `python3 codex_profile.py login <name>`.
+5. Start Codex through the installed account manager.
+
+The tool recreates the profile structure and shared local-state links on each
+machine. Secrets remain local to the machine where the account was logged in.
+
 The app is a thin native Swift/AppKit wrapper around the existing CLI:
 
 ```bash
@@ -242,11 +272,9 @@ The generated `.app` is local build output and is not committed to git.
 
 ## Future GUI Plan
 
-1. Add active Desktop `CODEX_HOME` detection.
-2. Add login and doctor buttons to the menu bar app.
-3. Add background refresh and stale-data warnings.
-4. Add launch-at-login support.
-5. Add signing and a simple update path once the UI behavior is stable.
+1. Add login and doctor buttons to the menu bar app.
+2. Add launch-at-login support.
+3. Add signing and a simple update path once the UI behavior is stable.
 
 ## Verification
 

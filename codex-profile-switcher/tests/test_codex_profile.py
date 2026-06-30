@@ -276,20 +276,25 @@ class CommandTests(unittest.TestCase):
         old_quit = codex_profile.quit_codex_desktop
         old_wait = codex_profile.wait_for_codex_desktop_exit
         old_launch = codex_profile.wait_for_codex_desktop_launch
+        old_pid = codex_profile.codex_desktop_pid
         old_run = codex_profile.run_codex
         old_record = codex_profile.record_active_profile
         try:
             codex_profile.quit_codex_desktop = lambda: calls.append(("quit", None))
             codex_profile.wait_for_codex_desktop_exit = lambda: calls.append(("wait", None)) or True
             codex_profile.wait_for_codex_desktop_launch = lambda: calls.append(("launch", None)) or True
+            codex_profile.codex_desktop_pid = lambda: 24680
             codex_profile.run_codex = lambda home, args: calls.append((home, list(args))) or 0
-            codex_profile.record_active_profile = lambda name: calls.append(("active", name))
+            codex_profile.record_active_profile = (
+                lambda name, **kwargs: calls.append(("active", name, kwargs))
+            )
 
             code = main(["app", "account-a"])
         finally:
             codex_profile.quit_codex_desktop = old_quit
             codex_profile.wait_for_codex_desktop_exit = old_wait
             codex_profile.wait_for_codex_desktop_launch = old_launch
+            codex_profile.codex_desktop_pid = old_pid
             codex_profile.run_codex = old_run
             codex_profile.record_active_profile = old_record
 
@@ -301,7 +306,7 @@ class CommandTests(unittest.TestCase):
                 ("wait", None),
                 (profile, ["app"]),
                 ("launch", None),
-                ("active", "account-a"),
+                ("active", "account-a", {"profile_home": profile, "codex_pid": 24680}),
             ],
         )
 
@@ -315,14 +320,18 @@ class CommandTests(unittest.TestCase):
         old_quit = codex_profile.quit_codex_desktop
         old_wait = codex_profile.wait_for_codex_desktop_exit
         old_launch = codex_profile.wait_for_codex_desktop_launch
+        old_pid = codex_profile.codex_desktop_pid
         old_run = codex_profile.run_codex
         old_record = codex_profile.record_active_profile
         try:
             codex_profile.quit_codex_desktop = lambda: calls.append(("quit", None))
             codex_profile.wait_for_codex_desktop_exit = lambda: calls.append(("wait", None)) or False
             codex_profile.wait_for_codex_desktop_launch = lambda: calls.append(("launch", None)) or True
+            codex_profile.codex_desktop_pid = lambda: 24680
             codex_profile.run_codex = lambda home, args: calls.append((home, list(args))) or 0
-            codex_profile.record_active_profile = lambda name: calls.append(("active", name))
+            codex_profile.record_active_profile = (
+                lambda name, **kwargs: calls.append(("active", name, kwargs))
+            )
 
             err = io.StringIO()
             with redirect_stderr(err):
@@ -331,6 +340,7 @@ class CommandTests(unittest.TestCase):
             codex_profile.quit_codex_desktop = old_quit
             codex_profile.wait_for_codex_desktop_exit = old_wait
             codex_profile.wait_for_codex_desktop_launch = old_launch
+            codex_profile.codex_desktop_pid = old_pid
             codex_profile.run_codex = old_run
             codex_profile.record_active_profile = old_record
 
@@ -348,14 +358,18 @@ class CommandTests(unittest.TestCase):
         old_quit = codex_profile.quit_codex_desktop
         old_wait = codex_profile.wait_for_codex_desktop_exit
         old_launch = codex_profile.wait_for_codex_desktop_launch
+        old_pid = codex_profile.codex_desktop_pid
         old_run = codex_profile.run_codex
         old_record = codex_profile.record_active_profile
         try:
             codex_profile.quit_codex_desktop = lambda: calls.append(("quit", None))
             codex_profile.wait_for_codex_desktop_exit = lambda: calls.append(("wait", None)) or True
             codex_profile.wait_for_codex_desktop_launch = lambda: calls.append(("launch", None)) or False
+            codex_profile.codex_desktop_pid = lambda: None
             codex_profile.run_codex = lambda home, args: calls.append((home, list(args))) or 0
-            codex_profile.record_active_profile = lambda name: calls.append(("active", name))
+            codex_profile.record_active_profile = (
+                lambda name, **kwargs: calls.append(("active", name, kwargs))
+            )
 
             err = io.StringIO()
             with redirect_stderr(err):
@@ -364,6 +378,7 @@ class CommandTests(unittest.TestCase):
             codex_profile.quit_codex_desktop = old_quit
             codex_profile.wait_for_codex_desktop_exit = old_wait
             codex_profile.wait_for_codex_desktop_launch = old_launch
+            codex_profile.codex_desktop_pid = old_pid
             codex_profile.run_codex = old_run
             codex_profile.record_active_profile = old_record
 
@@ -381,25 +396,33 @@ class CommandTests(unittest.TestCase):
         old_quit = codex_profile.quit_codex_desktop
         old_wait = codex_profile.wait_for_codex_desktop_exit
         old_launch = codex_profile.wait_for_codex_desktop_launch
+        old_pid = codex_profile.codex_desktop_pid
         old_run = codex_profile.run_codex
         old_record = codex_profile.record_active_profile
         try:
             codex_profile.quit_codex_desktop = lambda: calls.append(("quit", None))
             codex_profile.wait_for_codex_desktop_exit = lambda: calls.append(("wait", None)) or True
             codex_profile.wait_for_codex_desktop_launch = lambda: calls.append(("launch", None)) or True
+            codex_profile.codex_desktop_pid = lambda: 24680
             codex_profile.run_codex = lambda home, args: calls.append((home, list(args))) or 0
-            codex_profile.record_active_profile = lambda name: calls.append(("active", name))
+            codex_profile.record_active_profile = (
+                lambda name, **kwargs: calls.append(("active", name, kwargs))
+            )
 
             code = main(["app", "account-a", "--no-restart"])
         finally:
             codex_profile.quit_codex_desktop = old_quit
             codex_profile.wait_for_codex_desktop_exit = old_wait
             codex_profile.wait_for_codex_desktop_launch = old_launch
+            codex_profile.codex_desktop_pid = old_pid
             codex_profile.run_codex = old_run
             codex_profile.record_active_profile = old_record
 
         self.assertEqual(code, 0)
-        self.assertEqual(calls, [(profile, ["app"]), ("launch", None), ("active", "account-a")])
+        self.assertEqual(
+            calls,
+            [(profile, ["app"]), ("launch", None), ("active", "account-a", {"profile_home": profile, "codex_pid": 24680})],
+        )
 
     def test_active_profile_roundtrip(self):
         from codex_profile import read_active_profile, record_active_profile
@@ -407,6 +430,59 @@ class CommandTests(unittest.TestCase):
         record_active_profile("account-a")
 
         self.assertEqual(read_active_profile(), "account-a")
+
+    def test_active_profile_record_includes_managed_launch_metadata(self):
+        from codex_profile import read_active_profile_record, record_active_profile
+
+        profile_home = self.root / "account-a"
+        record_active_profile("account-a", profile_home=profile_home, codex_pid=12345)
+
+        record = read_active_profile_record()
+
+        self.assertEqual(record["active_profile"], "account-a")
+        self.assertEqual(record["profile_home"], str(profile_home))
+        self.assertEqual(record["codex_pid"], 12345)
+        self.assertEqual(record["shared_home"], str(self.root / "shared-codex"))
+        self.assertIn("managed_launch_at", record)
+
+    def test_desktop_status_marks_managed_launch_when_pid_matches(self):
+        import codex_profile
+        from codex_profile import build_desktop_status, record_active_profile
+
+        profile_home = self.root / "account-a"
+        record_active_profile("account-a", profile_home=profile_home, codex_pid=12345)
+
+        old_pid = codex_profile.codex_desktop_pid
+        try:
+            codex_profile.codex_desktop_pid = lambda: 12345
+
+            status = build_desktop_status()
+        finally:
+            codex_profile.codex_desktop_pid = old_pid
+
+        self.assertTrue(status["running"])
+        self.assertTrue(status["managed"])
+        self.assertEqual(status["active_profile"], "account-a")
+        self.assertEqual(status["codex_pid"], 12345)
+
+    def test_desktop_status_marks_manual_launch_when_pid_differs(self):
+        import codex_profile
+        from codex_profile import build_desktop_status, record_active_profile
+
+        profile_home = self.root / "account-a"
+        record_active_profile("account-a", profile_home=profile_home, codex_pid=12345)
+
+        old_pid = codex_profile.codex_desktop_pid
+        try:
+            codex_profile.codex_desktop_pid = lambda: 99999
+
+            status = build_desktop_status()
+        finally:
+            codex_profile.codex_desktop_pid = old_pid
+
+        self.assertTrue(status["running"])
+        self.assertFalse(status["managed"])
+        self.assertIn("manual", status["state"])
 
     def test_status_payload_includes_active_profile(self):
         from codex_profile import build_status_payload, record_active_profile

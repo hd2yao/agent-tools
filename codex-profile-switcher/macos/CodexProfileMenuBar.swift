@@ -5,13 +5,35 @@ struct DashboardPayload: Decodable {
     let generatedAt: String
     let activeProfile: String?
     let runtimeStatus: RuntimeStatus?
+    let desktopStatus: DesktopStatus?
     let profiles: [ProfileStatus]
 
     enum CodingKeys: String, CodingKey {
         case generatedAt = "generated_at"
         case activeProfile = "active_profile"
         case runtimeStatus = "runtime_status"
+        case desktopStatus = "desktop_status"
         case profiles
+    }
+}
+
+struct DesktopStatus: Decodable {
+    let running: Bool
+    let managed: Bool
+    let state: String
+    let message: String
+    let codexPid: Int?
+    let recordedPid: Int?
+    let activeProfile: String?
+
+    enum CodingKeys: String, CodingKey {
+        case running
+        case managed
+        case state
+        case message
+        case codexPid = "codex_pid"
+        case recordedPid = "recorded_pid"
+        case activeProfile = "active_profile"
     }
 }
 
@@ -279,7 +301,7 @@ final class CodexProfileMenuBarApp: NSObject, NSApplicationDelegate, NSPopoverDe
         popover.behavior = .applicationDefined
         popover.animates = true
         popover.delegate = self
-        popover.contentSize = NSSize(width: 460, height: 560)
+        popover.contentSize = NSSize(width: 460, height: 690)
     }
 
     private func startAutoRefresh() {
@@ -455,9 +477,18 @@ final class CodexProfileMenuBarApp: NSObject, NSApplicationDelegate, NSPopoverDe
             message: message ?? latestError,
             isRefreshing: isRefreshing,
             refreshAction: { [weak self] in self?.refreshStatus(nil) },
+            launchAction: { [weak self] in self?.launchActiveProfile() },
             quitAction: { NSApp.terminate(nil) },
             switchAction: { [weak self] name in self?.switchProfile(name) }
         )
+    }
+
+    private func launchActiveProfile() {
+        guard let name = latestPayload?.activeProfile ?? latestPayload?.profiles.first?.name else {
+            updatePopover(message: "没有可启动的账号。")
+            return
+        }
+        switchProfile(name)
     }
 
     private func switchProfile(_ name: String) {
@@ -532,6 +563,7 @@ final class AccountManagerViewController: NSViewController {
     private let message: String?
     private let isRefreshing: Bool
     private let refreshAction: () -> Void
+    private let launchAction: () -> Void
     private let quitAction: () -> Void
     private let switchAction: (String) -> Void
 
@@ -540,6 +572,7 @@ final class AccountManagerViewController: NSViewController {
         message: String?,
         isRefreshing: Bool,
         refreshAction: @escaping () -> Void,
+        launchAction: @escaping () -> Void,
         quitAction: @escaping () -> Void,
         switchAction: @escaping (String) -> Void
     ) {
@@ -547,6 +580,7 @@ final class AccountManagerViewController: NSViewController {
         self.message = message
         self.isRefreshing = isRefreshing
         self.refreshAction = refreshAction
+        self.launchAction = launchAction
         self.quitAction = quitAction
         self.switchAction = switchAction
         super.init(nibName: nil, bundle: nil)
@@ -557,7 +591,7 @@ final class AccountManagerViewController: NSViewController {
     }
 
     override func loadView() {
-        view = AccountManagerView(frame: NSRect(x: 0, y: 0, width: 460, height: 560))
+        view = AccountManagerView(frame: NSRect(x: 0, y: 0, width: 460, height: 690))
     }
 
     override func viewDidLoad() {
@@ -629,6 +663,7 @@ final class AccountManagerViewController: NSViewController {
         stack.addArrangedSubview(title)
         stack.addArrangedSubview(updated)
         stack.addArrangedSubview(lights)
+        stack.addArrangedSubview(desktopStatusView())
         return stack
     }
 
@@ -651,6 +686,43 @@ final class AccountManagerViewController: NSViewController {
         label.textColor = NSColor(calibratedWhite: 0.18, alpha: 1)
         row.addArrangedSubview(label)
         return row
+    }
+
+    private func desktopStatusView() -> NSView {
+        let label = NSTextField(labelWithString: desktopStatusText())
+        label.font = NSFont.systemFont(ofSize: 12, weight: .semibold)
+        label.textColor = desktopStatusColor()
+        label.alignment = .left
+        label.lineBreakMode = .byTruncatingTail
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.widthAnchor.constraint(equalToConstant: 424).isActive = true
+        return label
+    }
+
+    private func desktopStatusText() -> String {
+        guard let status = payload?.desktopStatus else {
+            return "Codex 启动状态：未读取"
+        }
+        if status.running && status.managed {
+            return "Codex 启动状态：托管启动 · \(status.activeProfile ?? "当前账号")"
+        }
+        if status.running {
+            return "Codex 启动状态：手动启动或状态不明 · 可用当前账号重启"
+        }
+        return "Codex 启动状态：未运行 · 可用当前账号打开"
+    }
+
+    private func desktopStatusColor() -> NSColor {
+        guard let status = payload?.desktopStatus else {
+            return NSColor(calibratedWhite: 0.28, alpha: 1)
+        }
+        if status.running && status.managed {
+            return NSColor(calibratedRed: 0.08, green: 0.34, blue: 0.25, alpha: 1)
+        }
+        if status.running {
+            return NSColor(calibratedRed: 0.52, green: 0.32, blue: 0.02, alpha: 1)
+        }
+        return NSColor(calibratedRed: 0.52, green: 0.08, blue: 0.08, alpha: 1)
     }
 
     private func runtimeSummary(runtimeStatus: RuntimeStatus?, runtime: RuntimeLight) -> String {
@@ -704,6 +776,16 @@ final class AccountManagerViewController: NSViewController {
                 action: refreshAction
             )
         )
+        if launchTargetName() != nil {
+            stack.addArrangedSubview(
+                ActionRowView(
+                    icon: "🚀",
+                    title: launchTitle(),
+                    isEnabled: true,
+                    action: launchAction
+                )
+            )
+        }
         stack.addArrangedSubview(
             ActionRowView(
                 icon: "🚪",
@@ -713,6 +795,20 @@ final class AccountManagerViewController: NSViewController {
             )
         )
         return stack
+    }
+
+    private func launchTargetName() -> String? {
+        payload?.activeProfile ?? payload?.profiles.first?.name
+    }
+
+    private func launchTitle() -> String {
+        guard let status = payload?.desktopStatus else {
+            return "用当前账号打开 Codex"
+        }
+        if status.running && status.managed {
+            return "重启当前账号 Codex"
+        }
+        return "用当前账号打开 Codex"
     }
 
     @objc private func refreshTapped() {
@@ -769,7 +865,7 @@ final class AccountCardView: NSView {
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
         widthAnchor.constraint(equalToConstant: 424).isActive = true
-        heightAnchor.constraint(equalToConstant: 176).isActive = true
+        heightAnchor.constraint(equalToConstant: 194).isActive = true
         wantsLayer = true
         layer?.cornerRadius = 18
         layer?.borderColor = NSColor.white.withAlphaComponent(0.75).cgColor
@@ -895,27 +991,44 @@ final class AccountCardView: NSView {
     private func footerRow() -> NSView {
         let row = NSStackView()
         row.orientation = .horizontal
-        row.spacing = 8
+        row.spacing = 10
         row.alignment = .centerY
 
         let primary = profile.rateLimits.primary?.remainingPercent
         let usage = usageLabel(remaining: primary)
         let primaryReset = TimeText.beijingShort(profile.rateLimits.primary?.resetsAt)
         let secondaryReset = TimeText.beijingShort(profile.rateLimits.secondary?.resetsAt)
-        let detail = NSTextField(labelWithString: "使用：\(usage) | 5小时：\(primaryReset) | 7天：\(secondaryReset)")
-        detail.font = NSFont.systemFont(ofSize: 12, weight: .medium)
-        detail.textColor = NSColor.black
-        detail.lineBreakMode = .byTruncatingTail
-        row.addArrangedSubview(detail)
 
-        let spacer = NSView()
-        row.addArrangedSubview(spacer)
-        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        let details = NSStackView()
+        details.orientation = .vertical
+        details.spacing = 3
+        details.alignment = .leading
+        details.translatesAutoresizingMaskIntoConstraints = false
+        details.widthAnchor.constraint(equalToConstant: 288).isActive = true
+
+        let usageText = NSTextField(labelWithString: "使用：\(usage)")
+        usageText.font = NSFont.systemFont(ofSize: 12, weight: .semibold)
+        usageText.textColor = NSColor.black
+        usageText.alignment = .left
+
+        let resetText = NSTextField(labelWithString: "重置：5小时 \(primaryReset) · 7天 \(secondaryReset)")
+        resetText.font = NSFont.systemFont(ofSize: 11, weight: .medium)
+        resetText.textColor = NSColor.black.withAlphaComponent(0.72)
+        resetText.alignment = .left
+        resetText.lineBreakMode = .byTruncatingTail
+        resetText.translatesAutoresizingMaskIntoConstraints = false
+        resetText.widthAnchor.constraint(equalToConstant: 288).isActive = true
+
+        details.addArrangedSubview(usageText)
+        details.addArrangedSubview(resetText)
+        row.addArrangedSubview(details)
 
         let button = NSButton(title: isActive ? "已部署 ✓" : "切过去!", target: self, action: #selector(switchTapped))
         button.bezelStyle = .rounded
         button.font = NSFont.monospacedSystemFont(ofSize: 13, weight: .heavy)
         button.isEnabled = !isActive
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.widthAnchor.constraint(equalToConstant: 92).isActive = true
         row.addArrangedSubview(button)
 
         return row

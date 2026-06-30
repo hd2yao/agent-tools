@@ -272,24 +272,41 @@ def run_codex(home: Path, args: Sequence[str]) -> int:
         return 130
 
 
-def record_active_profile(name: str) -> None:
+def record_active_profile(
+    name: str,
+    *,
+    profile_home: Path | None = None,
+    codex_pid: int | None = None,
+) -> None:
     target = get_shared_home() / ACTIVE_PROFILE_FILE
     target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    payload: dict[str, object] = {"active_profile": name}
+    if profile_home is not None:
+        payload["profile_home"] = str(profile_home)
+    if codex_pid is not None:
+        payload["codex_pid"] = codex_pid
+        payload["managed_launch_at"] = int(time.time())
+        payload["shared_home"] = str(get_shared_home())
     target.write_text(
-        json.dumps({"active_profile": name}, ensure_ascii=False, separators=(",", ":")) + "\n",
+        json.dumps(payload, ensure_ascii=False, separators=(",", ":")) + "\n",
         encoding="utf-8",
     )
     target.chmod(0o600)
 
 
-def read_active_profile() -> str | None:
+def read_active_profile_record() -> dict:
     target = get_shared_home() / ACTIVE_PROFILE_FILE
     if not target.is_file():
-        return None
+        return {}
     try:
         value = json.loads(target.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        return None
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def read_active_profile() -> str | None:
+    value = read_active_profile_record()
     name = value.get("active_profile")
     if isinstance(name, str) and PROFILE_NAME_RE.fullmatch(name):
         return name
@@ -305,15 +322,56 @@ def quit_codex_desktop() -> None:
     )
 
 
-def codex_desktop_is_running() -> bool:
+def codex_desktop_pid() -> int | None:
     result = subprocess.run(
-        ["osascript", "-e", 'application "Codex" is running'],
+        ["osascript", "-e", 'tell application "System Events" to get unix id of process "Codex"'],
         stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL,
         text=True,
         check=False,
     )
-    return result.returncode == 0 and result.stdout.strip().lower() == "true"
+    if result.returncode != 0:
+        return None
+    try:
+        return int(result.stdout.strip())
+    except ValueError:
+        return None
+
+
+def codex_desktop_is_running() -> bool:
+    return codex_desktop_pid() is not None
+
+
+def build_desktop_status() -> dict:
+    record = read_active_profile_record()
+    current_pid = codex_desktop_pid()
+    active_profile = read_active_profile()
+    recorded_pid = record.get("codex_pid")
+    managed = (
+        current_pid is not None
+        and isinstance(recorded_pid, int)
+        and current_pid == recorded_pid
+    )
+    if current_pid is None:
+        state = "not_running"
+        message = "Codex 未运行"
+    elif managed:
+        state = "managed"
+        message = f"托管启动 · {active_profile}" if active_profile else "托管启动"
+    else:
+        state = "manual_or_unknown"
+        message = "手动启动或状态不明 · 建议用账号管家重启"
+    return {
+        "running": current_pid is not None,
+        "managed": managed,
+        "state": state,
+        "message": message,
+        "codex_pid": current_pid,
+        "recorded_pid": recorded_pid if isinstance(recorded_pid, int) else None,
+        "active_profile": active_profile,
+        "profile_home": record.get("profile_home") if isinstance(record.get("profile_home"), str) else None,
+        "managed_launch_at": record.get("managed_launch_at") if isinstance(record.get("managed_launch_at"), int) else None,
+    }
 
 
 def wait_for_codex_desktop_exit(timeout_seconds: float = 12.0) -> bool:
@@ -391,7 +449,7 @@ def cmd_app(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 1
-    record_active_profile(args.name)
+    record_active_profile(args.name, profile_home=path, codex_pid=codex_desktop_pid())
     return 0
 
 
@@ -433,6 +491,7 @@ def build_status_payload() -> dict:
     payload = build_profiles_payload(get_profile_root(), get_shared_home())
     payload["active_profile"] = read_active_profile()
     payload["runtime_status"] = read_runtime_status(get_shared_home(), get_profile_root())
+    payload["desktop_status"] = build_desktop_status()
     return payload
 
 
