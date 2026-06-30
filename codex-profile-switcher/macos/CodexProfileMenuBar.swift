@@ -224,12 +224,22 @@ enum RuntimeLight {
 }
 
 enum TimeText {
+    static func beijingFull(_ value: String?) -> String {
+        guard let value else {
+            return "--"
+        }
+        if let date = parseISO8601(value) {
+            return format(date, dateFormat: "yyyy年M月d日 HH:mm")
+        }
+        return value
+    }
+
     static func beijingShort(_ value: String?) -> String {
         guard let value else {
             return "--"
         }
         if let date = parseISO8601(value) {
-            return beijingShort(date)
+            return format(date, dateFormat: "yy年M月d日 HH:mm")
         }
         return value
     }
@@ -238,14 +248,28 @@ enum TimeText {
         guard let timestamp else {
             return "--"
         }
-        return beijingShort(Date(timeIntervalSince1970: timestamp))
+        return format(Date(timeIntervalSince1970: timestamp), dateFormat: "yy年M月d日 HH:mm")
     }
 
-    private static func beijingShort(_ date: Date) -> String {
+    static func beijingHourMinute(_ timestamp: TimeInterval?) -> String {
+        guard let timestamp else {
+            return "--"
+        }
+        return format(Date(timeIntervalSince1970: timestamp), dateFormat: "HH:mm")
+    }
+
+    static func beijingMonthDay(_ timestamp: TimeInterval?) -> String {
+        guard let timestamp else {
+            return "--"
+        }
+        return format(Date(timeIntervalSince1970: timestamp), dateFormat: "M月d日")
+    }
+
+    private static func format(_ date: Date, dateFormat: String) -> String {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "zh_CN")
         formatter.timeZone = TimeZone(identifier: "Asia/Shanghai")
-        formatter.dateFormat = "yy年M月d日 HH:mm"
+        formatter.dateFormat = dateFormat
         return formatter.string(from: date)
     }
 
@@ -653,7 +677,7 @@ final class AccountManagerViewController: NSViewController {
         title.textColor = NSColor(calibratedRed: 0.06, green: 0.18, blue: 0.17, alpha: 1)
         title.alignment = .left
 
-        let updated = NSTextField(labelWithString: "更新：\(TimeText.beijingShort(payload?.generatedAt))")
+        let updated = NSTextField(labelWithString: "更新：\(TimeText.beijingFull(payload?.generatedAt))")
         updated.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .medium)
         updated.textColor = NSColor(calibratedWhite: 0.18, alpha: 1)
         updated.alignment = .left
@@ -973,6 +997,7 @@ final class AccountCardView: NSView {
         let remaining = window?.remainingPercent
         let bar = PixelBarView(percent: remaining ?? 0, color: AccountHealth(remaining: remaining).color)
         bar.translatesAutoresizingMaskIntoConstraints = false
+        bar.widthAnchor.constraint(equalToConstant: 218).isActive = true
         bar.heightAnchor.constraint(equalToConstant: 20).isActive = true
 
         let value = NSTextField(labelWithString: "\(remaining.map { "\($0)%" } ?? "--") 剩余")
@@ -996,31 +1021,25 @@ final class AccountCardView: NSView {
 
         let primary = profile.rateLimits.primary?.remainingPercent
         let usage = usageLabel(remaining: primary)
-        let primaryReset = TimeText.beijingShort(profile.rateLimits.primary?.resetsAt)
-        let secondaryReset = TimeText.beijingShort(profile.rateLimits.secondary?.resetsAt)
+        let primaryReset = TimeText.beijingHourMinute(profile.rateLimits.primary?.resetsAt)
+        let secondaryReset = TimeText.beijingMonthDay(profile.rateLimits.secondary?.resetsAt)
 
         let details = NSStackView()
         details.orientation = .vertical
         details.spacing = 3
         details.alignment = .leading
         details.translatesAutoresizingMaskIntoConstraints = false
-        details.widthAnchor.constraint(equalToConstant: 288).isActive = true
+        details.widthAnchor.constraint(equalToConstant: 294).isActive = true
 
-        let usageText = NSTextField(labelWithString: "使用：\(usage)")
-        usageText.font = NSFont.systemFont(ofSize: 12, weight: .semibold)
-        usageText.textColor = NSColor.black
-        usageText.alignment = .left
-
-        let resetText = NSTextField(labelWithString: "重置：5小时 \(primaryReset) · 7天 \(secondaryReset)")
-        resetText.font = NSFont.systemFont(ofSize: 11, weight: .medium)
-        resetText.textColor = NSColor.black.withAlphaComponent(0.72)
-        resetText.alignment = .left
-        resetText.lineBreakMode = .byTruncatingTail
-        resetText.translatesAutoresizingMaskIntoConstraints = false
-        resetText.widthAnchor.constraint(equalToConstant: 288).isActive = true
-
-        details.addArrangedSubview(usageText)
-        details.addArrangedSubview(resetText)
+        details.addArrangedSubview(infoLine(label: "使用：", value: usage, valueWeight: .semibold))
+        details.addArrangedSubview(
+            infoLine(
+                label: "重置：",
+                value: "5小时 \(primaryReset) · 7天 \(secondaryReset)",
+                valueWeight: .medium,
+                valueAlpha: 0.72
+            )
+        )
         row.addArrangedSubview(details)
 
         let button = NSButton(title: isActive ? "已部署 ✓" : "切过去!", target: self, action: #selector(switchTapped))
@@ -1031,6 +1050,39 @@ final class AccountCardView: NSView {
         button.widthAnchor.constraint(equalToConstant: 92).isActive = true
         row.addArrangedSubview(button)
 
+        return row
+    }
+
+    private func infoLine(
+        label: String,
+        value: String,
+        valueWeight: NSFont.Weight,
+        valueAlpha: CGFloat = 1
+    ) -> NSView {
+        let row = NSStackView()
+        row.orientation = .horizontal
+        row.spacing = 8
+        row.alignment = .firstBaseline
+        row.translatesAutoresizingMaskIntoConstraints = false
+        row.widthAnchor.constraint(equalToConstant: 294).isActive = true
+
+        let title = NSTextField(labelWithString: label)
+        title.font = NSFont.systemFont(ofSize: 12, weight: .semibold)
+        title.textColor = NSColor.black
+        title.alignment = .left
+        title.translatesAutoresizingMaskIntoConstraints = false
+        title.widthAnchor.constraint(equalToConstant: 82).isActive = true
+
+        let detail = NSTextField(labelWithString: value)
+        detail.font = NSFont.systemFont(ofSize: 12, weight: valueWeight)
+        detail.textColor = NSColor.black.withAlphaComponent(valueAlpha)
+        detail.alignment = .left
+        detail.lineBreakMode = .byTruncatingTail
+        detail.translatesAutoresizingMaskIntoConstraints = false
+        detail.widthAnchor.constraint(equalToConstant: 204).isActive = true
+
+        row.addArrangedSubview(title)
+        row.addArrangedSubview(detail)
         return row
     }
 
