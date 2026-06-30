@@ -277,6 +277,20 @@ def ensure_profile(root: Path, name: str) -> Path:
     return prepare_profile_home(path, get_shared_home())
 
 
+def sync_profile_homes(root: Path | None = None, shared_home: Path | None = None) -> list[str]:
+    profile_root = root or get_profile_root()
+    shared = shared_home or get_shared_home()
+    if not profile_root.exists():
+        return []
+    synced = []
+    for path in sorted(item for item in profile_root.iterdir() if item.is_dir()):
+        if path.resolve() == shared.resolve():
+            continue
+        prepare_profile_home(path, shared)
+        synced.append(path.name)
+    return synced
+
+
 def profile_status(path: Path) -> dict[str, bool]:
     return {
         "exists": path.is_dir(),
@@ -506,6 +520,15 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     return run_codex(path, ["doctor"])
 
 
+def cmd_sync(args: argparse.Namespace) -> int:
+    synced = sync_profile_homes()
+    if synced:
+        print("synced: " + ", ".join(synced))
+    else:
+        print(f"no profiles found: {get_profile_root()}")
+    return 0
+
+
 def switch_profile_from_dashboard(name: str) -> int:
     args = argparse.Namespace(name=name, restart=True)
     return cmd_app(args)
@@ -531,6 +554,7 @@ def cmd_ui(args: argparse.Namespace) -> int:
 def build_status_payload() -> dict:
     from codex_profile_dashboard import build_profiles_payload, read_runtime_status
 
+    sync_profile_homes()
     payload = build_profiles_payload(get_profile_root(), get_shared_home())
     payload["active_profile"] = read_active_profile()
     payload["runtime_status"] = read_runtime_status(get_shared_home(), get_profile_root())
@@ -596,6 +620,12 @@ def build_parser() -> argparse.ArgumentParser:
     doctor_parser = subparsers.add_parser("doctor", help="run codex doctor with a profile")
     doctor_parser.add_argument("name")
     doctor_parser.set_defaults(func=cmd_doctor)
+
+    sync_parser = subparsers.add_parser(
+        "sync",
+        help="sync shared Codex home entries into all profile homes",
+    )
+    sync_parser.set_defaults(func=cmd_sync)
 
     ui_parser = subparsers.add_parser("ui", help="open the local profile dashboard")
     ui_parser.add_argument("--host", default="127.0.0.1")

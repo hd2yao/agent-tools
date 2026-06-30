@@ -42,7 +42,9 @@ The tool also links new top-level entries that already exist in the shared
 Codex home, such as `hooks` and `hooks.json`, unless they are known
 account-specific or runtime-local files. This keeps future local Codex features
 visible after switching profiles without requiring a code change for every new
-directory name.
+directory name. The menu bar app runs this sync during its normal background
+status refresh, and the CLI exposes the same operation as `python3
+codex_profile.py sync`.
 
 `.codex-global-state.json` is included because Codex Desktop uses it for local
 project ordering, saved workspace roots, and thread workspace hints. Without
@@ -74,6 +76,7 @@ python3 codex_profile.py login account-a
 python3 codex_profile.py app account-a
 python3 codex_profile.py use account-a -- --version
 python3 codex_profile.py doctor account-a
+python3 codex_profile.py sync
 python3 codex_profile.py ui
 python3 codex_profile.py status --json
 ```

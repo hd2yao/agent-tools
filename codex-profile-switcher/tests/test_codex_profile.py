@@ -546,6 +546,70 @@ class CommandTests(unittest.TestCase):
 
         self.assertEqual(build_status_payload()["active_profile"], "account-a")
 
+    def test_sync_profile_homes_links_new_shared_entries_for_all_profiles(self):
+        from codex_profile import sync_profile_homes
+
+        profile_root = self.root / "profiles"
+        shared_home = self.root / "shared-codex"
+        profile_root.mkdir()
+        shared_home.mkdir()
+        (shared_home / "hooks").mkdir()
+        (shared_home / "hooks" / "notify.sh").write_text("#!/bin/sh\n", encoding="utf-8")
+        for name in ("account-a", "account-b"):
+            (profile_root / name).mkdir()
+
+        synced = sync_profile_homes(profile_root, shared_home)
+
+        self.assertEqual(synced, ["account-a", "account-b"])
+        for name in synced:
+            link = profile_root / name / "hooks"
+            self.assertTrue(link.is_symlink())
+            self.assertEqual(link.resolve(), (shared_home / "hooks").resolve())
+
+    def test_sync_profile_homes_skips_shared_home_inside_profile_root(self):
+        from codex_profile import sync_profile_homes
+
+        shared_home = self.root / "shared-codex"
+        shared_home.mkdir()
+        (self.root / "account-a").mkdir()
+
+        synced = sync_profile_homes(self.root, shared_home)
+
+        self.assertEqual(synced, ["account-a"])
+
+    def test_status_payload_syncs_profile_homes_before_reading_status(self):
+        import codex_profile
+        from codex_profile import build_status_payload
+
+        calls = []
+        old_sync = codex_profile.sync_profile_homes
+        try:
+            codex_profile.sync_profile_homes = lambda: calls.append("sync") or []
+            payload = build_status_payload()
+        finally:
+            codex_profile.sync_profile_homes = old_sync
+
+        self.assertIn("sync", calls)
+        self.assertIn("profiles", payload)
+
+    def test_sync_command_runs_profile_sync(self):
+        import codex_profile
+        from codex_profile import main
+
+        calls = []
+        old_sync = codex_profile.sync_profile_homes
+        try:
+            codex_profile.sync_profile_homes = lambda: calls.append("sync") or ["account-a"]
+            out = io.StringIO()
+            with redirect_stdout(out):
+                code = main(["sync"])
+        finally:
+            codex_profile.sync_profile_homes = old_sync
+
+        self.assertEqual(code, 0)
+        self.assertEqual(calls, ["sync"])
+        self.assertIn("account-a", out.getvalue())
+
     def test_ui_command_starts_dashboard(self):
         import codex_profile
         from codex_profile import main
