@@ -725,28 +725,31 @@ final class AccountManagerViewController: NSViewController {
 
     private func desktopStatusText() -> String {
         guard let status = payload?.desktopStatus else {
-            return "Codex 启动状态：未读取"
+            return "Codex 路径：未读取"
         }
-        if status.running && status.managed {
-            return "Codex 启动状态：托管启动 · \(status.activeProfile ?? "当前账号")"
+        if status.state == "managed_default_home" {
+            return "Codex 路径：已接管 · \(status.activeProfile ?? "当前账号")"
+        }
+        if status.state == "managed_legacy" {
+            return "Codex 路径：旧模式托管 · 建议重启一次"
         }
         if status.running {
-            return "Codex 启动状态：手动启动或状态不明 · 可用当前账号重启"
+            return "Codex 路径：未接管 · 用当前账号重启"
         }
-        return "Codex 启动状态：未运行 · 可用当前账号打开"
+        return "Codex 路径：已准备 · 用当前账号打开"
     }
 
     private func desktopStatusColor() -> NSColor {
         guard let status = payload?.desktopStatus else {
             return NSColor(calibratedWhite: 0.28, alpha: 1)
         }
-        if status.running && status.managed {
+        if status.state == "managed_default_home" {
             return NSColor(calibratedRed: 0.08, green: 0.34, blue: 0.25, alpha: 1)
         }
-        if status.running {
+        if status.running || status.state == "managed_legacy" {
             return NSColor(calibratedRed: 0.52, green: 0.32, blue: 0.02, alpha: 1)
         }
-        return NSColor(calibratedRed: 0.52, green: 0.08, blue: 0.08, alpha: 1)
+        return NSColor(calibratedRed: 0.08, green: 0.34, blue: 0.25, alpha: 1)
     }
 
     private func runtimeSummary(runtimeStatus: RuntimeStatus?, runtime: RuntimeLight) -> String {
@@ -829,8 +832,11 @@ final class AccountManagerViewController: NSViewController {
         guard let status = payload?.desktopStatus else {
             return "用当前账号打开 Codex"
         }
-        if status.running && status.managed {
+        if status.state == "managed_default_home" {
             return "重启当前账号 Codex"
+        }
+        if status.running {
+            return "接管并重启 Codex"
         }
         return "用当前账号打开 Codex"
     }

@@ -68,6 +68,8 @@ PROFILE_LOCAL_PREFIXES = ("auth.json", "chrome-native-hosts", "config.toml")
 PROFILE_LOCAL_SUFFIXES = ("-shm", "-wal")
 PROFILE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 ACTIVE_PROFILE_FILE = ".codex-profile-switcher-active.json"
+PROFILE_ACCOUNT_FILES = ("auth.json", "config.toml")
+BRIDGE_BACKUP_DIR = ".codex-profile-switcher-backups"
 
 
 def validate_profile_name(name: str) -> str:
@@ -329,6 +331,186 @@ def run_codex(home: Path, args: Sequence[str]) -> int:
         return 130
 
 
+def run_codex_default_home(args: Sequence[str]) -> int:
+    codex = require_codex()
+    env = dict(os.environ)
+    env.pop("CODEX_HOME", None)
+    command = [codex, *strip_separator(args)]
+    try:
+        return subprocess.run(command, env=env, check=False).returncode
+    except KeyboardInterrupt:
+        return 130
+
+
+def _same_resolved_path(left: Path, right: Path) -> bool:
+    return left.expanduser().resolve(strict=False) == right.expanduser().resolve(strict=False)
+
+
+def _next_bridge_backup_dir(shared_home: Path) -> Path:
+    root = shared_home.expanduser() / BRIDGE_BACKUP_DIR
+    root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    candidate = root / f"account-files-{stamp}"
+    suffix = 1
+    while candidate.exists():
+        suffix += 1
+        candidate = root / f"account-files-{stamp}-{suffix}"
+    candidate.mkdir(mode=0o700)
+    return candidate
+
+
+def _backup_default_account_file(path: Path, backup_dir: Path) -> None:
+    if not path.exists() and not path.is_symlink():
+        return
+    backup = backup_dir / path.name
+    shutil.move(str(path), str(backup))
+    if backup.is_file() and not backup.is_symlink():
+        backup.chmod(0o600)
+
+
+def _bridge_account_file(
+    shared_home: Path,
+    profile_home: Path,
+    name: str,
+    backup_dir: Path | None,
+) -> str:
+    shared_file = shared_home / name
+    profile_file = profile_home / name
+    shared_file.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    profile_file.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+
+    if shared_file.is_symlink():
+        if _same_resolved_path(shared_file, profile_file):
+            return "linked"
+        shared_file.unlink()
+
+    if shared_file.exists():
+        if profile_file.exists():
+            if backup_dir is None:
+                backup_dir = _next_bridge_backup_dir(shared_home)
+            _backup_default_account_file(shared_file, backup_dir)
+        else:
+            shutil.move(str(shared_file), str(profile_file))
+            if profile_file.is_file():
+                profile_file.chmod(0o600)
+
+    if not profile_file.exists():
+        return "missing"
+
+    shared_file.symlink_to(profile_file)
+    return "linked"
+
+
+def activate_default_home_profile(
+    profile_home: Path,
+    profile_name: str,
+    *,
+    shared_home: Path | None = None,
+) -> dict:
+    shared = (shared_home or get_shared_home()).expanduser()
+    profile = profile_home.expanduser()
+    shared.mkdir(parents=True, exist_ok=True, mode=0o700)
+    profile.mkdir(parents=True, exist_ok=True, mode=0o700)
+    backup_dir: Path | None = None
+    files: dict[str, str] = {}
+    for name in PROFILE_ACCOUNT_FILES:
+        before = shared / name
+        if before.exists() and not before.is_symlink() and (profile / name).exists():
+            backup_dir = backup_dir or _next_bridge_backup_dir(shared)
+        files[name] = _bridge_account_file(shared, profile, name, backup_dir)
+    return {
+        "managed": _bridge_files_are_managed(shared, profile),
+        "active_profile": profile_name,
+        "shared_home": str(shared),
+        "profile_home": str(profile),
+        "files": files,
+        "backup_dir": str(backup_dir) if backup_dir is not None else None,
+    }
+
+
+def _account_file_bridge_state(shared_home: Path, profile_home: Path, name: str) -> str:
+    shared_file = shared_home / name
+    profile_file = profile_home / name
+    if shared_file.is_symlink():
+        return "linked" if _same_resolved_path(shared_file, profile_file) else "linked_elsewhere"
+    if shared_file.exists():
+        return "unmanaged"
+    return "missing" if not profile_file.exists() else "unlinked"
+
+
+def _bridge_files_are_managed(shared_home: Path, profile_home: Path) -> bool:
+    linked_existing = []
+    for name in PROFILE_ACCOUNT_FILES:
+        profile_file = profile_home / name
+        if not profile_file.exists():
+            continue
+        linked_existing.append(_account_file_bridge_state(shared_home, profile_home, name) == "linked")
+    return bool(linked_existing) and all(linked_existing)
+
+
+def default_home_bridge_status(
+    shared_home: Path | None = None,
+    profile_root: Path | None = None,
+    active_profile: str | None = None,
+) -> dict:
+    shared = (shared_home or get_shared_home()).expanduser()
+    root = (profile_root or get_profile_root()).expanduser()
+    active = active_profile or read_active_profile()
+    if not active:
+        return {
+            "managed": False,
+            "state": "no_active_profile",
+            "active_profile": None,
+            "shared_home": str(shared),
+            "profile_home": None,
+            "files": {},
+        }
+    try:
+        profile = profile_path(root, active)
+    except ValueError:
+        return {
+            "managed": False,
+            "state": "invalid_active_profile",
+            "active_profile": active,
+            "shared_home": str(shared),
+            "profile_home": None,
+            "files": {},
+        }
+    if not profile.is_dir():
+        return {
+            "managed": False,
+            "state": "profile_missing",
+            "active_profile": active,
+            "shared_home": str(shared),
+            "profile_home": str(profile),
+            "files": {},
+        }
+    files = {
+        name: _account_file_bridge_state(shared, profile, name)
+        for name in PROFILE_ACCOUNT_FILES
+    }
+    managed = _bridge_files_are_managed(shared, profile)
+    return {
+        "managed": managed,
+        "state": "managed" if managed else "needs_repair",
+        "active_profile": active,
+        "shared_home": str(shared),
+        "profile_home": str(profile),
+        "files": files,
+    }
+
+
+def repair_default_home_bridge_for_active_profile() -> dict:
+    active = read_active_profile()
+    if not active:
+        return default_home_bridge_status()
+    root = get_profile_root()
+    profile = profile_path(root, active)
+    if not profile.is_dir():
+        return default_home_bridge_status(active_profile=active)
+    return activate_default_home_profile(profile, active, shared_home=get_shared_home())
+
+
 def record_active_profile(
     name: str,
     *,
@@ -404,20 +586,26 @@ def build_desktop_status() -> dict:
     current_pid = codex_desktop_pid()
     active_profile = read_active_profile()
     recorded_pid = record.get("codex_pid")
-    managed = (
+    bridge = default_home_bridge_status(active_profile=active_profile)
+    pid_matches = (
         current_pid is not None
         and isinstance(recorded_pid, int)
         and current_pid == recorded_pid
     )
+    bridge_managed = bool(bridge.get("managed"))
+    managed = current_pid is not None and (bridge_managed or pid_matches)
     if current_pid is None:
         state = "not_running"
         message = "Codex 未运行"
-    elif managed:
-        state = "managed"
-        message = f"托管启动 · {active_profile}" if active_profile else "托管启动"
+    elif bridge_managed:
+        state = "managed_default_home"
+        message = f"默认路径已接管 · {active_profile}" if active_profile else "默认路径已接管"
+    elif pid_matches:
+        state = "managed_legacy"
+        message = f"旧版托管启动 · {active_profile}" if active_profile else "旧版托管启动"
     else:
         state = "manual_or_unknown"
-        message = "手动启动或状态不明 · 建议用账号管家重启"
+        message = "默认路径未接管 · 建议用账号管家重启"
     return {
         "running": current_pid is not None,
         "managed": managed,
@@ -428,6 +616,7 @@ def build_desktop_status() -> dict:
         "active_profile": active_profile,
         "profile_home": record.get("profile_home") if isinstance(record.get("profile_home"), str) else None,
         "managed_launch_at": record.get("managed_launch_at") if isinstance(record.get("managed_launch_at"), int) else None,
+        "default_home_bridge": bridge,
     }
 
 
@@ -489,6 +678,7 @@ def cmd_use(args: argparse.Namespace) -> int:
 
 def cmd_app(args: argparse.Namespace) -> int:
     path = existing_profile(get_profile_root(), args.name)
+    activate_default_home_profile(path, args.name, shared_home=get_shared_home())
     if args.restart:
         quit_codex_desktop()
         if not wait_for_codex_desktop_exit():
@@ -497,7 +687,7 @@ def cmd_app(args: argparse.Namespace) -> int:
                 file=sys.stderr,
             )
             return 1
-    code = run_codex(path, ["app"])
+    code = run_codex_default_home(["app"])
     if code != 0:
         return code
     if not wait_for_codex_desktop_launch():
@@ -555,10 +745,12 @@ def build_status_payload() -> dict:
     from codex_profile_dashboard import build_profiles_payload, read_runtime_status
 
     sync_profile_homes()
+    repair_default_home_bridge_for_active_profile()
     payload = build_profiles_payload(get_profile_root(), get_shared_home())
     payload["active_profile"] = read_active_profile()
     payload["runtime_status"] = read_runtime_status(get_shared_home(), get_profile_root())
     payload["desktop_status"] = build_desktop_status()
+    payload["default_home_bridge"] = payload["desktop_status"].get("default_home_bridge")
     return payload
 
 
@@ -599,8 +791,9 @@ def build_parser() -> argparse.ArgumentParser:
         "app",
         help="open Codex Desktop with a profile",
         description=(
-            "Open Codex Desktop with a profile. By default this first quits an "
-            "already-running Desktop app so its app-server inherits the selected CODEX_HOME."
+            "Open Codex Desktop with a profile. This first points the default "
+            "Codex home account files at the selected profile, then restarts "
+            "Desktop so app-server state lines up with that account."
         ),
     )
     app_parser.add_argument("name")

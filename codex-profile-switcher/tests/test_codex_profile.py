@@ -328,38 +328,46 @@ class CommandTests(unittest.TestCase):
         profile = self.root / "account-a"
         profile.mkdir()
         calls = []
+        old_bridge = codex_profile.activate_default_home_profile
         old_quit = codex_profile.quit_codex_desktop
         old_wait = codex_profile.wait_for_codex_desktop_exit
         old_launch = codex_profile.wait_for_codex_desktop_launch
         old_pid = codex_profile.codex_desktop_pid
-        old_run = codex_profile.run_codex
+        old_run = codex_profile.run_codex_default_home
         old_record = codex_profile.record_active_profile
         try:
+            codex_profile.activate_default_home_profile = (
+                lambda profile_home, profile_name, shared_home=None: calls.append(
+                    ("bridge", profile_home, profile_name, shared_home)
+                )
+            )
             codex_profile.quit_codex_desktop = lambda: calls.append(("quit", None))
             codex_profile.wait_for_codex_desktop_exit = lambda: calls.append(("wait", None)) or True
             codex_profile.wait_for_codex_desktop_launch = lambda: calls.append(("launch", None)) or True
             codex_profile.codex_desktop_pid = lambda: 24680
-            codex_profile.run_codex = lambda home, args: calls.append((home, list(args))) or 0
+            codex_profile.run_codex_default_home = lambda args: calls.append(("default", list(args))) or 0
             codex_profile.record_active_profile = (
                 lambda name, **kwargs: calls.append(("active", name, kwargs))
             )
 
             code = main(["app", "account-a"])
         finally:
+            codex_profile.activate_default_home_profile = old_bridge
             codex_profile.quit_codex_desktop = old_quit
             codex_profile.wait_for_codex_desktop_exit = old_wait
             codex_profile.wait_for_codex_desktop_launch = old_launch
             codex_profile.codex_desktop_pid = old_pid
-            codex_profile.run_codex = old_run
+            codex_profile.run_codex_default_home = old_run
             codex_profile.record_active_profile = old_record
 
         self.assertEqual(code, 0)
         self.assertEqual(
             calls,
             [
+                ("bridge", profile, "account-a", self.root / "shared-codex"),
                 ("quit", None),
                 ("wait", None),
-                (profile, ["app"]),
+                ("default", ["app"]),
                 ("launch", None),
                 ("active", "account-a", {"profile_home": profile, "codex_pid": 24680}),
             ],
@@ -372,18 +380,24 @@ class CommandTests(unittest.TestCase):
         profile = self.root / "account-a"
         profile.mkdir()
         calls = []
+        old_bridge = codex_profile.activate_default_home_profile
         old_quit = codex_profile.quit_codex_desktop
         old_wait = codex_profile.wait_for_codex_desktop_exit
         old_launch = codex_profile.wait_for_codex_desktop_launch
         old_pid = codex_profile.codex_desktop_pid
-        old_run = codex_profile.run_codex
+        old_run = codex_profile.run_codex_default_home
         old_record = codex_profile.record_active_profile
         try:
+            codex_profile.activate_default_home_profile = (
+                lambda profile_home, profile_name, shared_home=None: calls.append(
+                    ("bridge", profile_home, profile_name, shared_home)
+                )
+            )
             codex_profile.quit_codex_desktop = lambda: calls.append(("quit", None))
             codex_profile.wait_for_codex_desktop_exit = lambda: calls.append(("wait", None)) or False
             codex_profile.wait_for_codex_desktop_launch = lambda: calls.append(("launch", None)) or True
             codex_profile.codex_desktop_pid = lambda: 24680
-            codex_profile.run_codex = lambda home, args: calls.append((home, list(args))) or 0
+            codex_profile.run_codex_default_home = lambda args: calls.append(("default", list(args))) or 0
             codex_profile.record_active_profile = (
                 lambda name, **kwargs: calls.append(("active", name, kwargs))
             )
@@ -392,15 +406,19 @@ class CommandTests(unittest.TestCase):
             with redirect_stderr(err):
                 code = main(["app", "account-a"])
         finally:
+            codex_profile.activate_default_home_profile = old_bridge
             codex_profile.quit_codex_desktop = old_quit
             codex_profile.wait_for_codex_desktop_exit = old_wait
             codex_profile.wait_for_codex_desktop_launch = old_launch
             codex_profile.codex_desktop_pid = old_pid
-            codex_profile.run_codex = old_run
+            codex_profile.run_codex_default_home = old_run
             codex_profile.record_active_profile = old_record
 
         self.assertEqual(code, 1)
-        self.assertEqual(calls, [("quit", None), ("wait", None)])
+        self.assertEqual(
+            calls,
+            [("bridge", profile, "account-a", self.root / "shared-codex"), ("quit", None), ("wait", None)],
+        )
         self.assertIn("did not quit", err.getvalue())
 
     def test_app_command_aborts_when_desktop_does_not_launch(self):
@@ -410,18 +428,24 @@ class CommandTests(unittest.TestCase):
         profile = self.root / "account-a"
         profile.mkdir()
         calls = []
+        old_bridge = codex_profile.activate_default_home_profile
         old_quit = codex_profile.quit_codex_desktop
         old_wait = codex_profile.wait_for_codex_desktop_exit
         old_launch = codex_profile.wait_for_codex_desktop_launch
         old_pid = codex_profile.codex_desktop_pid
-        old_run = codex_profile.run_codex
+        old_run = codex_profile.run_codex_default_home
         old_record = codex_profile.record_active_profile
         try:
+            codex_profile.activate_default_home_profile = (
+                lambda profile_home, profile_name, shared_home=None: calls.append(
+                    ("bridge", profile_home, profile_name, shared_home)
+                )
+            )
             codex_profile.quit_codex_desktop = lambda: calls.append(("quit", None))
             codex_profile.wait_for_codex_desktop_exit = lambda: calls.append(("wait", None)) or True
             codex_profile.wait_for_codex_desktop_launch = lambda: calls.append(("launch", None)) or False
             codex_profile.codex_desktop_pid = lambda: None
-            codex_profile.run_codex = lambda home, args: calls.append((home, list(args))) or 0
+            codex_profile.run_codex_default_home = lambda args: calls.append(("default", list(args))) or 0
             codex_profile.record_active_profile = (
                 lambda name, **kwargs: calls.append(("active", name, kwargs))
             )
@@ -430,15 +454,25 @@ class CommandTests(unittest.TestCase):
             with redirect_stderr(err):
                 code = main(["app", "account-a"])
         finally:
+            codex_profile.activate_default_home_profile = old_bridge
             codex_profile.quit_codex_desktop = old_quit
             codex_profile.wait_for_codex_desktop_exit = old_wait
             codex_profile.wait_for_codex_desktop_launch = old_launch
             codex_profile.codex_desktop_pid = old_pid
-            codex_profile.run_codex = old_run
+            codex_profile.run_codex_default_home = old_run
             codex_profile.record_active_profile = old_record
 
         self.assertEqual(code, 1)
-        self.assertEqual(calls, [("quit", None), ("wait", None), (profile, ["app"]), ("launch", None)])
+        self.assertEqual(
+            calls,
+            [
+                ("bridge", profile, "account-a", self.root / "shared-codex"),
+                ("quit", None),
+                ("wait", None),
+                ("default", ["app"]),
+                ("launch", None),
+            ],
+        )
         self.assertIn("did not launch", err.getvalue())
 
     def test_app_command_can_skip_restart(self):
@@ -448,36 +482,125 @@ class CommandTests(unittest.TestCase):
         profile = self.root / "account-a"
         profile.mkdir()
         calls = []
+        old_bridge = codex_profile.activate_default_home_profile
         old_quit = codex_profile.quit_codex_desktop
         old_wait = codex_profile.wait_for_codex_desktop_exit
         old_launch = codex_profile.wait_for_codex_desktop_launch
         old_pid = codex_profile.codex_desktop_pid
-        old_run = codex_profile.run_codex
+        old_run = codex_profile.run_codex_default_home
         old_record = codex_profile.record_active_profile
         try:
+            codex_profile.activate_default_home_profile = (
+                lambda profile_home, profile_name, shared_home=None: calls.append(
+                    ("bridge", profile_home, profile_name, shared_home)
+                )
+            )
             codex_profile.quit_codex_desktop = lambda: calls.append(("quit", None))
             codex_profile.wait_for_codex_desktop_exit = lambda: calls.append(("wait", None)) or True
             codex_profile.wait_for_codex_desktop_launch = lambda: calls.append(("launch", None)) or True
             codex_profile.codex_desktop_pid = lambda: 24680
-            codex_profile.run_codex = lambda home, args: calls.append((home, list(args))) or 0
+            codex_profile.run_codex_default_home = lambda args: calls.append(("default", list(args))) or 0
             codex_profile.record_active_profile = (
                 lambda name, **kwargs: calls.append(("active", name, kwargs))
             )
 
             code = main(["app", "account-a", "--no-restart"])
         finally:
+            codex_profile.activate_default_home_profile = old_bridge
             codex_profile.quit_codex_desktop = old_quit
             codex_profile.wait_for_codex_desktop_exit = old_wait
             codex_profile.wait_for_codex_desktop_launch = old_launch
             codex_profile.codex_desktop_pid = old_pid
-            codex_profile.run_codex = old_run
+            codex_profile.run_codex_default_home = old_run
             codex_profile.record_active_profile = old_record
 
         self.assertEqual(code, 0)
         self.assertEqual(
             calls,
-            [(profile, ["app"]), ("launch", None), ("active", "account-a", {"profile_home": profile, "codex_pid": 24680})],
+            [
+                ("bridge", profile, "account-a", self.root / "shared-codex"),
+                ("default", ["app"]),
+                ("launch", None),
+                ("active", "account-a", {"profile_home": profile, "codex_pid": 24680}),
+            ],
         )
+
+    def test_default_home_bridge_moves_missing_profile_files_then_links(self):
+        from codex_profile import activate_default_home_profile
+
+        shared_home = self.root / "shared-codex"
+        profile = self.root / "account-a"
+        shared_home.mkdir()
+        profile.mkdir()
+        (shared_home / "auth.json").write_text("default-auth", encoding="utf-8")
+        (shared_home / "config.toml").write_text("default-config", encoding="utf-8")
+
+        activate_default_home_profile(profile, "account-a", shared_home=shared_home)
+
+        self.assertTrue((profile / "auth.json").is_file())
+        self.assertEqual((profile / "auth.json").read_text(encoding="utf-8"), "default-auth")
+        self.assertTrue((shared_home / "auth.json").is_symlink())
+        self.assertEqual((shared_home / "auth.json").resolve(), (profile / "auth.json").resolve())
+        self.assertTrue((shared_home / "config.toml").is_symlink())
+        self.assertEqual((shared_home / "config.toml").resolve(), (profile / "config.toml").resolve())
+
+    def test_default_home_bridge_backs_up_default_files_when_profile_has_files(self):
+        from codex_profile import activate_default_home_profile
+
+        shared_home = self.root / "shared-codex"
+        profile = self.root / "account-a"
+        shared_home.mkdir()
+        profile.mkdir()
+        (profile / "auth.json").write_text("profile-auth", encoding="utf-8")
+        (shared_home / "auth.json").write_text("default-auth", encoding="utf-8")
+
+        activate_default_home_profile(profile, "account-a", shared_home=shared_home)
+
+        self.assertTrue((shared_home / "auth.json").is_symlink())
+        self.assertEqual((shared_home / "auth.json").resolve(), (profile / "auth.json").resolve())
+        self.assertEqual((profile / "auth.json").read_text(encoding="utf-8"), "profile-auth")
+        backups = list((shared_home / ".codex-profile-switcher-backups").glob("account-files-*"))
+        self.assertEqual(len(backups), 1)
+        self.assertTrue((backups[0] / "auth.json").is_file())
+        self.assertEqual((backups[0] / "auth.json").read_text(encoding="utf-8"), "default-auth")
+
+    def test_default_home_bridge_status_reports_active_profile_links(self):
+        from codex_profile import activate_default_home_profile, default_home_bridge_status
+
+        shared_home = self.root / "shared-codex"
+        profile = self.root / "account-a"
+        shared_home.mkdir()
+        profile.mkdir()
+        (profile / "auth.json").write_text("profile-auth", encoding="utf-8")
+
+        activate_default_home_profile(profile, "account-a", shared_home=shared_home)
+        status = default_home_bridge_status(shared_home, self.root, "account-a")
+
+        self.assertTrue(status["managed"])
+        self.assertEqual(status["active_profile"], "account-a")
+        self.assertEqual(status["files"]["auth.json"], "linked")
+
+    def test_desktop_status_treats_manual_launch_as_managed_when_default_bridge_matches(self):
+        import codex_profile
+        from codex_profile import activate_default_home_profile, build_desktop_status, record_active_profile
+
+        profile_home = self.root / "account-a"
+        profile_home.mkdir()
+        (profile_home / "auth.json").write_text("profile-auth", encoding="utf-8")
+        activate_default_home_profile(profile_home, "account-a", shared_home=self.root / "shared-codex")
+        record_active_profile("account-a", profile_home=profile_home, codex_pid=12345)
+
+        old_pid = codex_profile.codex_desktop_pid
+        try:
+            codex_profile.codex_desktop_pid = lambda: 99999
+
+            status = build_desktop_status()
+        finally:
+            codex_profile.codex_desktop_pid = old_pid
+
+        self.assertTrue(status["running"])
+        self.assertTrue(status["managed"])
+        self.assertEqual(status["state"], "managed_default_home")
 
     def test_active_profile_roundtrip(self):
         from codex_profile import read_active_profile, record_active_profile
@@ -517,6 +640,7 @@ class CommandTests(unittest.TestCase):
 
         self.assertTrue(status["running"])
         self.assertTrue(status["managed"])
+        self.assertEqual(status["state"], "managed_legacy")
         self.assertEqual(status["active_profile"], "account-a")
         self.assertEqual(status["codex_pid"], 12345)
 

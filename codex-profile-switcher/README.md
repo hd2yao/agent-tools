@@ -9,6 +9,18 @@ Codex official OAuth credentials are stored under `CODEX_HOME`, usually
 accounts can keep separate `auth.json` and `config.toml` files while sharing
 local chat history and the desktop sidebar project index.
 
+For Codex Desktop, the default `~/.codex` directory is kept as the single
+canonical app route. Switching accounts updates these default-home links:
+
+```bash
+~/.codex/auth.json   -> ~/.codex-profiles/<active-profile>/auth.json
+~/.codex/config.toml -> ~/.codex-profiles/<active-profile>/config.toml
+```
+
+This closes the loop for direct app launches and Codex self-update restarts:
+even when Codex.app opens itself without the account manager, it still reads the
+currently selected account from the default Codex home.
+
 Each profile links these Codex state entries back to the shared Codex home:
 
 ```bash
@@ -63,7 +75,9 @@ Account identity and runtime-local entries remain profile-specific, including
 `chrome-native-hosts*.json`.
 
 By default the shared Codex home is `~/.codex`. Set `CODEX_SHARED_HOME` to use
-another shared history location.
+another shared history location. Desktop account bridging is intended for the
+default shared home route; CLI commands can still run with per-profile
+`CODEX_HOME`.
 
 The tool does not read, print, copy, or modify token contents.
 
@@ -109,10 +123,10 @@ Launch Codex with a profile:
 python3 codex_profile.py app account-a
 ```
 
-`app` quits an already-running Codex Desktop app before opening it again. This
-matters because the Desktop app has a long-running `app-server` process; if it
-is already running, simply opening a new window can keep the old `CODEX_HOME`
-environment and appear to switch back to the previous account.
+`app` first points the default Codex home at the selected profile's account
+files, then quits an already-running Codex Desktop app before opening it again.
+This matters because the Desktop app has a long-running `app-server` process;
+restarting it makes the active account and local app-server state line up.
 
 Use `--no-restart` only when you intentionally want to reuse the existing app
 process:
@@ -124,7 +138,7 @@ python3 codex_profile.py app account-a --no-restart
 To make command-line use shorter, add a shell alias:
 
 ```bash
-alias codex-profile='python3 /Users/dysania/program/tools/codex-profile-switcher/codex_profile.py'
+alias codex-profile='python3 /Users/dysania/program/tools/agent-tools/codex-profile-switcher/codex_profile.py'
 ```
 
 Run a Codex command under a profile:
@@ -142,9 +156,10 @@ codex-hd-master
 codex-hd-sarah-blackwell
 ```
 
-Both shortcuts call `codex_profile.py app <profile>`, so they restart Codex
-Desktop and then open it with the selected profile. For CLI commands, keep
-using `python3 codex_profile.py use <profile> -- <codex-args>`.
+Both shortcuts call `codex_profile.py app <profile>`, so they update the default
+Codex account links, restart Codex Desktop, and then open it with the selected
+profile. For CLI commands, keep using `python3 codex_profile.py use <profile> --
+<codex-args>`.
 
 ## Local Dashboard
 
@@ -194,8 +209,9 @@ The account switch button calls the same Desktop launch path as:
 python3 codex_profile.py app <profile>
 ```
 
-That means Codex Desktop is restarted before opening with the selected profile,
-so the app-server does not keep a stale `CODEX_HOME`.
+That means the default Codex account links are updated and Codex Desktop is
+restarted before opening with the selected profile, so the app-server does not
+keep stale account state.
 
 ## macOS Menu Bar App
 
@@ -240,21 +256,23 @@ immediate checks.
 The quit row exits only the menu bar account manager. It does not quit Codex
 Desktop. Start it again by opening the installed app.
 
-### Launch ownership
+### Desktop default-home bridge
 
-Codex Desktop reads `CODEX_HOME` when its process starts. For profile switching,
-the reliable entry point is therefore the account manager, not double-clicking
-`/Applications/Codex.app` directly.
+Codex Desktop reads the default `~/.codex` route when it is opened normally or
+when it restarts itself after an update. The account manager therefore makes
+that default route profile-aware by linking only the account files
+(`auth.json`, `config.toml`) to the active profile. Local history, sessions,
+skills, hooks, pets, plugins, and other shared state stay in `~/.codex`.
 
-When the account manager opens Codex, it records the selected profile and the
-Codex Desktop process id. The menu bar UI reports whether the current Desktop
-process is still managed by the switcher. If Codex was opened manually, the UI
-shows that state and offers a one-click repair action: open/restart Codex with
-the current profile.
+When the account manager opens Codex, it records the selected profile and
+refreshes the default-home links. If Codex is later opened manually, or Codex
+self-updates and relaunches itself, the app still reads the same active account
+through `~/.codex`. The menu bar reports this as `Codex 路径：已接管`.
 
-Directly opening Codex.app still works, but it uses the default `~/.codex`
-route. That path is not profile-aware, so it should be treated as outside the
-switcher's account isolation model.
+If an old regular `~/.codex/auth.json` or `~/.codex/config.toml` already exists
+while the profile already has its own file, the tool moves the default file into
+`~/.codex/.codex-profile-switcher-backups/` before replacing it with a symlink.
+It does not print or inspect token contents.
 
 ### Another Mac
 
@@ -265,7 +283,9 @@ Mac:
 2. Run `./install-menubar-app.sh`.
 3. Create the same profile names.
 4. Log in to each profile locally with `python3 codex_profile.py login <name>`.
-5. Start Codex through the installed account manager.
+5. Start Codex once through the installed account manager to activate the
+   default-home bridge. After that, direct Codex launches and Codex update
+   restarts use the selected local account.
 
 The tool recreates the profile structure and shared local-state links on each
 machine. Secrets remain local to the machine where the account was logged in.
