@@ -45,16 +45,73 @@ def normalize_window(value: dict | None) -> dict | None:
     }
 
 
+def _first_present(value: dict, *keys: str) -> object | None:
+    for key in keys:
+        if key in value and value[key] is not None:
+            return value[key]
+    return None
+
+
+def _optional_int(value: object | None) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _optional_number(value: object | None) -> int | float | None:
+    if value is None:
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return int(number) if number.is_integer() else number
+
+
+def normalize_reset_credits(payload: dict, limits: dict) -> dict:
+    candidates = [
+        payload.get("rateLimitResetCredits"),
+        payload.get("resetCredits"),
+        limits.get("rateLimitResetCredits"),
+        limits.get("resetCredits"),
+        limits.get("credits"),
+    ]
+    credits = next((item for item in candidates if isinstance(item, dict)), {})
+    available = _optional_int(
+        _first_present(credits, "availableCount", "available_count", "balance", "count")
+    )
+    return {
+        "available": bool(credits),
+        "available_count": available,
+        "has_credits": credits.get("hasCredits"),
+        "unlimited": credits.get("unlimited"),
+        "expires_at": _optional_number(
+            _first_present(
+                credits,
+                "expiresAt",
+                "expires_at",
+                "expirationTime",
+                "expiration_time",
+                "resetsAt",
+            )
+        ),
+    }
+
+
 def normalize_rate_limits(payload: dict | None) -> dict:
     value = payload or {}
     limits = value.get("rateLimits") or {}
-    credits = limits.get("credits") or {}
+    reset_credits = normalize_reset_credits(value, limits)
     return {
         "available": bool(limits),
         "limit_id": limits.get("limitId"),
         "limit_name": limits.get("limitName"),
         "plan_type": limits.get("planType"),
-        "credits_available": credits.get("availableCount"),
+        "credits_available": reset_credits["available_count"],
+        "reset_credits": reset_credits,
         "primary": normalize_window(limits.get("primary")),
         "secondary": normalize_window(limits.get("secondary")),
         "rate_limit_reached_type": limits.get("rateLimitReachedType"),
@@ -63,6 +120,21 @@ def normalize_rate_limits(payload: dict | None) -> dict:
 
 def _usage_value(usage: dict, key: str) -> int:
     return int(usage.get(key) or 0)
+
+
+def _empty_usage() -> dict:
+    return dict(DEFAULT_USAGE)
+
+
+def _add_usage(target: dict, usage: dict) -> None:
+    for key in DEFAULT_USAGE:
+        target[key] = _usage_value(target, key) + _usage_value(usage, key)
+
+
+def _date_key(timestamp: str | None) -> str | None:
+    if isinstance(timestamp, str) and len(timestamp) >= 10:
+        return timestamp[:10]
+    return None
 
 
 def _extract_token_count(row: dict) -> tuple[dict, dict | None] | None:
@@ -80,7 +152,12 @@ def _extract_token_count(row: dict) -> tuple[dict, dict | None] | None:
         return None
     info = message.get("info") or {}
     usage = info.get("total_token_usage") or {}
-    rate_limits = info.get("rate_limits") or info.get("rateLimits")
+    rate_limits = (
+        info.get("rate_limits")
+        or info.get("rateLimits")
+        or message.get("rate_limits")
+        or message.get("rateLimits")
+    )
     normalized_usage = {key: _usage_value(usage, key) for key in DEFAULT_USAGE}
     return normalized_usage, rate_limits
 
@@ -89,14 +166,19 @@ def read_local_token_snapshot(shared_home: Path) -> dict:
     event_count = 0
     bad_line_count = 0
     latest_timestamp = None
-    latest_usage = dict(DEFAULT_USAGE)
+    latest_usage = _empty_usage()
     latest_rate_limits = None
+    daily_usage: dict[str, dict] = {}
+    model_usage: dict[str, dict] = {}
     search_roots = (shared_home / "sessions", shared_home / "archived_sessions")
 
     for root in search_roots:
         if not root.exists():
             continue
         for path in sorted(root.rglob("rollout-*.jsonl")):
+            file_latest_timestamp = None
+            file_latest_usage = None
+            file_model = "unknown"
             with path.open(encoding="utf-8") as handle:
                 for line in handle:
                     try:
@@ -104,6 +186,13 @@ def read_local_token_snapshot(shared_home: Path) -> dict:
                     except json.JSONDecodeError:
                         bad_line_count += 1
                         continue
+                    payload = row.get("payload") or {}
+                    if (
+                        isinstance(payload, dict)
+                        and row.get("type") == "turn_context"
+                        and isinstance(payload.get("model"), str)
+                    ):
+                        file_model = payload["model"]
                     extracted = _extract_token_count(row)
                     if extracted is None:
                         continue
@@ -113,13 +202,30 @@ def read_local_token_snapshot(shared_home: Path) -> dict:
                         latest_timestamp = timestamp
                         latest_usage = usage
                         latest_rate_limits = rate_limits
+                    if file_latest_timestamp is None or (timestamp or "") >= file_latest_timestamp:
+                        file_latest_timestamp = timestamp
+                        file_latest_usage = usage
                     event_count += 1
+            if file_latest_usage is None:
+                continue
+            day = _date_key(file_latest_timestamp)
+            if day is not None:
+                daily_usage.setdefault(day, {"date": day, **_empty_usage()})
+                _add_usage(daily_usage[day], file_latest_usage)
+            model_usage.setdefault(file_model, {"model": file_model, **_empty_usage()})
+            _add_usage(model_usage[file_model], file_latest_usage)
 
     return {
         "event_count": event_count,
         "bad_line_count": bad_line_count,
         "latest_timestamp": latest_timestamp,
         "total": latest_usage,
+        "daily": [daily_usage[key] for key in sorted(daily_usage)[-14:]],
+        "by_model": sorted(
+            model_usage.values(),
+            key=lambda item: item["total_tokens"],
+            reverse=True,
+        )[:8],
         "rate_limits": normalize_rate_limits({"rateLimits": latest_rate_limits})
         if latest_rate_limits
         else normalize_rate_limits(None),

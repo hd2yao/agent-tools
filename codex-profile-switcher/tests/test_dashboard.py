@@ -22,7 +22,7 @@ class DashboardNormalizationTests(unittest.TestCase):
                     "resetsAt": 1782700000,
                 },
                 "secondary": None,
-                "credits": {"availableCount": 2},
+                "credits": {"availableCount": 2, "expiresAt": 1783000000},
             }
         }
 
@@ -32,11 +32,48 @@ class DashboardNormalizationTests(unittest.TestCase):
         self.assertEqual(result["limit_name"], "Codex")
         self.assertEqual(result["plan_type"], "plus")
         self.assertEqual(result["credits_available"], 2)
+        self.assertEqual(result["reset_credits"]["available_count"], 2)
+        self.assertEqual(result["reset_credits"]["expires_at"], 1783000000)
         self.assertEqual(result["primary"]["used_percent"], 25)
         self.assertEqual(result["primary"]["remaining_percent"], 75)
         self.assertEqual(result["primary"]["window_minutes"], 300)
         self.assertEqual(result["primary"]["resets_at"], 1782700000)
         self.assertIsNone(result["secondary"])
+
+    def test_normalize_rate_limits_supports_current_credit_balance_shape(self):
+        from codex_profile_dashboard import normalize_rate_limits
+
+        payload = {
+            "rateLimits": {
+                "limitId": "codex",
+                "planType": "plus",
+                "credits": {"balance": 1, "hasCredits": True, "unlimited": False},
+            }
+        }
+
+        result = normalize_rate_limits(payload)
+
+        self.assertEqual(result["credits_available"], 1)
+        self.assertEqual(result["reset_credits"]["available_count"], 1)
+        self.assertTrue(result["reset_credits"]["has_credits"])
+        self.assertFalse(result["reset_credits"]["unlimited"])
+
+    def test_normalize_rate_limits_supports_top_level_reset_credits(self):
+        from codex_profile_dashboard import normalize_rate_limits
+
+        payload = {
+            "rateLimits": {"limitId": "codex"},
+            "rateLimitResetCredits": {
+                "availableCount": 3,
+                "expiresAt": 1783100000,
+            },
+        }
+
+        result = normalize_rate_limits(payload)
+
+        self.assertEqual(result["credits_available"], 3)
+        self.assertEqual(result["reset_credits"]["available_count"], 3)
+        self.assertEqual(result["reset_credits"]["expires_at"], 1783100000)
 
 
 class LocalTokenSnapshotTests(unittest.TestCase):
@@ -85,6 +122,70 @@ class LocalTokenSnapshotTests(unittest.TestCase):
             self.assertEqual(result["total"]["cached_input_tokens"], 4)
             self.assertEqual(result["latest_timestamp"], "2026-06-29T01:00:00Z")
             self.assertEqual(result["rate_limits"]["primary"]["used_percent"], 8)
+            self.assertEqual(result["daily"][0]["date"], "2026-06-29")
+            self.assertEqual(result["daily"][0]["total_tokens"], 15)
+
+    def test_token_snapshot_counts_only_latest_token_count_per_rollout(self):
+        from codex_profile_dashboard import read_local_token_snapshot
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            rollout = root / "sessions" / "2026" / "06" / "29" / "rollout-test.jsonl"
+            rollout.parent.mkdir(parents=True)
+            rollout.write_text(
+                json.dumps(
+                    {
+                        "timestamp": "2026-06-29T01:00:00Z",
+                        "type": "turn_context",
+                        "payload": {"model": "gpt-5.5"},
+                    }
+                )
+                + "\n"
+                + json.dumps(
+                    {
+                        "timestamp": "2026-06-29T01:01:00Z",
+                        "payload": {
+                            "type": "token_count",
+                            "info": {
+                                "total_token_usage": {
+                                    "input_tokens": 10,
+                                    "cached_input_tokens": 4,
+                                    "output_tokens": 3,
+                                    "reasoning_output_tokens": 2,
+                                    "total_tokens": 15,
+                                }
+                            },
+                        },
+                    }
+                )
+                + "\n"
+                + json.dumps(
+                    {
+                        "timestamp": "2026-06-29T01:02:00Z",
+                        "payload": {
+                            "type": "token_count",
+                            "info": {
+                                "total_token_usage": {
+                                    "input_tokens": 20,
+                                    "cached_input_tokens": 8,
+                                    "output_tokens": 6,
+                                    "reasoning_output_tokens": 4,
+                                    "total_tokens": 30,
+                                }
+                            },
+                        },
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            result = read_local_token_snapshot(root)
+
+            self.assertEqual(result["event_count"], 2)
+            self.assertEqual(result["daily"], [{"date": "2026-06-29", **result["total"]}])
+            self.assertEqual(result["by_model"][0]["model"], "gpt-5.5")
+            self.assertEqual(result["by_model"][0]["total_tokens"], 30)
 
     def test_token_snapshot_skips_non_dict_messages(self):
         from codex_profile_dashboard import read_local_token_snapshot

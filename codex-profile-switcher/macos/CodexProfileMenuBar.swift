@@ -6,6 +6,7 @@ struct DashboardPayload: Decodable {
     let activeProfile: String?
     let runtimeStatus: RuntimeStatus?
     let desktopStatus: DesktopStatus?
+    let localSnapshot: LocalTokenSnapshot?
     let profiles: [ProfileStatus]
 
     enum CodingKeys: String, CodingKey {
@@ -13,6 +14,7 @@ struct DashboardPayload: Decodable {
         case activeProfile = "active_profile"
         case runtimeStatus = "runtime_status"
         case desktopStatus = "desktop_status"
+        case localSnapshot = "local_snapshot"
         case profiles
     }
 }
@@ -60,6 +62,7 @@ struct ProfileStatus: Decodable {
     let auth: String
     let config: String
     let rateLimits: RateLimits
+    let usage: AccountUsage?
     let remoteError: String?
 
     enum CodingKeys: String, CodingKey {
@@ -67,6 +70,7 @@ struct ProfileStatus: Decodable {
         case auth
         case config
         case rateLimits = "rate_limits"
+        case usage
         case remoteError = "remote_error"
     }
 }
@@ -76,6 +80,7 @@ struct RateLimits: Decodable {
     let limitID: String?
     let planType: String?
     let creditsAvailable: Int?
+    let resetCredits: ResetCredits?
     let primary: RateLimitWindow?
     let secondary: RateLimitWindow?
 
@@ -84,8 +89,25 @@ struct RateLimits: Decodable {
         case limitID = "limit_id"
         case planType = "plan_type"
         case creditsAvailable = "credits_available"
+        case resetCredits = "reset_credits"
         case primary
         case secondary
+    }
+}
+
+struct ResetCredits: Decodable {
+    let available: Bool?
+    let availableCount: Int?
+    let hasCredits: Bool?
+    let unlimited: Bool?
+    let expiresAt: TimeInterval?
+
+    enum CodingKeys: String, CodingKey {
+        case available
+        case availableCount = "available_count"
+        case hasCredits = "has_credits"
+        case unlimited
+        case expiresAt = "expires_at"
     }
 }
 
@@ -96,6 +118,91 @@ struct RateLimitWindow: Decodable {
     enum CodingKeys: String, CodingKey {
         case remainingPercent = "remaining_percent"
         case resetsAt = "resets_at"
+    }
+}
+
+struct AccountUsage: Decodable {
+    let summary: UsageSummary?
+    let dailyUsageBuckets: [DailyUsageBucket]?
+}
+
+struct UsageSummary: Decodable {
+    let lifetimeTokens: Int?
+    let peakDailyTokens: Int?
+    let currentStreakDays: Int?
+    let longestStreakDays: Int?
+}
+
+struct DailyUsageBucket: Decodable {
+    let startDate: String
+    let tokens: Int
+}
+
+struct LocalTokenSnapshot: Decodable {
+    let eventCount: Int
+    let latestTimestamp: String?
+    let total: TokenUsageTotals
+    let daily: [TokenUsageTotalsByDate]?
+    let byModel: [TokenUsageTotalsByModel]?
+
+    enum CodingKeys: String, CodingKey {
+        case eventCount = "event_count"
+        case latestTimestamp = "latest_timestamp"
+        case total
+        case daily
+        case byModel = "by_model"
+    }
+}
+
+struct TokenUsageTotals: Decodable {
+    let inputTokens: Int
+    let cachedInputTokens: Int
+    let outputTokens: Int
+    let reasoningOutputTokens: Int
+    let totalTokens: Int
+
+    enum CodingKeys: String, CodingKey {
+        case inputTokens = "input_tokens"
+        case cachedInputTokens = "cached_input_tokens"
+        case outputTokens = "output_tokens"
+        case reasoningOutputTokens = "reasoning_output_tokens"
+        case totalTokens = "total_tokens"
+    }
+}
+
+struct TokenUsageTotalsByDate: Decodable {
+    let date: String
+    let inputTokens: Int
+    let cachedInputTokens: Int
+    let outputTokens: Int
+    let reasoningOutputTokens: Int
+    let totalTokens: Int
+
+    enum CodingKeys: String, CodingKey {
+        case date
+        case inputTokens = "input_tokens"
+        case cachedInputTokens = "cached_input_tokens"
+        case outputTokens = "output_tokens"
+        case reasoningOutputTokens = "reasoning_output_tokens"
+        case totalTokens = "total_tokens"
+    }
+}
+
+struct TokenUsageTotalsByModel: Decodable {
+    let model: String
+    let inputTokens: Int
+    let cachedInputTokens: Int
+    let outputTokens: Int
+    let reasoningOutputTokens: Int
+    let totalTokens: Int
+
+    enum CodingKeys: String, CodingKey {
+        case model
+        case inputTokens = "input_tokens"
+        case cachedInputTokens = "cached_input_tokens"
+        case outputTokens = "output_tokens"
+        case reasoningOutputTokens = "reasoning_output_tokens"
+        case totalTokens = "total_tokens"
     }
 }
 
@@ -285,6 +392,32 @@ enum TimeText {
     }
 }
 
+enum TokenText {
+    static func compact(_ value: Int?) -> String {
+        guard let value else {
+            return "--"
+        }
+        let number = Double(value)
+        if abs(number) >= 1_000_000_000 {
+            return String(format: "%.1fB", number / 1_000_000_000)
+        }
+        if abs(number) >= 1_000_000 {
+            return String(format: "%.1fM", number / 1_000_000)
+        }
+        if abs(number) >= 1_000 {
+            return String(format: "%.1fK", number / 1_000)
+        }
+        return "\(value)"
+    }
+
+    static func percent(_ numerator: Int, _ denominator: Int) -> String {
+        guard denominator > 0 else {
+            return "--"
+        }
+        return "\(Int(round(Double(numerator) * 100 / Double(denominator))))%"
+    }
+}
+
 final class CodexProfileMenuBarApp: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let popover = NSPopover()
@@ -325,7 +458,7 @@ final class CodexProfileMenuBarApp: NSObject, NSApplicationDelegate, NSPopoverDe
         popover.behavior = .applicationDefined
         popover.animates = true
         popover.delegate = self
-        popover.contentSize = NSSize(width: 460, height: 690)
+        popover.contentSize = NSSize(width: 460, height: 870)
     }
 
     private func startAutoRefresh() {
@@ -615,7 +748,7 @@ final class AccountManagerViewController: NSViewController {
     }
 
     override func loadView() {
-        view = AccountManagerView(frame: NSRect(x: 0, y: 0, width: 460, height: 690))
+        view = AccountManagerView(frame: NSRect(x: 0, y: 0, width: 460, height: 870))
     }
 
     override func viewDidLoad() {
@@ -658,6 +791,9 @@ final class AccountManagerViewController: NSViewController {
                         switchAction: switchAction
                     )
                 )
+            }
+            if let snapshot = payload.localSnapshot {
+                content.addArrangedSubview(TokenSummaryView(snapshot: snapshot))
             }
         }
 
@@ -895,7 +1031,7 @@ final class AccountCardView: NSView {
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
         widthAnchor.constraint(equalToConstant: 424).isActive = true
-        heightAnchor.constraint(equalToConstant: 194).isActive = true
+        heightAnchor.constraint(equalToConstant: 238).isActive = true
         wantsLayer = true
         layer?.cornerRadius = 18
         layer?.borderColor = NSColor.white.withAlphaComponent(0.75).cgColor
@@ -933,6 +1069,7 @@ final class AccountCardView: NSView {
         stack.addArrangedSubview(titleRow())
         stack.addArrangedSubview(barRow(label: "5小时额度", window: profile.rateLimits.primary))
         stack.addArrangedSubview(barRow(label: "7天额度", window: profile.rateLimits.secondary))
+        stack.addArrangedSubview(usageChartRow())
         stack.addArrangedSubview(footerRow())
     }
 
@@ -1019,6 +1156,38 @@ final class AccountCardView: NSView {
         return row
     }
 
+    private func usageChartRow() -> NSView {
+        let row = NSStackView()
+        row.orientation = .horizontal
+        row.spacing = 10
+        row.alignment = .centerY
+
+        let title = NSTextField(labelWithString: "近7日用量")
+        title.font = NSFont.systemFont(ofSize: 13, weight: .semibold)
+        title.textColor = NSColor.black
+        title.translatesAutoresizingMaskIntoConstraints = false
+        title.widthAnchor.constraint(equalToConstant: 82).isActive = true
+
+        let buckets = Array((profile.usage?.dailyUsageBuckets ?? []).suffix(7))
+        let chart = DailyUsageChartView(buckets: buckets)
+        chart.translatesAutoresizingMaskIntoConstraints = false
+        chart.widthAnchor.constraint(equalToConstant: 218).isActive = true
+        chart.heightAnchor.constraint(equalToConstant: 24).isActive = true
+
+        let latest = buckets.last?.tokens
+        let value = NSTextField(labelWithString: TokenText.compact(latest))
+        value.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .bold)
+        value.textColor = NSColor.black
+        value.alignment = .right
+        value.translatesAutoresizingMaskIntoConstraints = false
+        value.widthAnchor.constraint(equalToConstant: 76).isActive = true
+
+        row.addArrangedSubview(title)
+        row.addArrangedSubview(chart)
+        row.addArrangedSubview(value)
+        return row
+    }
+
     private func footerRow() -> NSView {
         let row = NSStackView()
         row.orientation = .horizontal
@@ -1032,7 +1201,7 @@ final class AccountCardView: NSView {
 
         let details = NSStackView()
         details.orientation = .vertical
-        details.spacing = 3
+        details.spacing = 2
         details.alignment = .leading
         details.translatesAutoresizingMaskIntoConstraints = false
         details.widthAnchor.constraint(equalToConstant: 294).isActive = true
@@ -1042,6 +1211,14 @@ final class AccountCardView: NSView {
             infoLine(
                 label: "重置：",
                 value: "5小时 \(primaryReset) · 7天 \(secondaryReset)",
+                valueWeight: .medium,
+                valueAlpha: 0.72
+            )
+        )
+        details.addArrangedSubview(
+            infoLine(
+                label: "重置机会：",
+                value: resetCreditsText(),
                 valueWeight: .medium,
                 valueAlpha: 0.72
             )
@@ -1057,6 +1234,20 @@ final class AccountCardView: NSView {
         row.addArrangedSubview(button)
 
         return row
+    }
+
+    private func resetCreditsText() -> String {
+        guard let credits = profile.rateLimits.resetCredits, credits.available == true else {
+            return "未提供"
+        }
+        if credits.unlimited == true {
+            return "不限"
+        }
+        let countText = credits.availableCount.map { "\($0) 次" } ?? "--"
+        if let expiresAt = credits.expiresAt {
+            return "\(countText) · \(TimeText.beijingMonthDay(expiresAt))到期"
+        }
+        return "\(countText) · 到期时间未提供"
     }
 
     private func infoLine(
@@ -1107,6 +1298,192 @@ final class AccountCardView: NSView {
             return "中等"
         }
         return "充足"
+    }
+}
+
+final class DailyUsageChartView: NSView {
+    private let buckets: [DailyUsageBucket]
+
+    init(buckets: [DailyUsageBucket]) {
+        self.buckets = buckets
+        super.init(frame: .zero)
+        wantsLayer = true
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let background = NSBezierPath(roundedRect: bounds, xRadius: 7, yRadius: 7)
+        NSColor.white.withAlphaComponent(0.48).setFill()
+        background.fill()
+
+        guard !buckets.isEmpty else {
+            let text = "暂无" as NSString
+            text.draw(
+                at: CGPoint(x: 94, y: 4),
+                withAttributes: [
+                    .font: NSFont.systemFont(ofSize: 11, weight: .medium),
+                    .foregroundColor: NSColor.black.withAlphaComponent(0.4),
+                ]
+            )
+            return
+        }
+
+        let maxTokens = max(1, buckets.map(\.tokens).max() ?? 1)
+        let gap: CGFloat = 5
+        let width = (bounds.width - CGFloat(buckets.count + 1) * gap) / CGFloat(buckets.count)
+        for (index, bucket) in buckets.enumerated() {
+            let ratio = CGFloat(bucket.tokens) / CGFloat(maxTokens)
+            let height = max(3, (bounds.height - 8) * ratio)
+            let x = bounds.minX + gap + CGFloat(index) * (width + gap)
+            let y = bounds.minY + 4
+            let rect = NSRect(x: x, y: y, width: width, height: height)
+            let bar = NSBezierPath(roundedRect: rect, xRadius: 3, yRadius: 3)
+            let color = NSColor(
+                calibratedRed: 0.32 + CGFloat(index) * 0.035,
+                green: 0.58,
+                blue: 0.92,
+                alpha: 0.86
+            )
+            color.setFill()
+            bar.fill()
+        }
+    }
+}
+
+final class TokenSummaryView: NSView {
+    private let snapshot: LocalTokenSnapshot
+
+    init(snapshot: LocalTokenSnapshot) {
+        self.snapshot = snapshot
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+        widthAnchor.constraint(equalToConstant: 424).isActive = true
+        heightAnchor.constraint(equalToConstant: 82).isActive = true
+        wantsLayer = true
+        layer?.cornerRadius = 16
+        layer?.borderColor = NSColor.white.withAlphaComponent(0.65).cgColor
+        layer?.borderWidth = 1
+        build()
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let path = NSBezierPath(roundedRect: bounds, xRadius: 16, yRadius: 16)
+        NSColor.white.withAlphaComponent(0.42).setFill()
+        path.fill()
+    }
+
+    private func build() {
+        let stack = NSStackView()
+        stack.orientation = .vertical
+        stack.spacing = 7
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(stack)
+
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
+            stack.centerYAnchor.constraint(equalTo: centerYAnchor),
+        ])
+
+        let total = displayTotal()
+        let title = NSTextField(labelWithString: "本地14日 token · \(TokenText.compact(total.totalTokens))")
+        title.font = NSFont.systemFont(ofSize: 13, weight: .heavy)
+        title.textColor = NSColor.black.withAlphaComponent(0.78)
+        stack.addArrangedSubview(title)
+
+        let chart = TokenSplitBarView(total: total)
+        chart.translatesAutoresizingMaskIntoConstraints = false
+        chart.widthAnchor.constraint(equalToConstant: 396).isActive = true
+        chart.heightAnchor.constraint(equalToConstant: 18).isActive = true
+        stack.addArrangedSubview(chart)
+
+        let detail = NSTextField(labelWithString: tokenBreakdownText())
+        detail.font = NSFont.monospacedSystemFont(ofSize: 10.5, weight: .medium)
+        detail.textColor = NSColor.black.withAlphaComponent(0.62)
+        detail.lineBreakMode = .byTruncatingTail
+        detail.translatesAutoresizingMaskIntoConstraints = false
+        detail.widthAnchor.constraint(equalToConstant: 396).isActive = true
+        stack.addArrangedSubview(detail)
+    }
+
+    private func tokenBreakdownText() -> String {
+        let total = displayTotal()
+        return [
+            "输入 \(TokenText.compact(total.inputTokens))",
+            "缓存 \(TokenText.compact(total.cachedInputTokens))",
+            "输出 \(TokenText.compact(total.outputTokens))",
+            "推理 \(TokenText.compact(total.reasoningOutputTokens))",
+        ].joined(separator: " · ")
+    }
+
+    private func displayTotal() -> TokenUsageTotals {
+        guard let daily = snapshot.daily, !daily.isEmpty else {
+            return snapshot.total
+        }
+        return daily.reduce(
+            TokenUsageTotals(
+                inputTokens: 0,
+                cachedInputTokens: 0,
+                outputTokens: 0,
+                reasoningOutputTokens: 0,
+                totalTokens: 0
+            )
+        ) { partial, item in
+            TokenUsageTotals(
+                inputTokens: partial.inputTokens + item.inputTokens,
+                cachedInputTokens: partial.cachedInputTokens + item.cachedInputTokens,
+                outputTokens: partial.outputTokens + item.outputTokens,
+                reasoningOutputTokens: partial.reasoningOutputTokens + item.reasoningOutputTokens,
+                totalTokens: partial.totalTokens + item.totalTokens
+            )
+        }
+    }
+}
+
+final class TokenSplitBarView: NSView {
+    private let total: TokenUsageTotals
+
+    init(total: TokenUsageTotals) {
+        self.total = total
+        super.init(frame: .zero)
+        wantsLayer = true
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let outline = NSBezierPath(roundedRect: bounds, xRadius: 8, yRadius: 8)
+        NSColor.white.withAlphaComponent(0.52).setFill()
+        outline.fill()
+
+        let denominator = max(1, total.inputTokens + total.outputTokens + total.reasoningOutputTokens)
+        var x = bounds.minX
+        let segments: [(Int, NSColor)] = [
+            (max(0, total.inputTokens - total.cachedInputTokens), NSColor(calibratedRed: 0.33, green: 0.71, blue: 0.98, alpha: 0.9)),
+            (total.cachedInputTokens, NSColor(calibratedRed: 0.28, green: 0.82, blue: 0.48, alpha: 0.9)),
+            (total.outputTokens, NSColor(calibratedRed: 0.98, green: 0.62, blue: 0.34, alpha: 0.9)),
+            (total.reasoningOutputTokens, NSColor(calibratedRed: 0.65, green: 0.48, blue: 0.96, alpha: 0.9)),
+        ]
+        for (value, color) in segments where value > 0 {
+            let width = bounds.width * CGFloat(value) / CGFloat(denominator)
+            let rect = NSRect(x: x, y: bounds.minY, width: width, height: bounds.height)
+            color.setFill()
+            NSBezierPath(rect: rect).fill()
+            x += width
+        }
+
+        NSColor.black.withAlphaComponent(0.18).setStroke()
+        outline.lineWidth = 1
+        outline.stroke()
     }
 }
 
