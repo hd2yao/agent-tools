@@ -6,20 +6,26 @@ A small local CLI for switching Codex accounts while keeping local history share
 
 Codex official OAuth credentials are stored under `CODEX_HOME`, usually
 `~/.codex`. This tool creates named profile directories so different Codex
-accounts can keep separate `auth.json` and `config.toml` files while sharing
-local chat history and the desktop sidebar project index.
+accounts can keep separate `auth.json` files while sharing local settings,
+local chat history, hook trust, project trust, installed capabilities, and the
+desktop sidebar project index.
 
 For Codex Desktop, the default `~/.codex` directory is kept as the single
-canonical app route. Switching accounts updates these default-home links:
+canonical app route. Switching accounts updates only the account credential
+link:
 
 ```bash
-~/.codex/auth.json   -> ~/.codex-profiles/<active-profile>/auth.json
-~/.codex/config.toml -> ~/.codex-profiles/<active-profile>/config.toml
+~/.codex/auth.json -> ~/.codex-profiles/<active-profile>/auth.json
 ```
 
 This closes the loop for direct app launches and Codex self-update restarts:
 even when Codex.app opens itself without the account manager, it still reads the
 currently selected account from the default Codex home.
+
+`config.toml` is intentionally shared. Codex stores local machine decisions in
+that file, including project trust, hook review state, and MCP/plugin trust
+settings. Keeping it shared prevents prompts such as "review hooks again" after
+switching accounts.
 
 Each profile links these Codex state entries back to the shared Codex home:
 
@@ -70,8 +76,8 @@ switching accounts. `attachments`, `generated_images`, `shell_snapshots`, and
 resources.
 
 Account identity and runtime-local entries remain profile-specific, including
-`auth.json`, `config.toml`, logs, `goals_1.sqlite`, `memories_1.sqlite`,
-`installation_id`, `process_manager`, `tmp`, `.tmp`, `*.wal`, `*.shm`, and
+`auth.json`, logs, `goals_1.sqlite`, `memories_1.sqlite`, `installation_id`,
+`process_manager`, `tmp`, `.tmp`, `*.wal`, `*.shm`, and
 `chrome-native-hosts*.json`.
 
 By default the shared Codex home is `~/.codex`. Set `CODEX_SHARED_HOME` to use
@@ -260,19 +266,23 @@ Desktop. Start it again by opening the installed app.
 
 Codex Desktop reads the default `~/.codex` route when it is opened normally or
 when it restarts itself after an update. The account manager therefore makes
-that default route profile-aware by linking only the account files
-(`auth.json`, `config.toml`) to the active profile. Local history, sessions,
-skills, hooks, pets, plugins, and other shared state stay in `~/.codex`.
+that default route profile-aware by linking only `auth.json` to the active
+profile. Local history, sessions, `config.toml`, project trust, hook review
+state, skills, hooks, pets, plugins, and other shared state stay in `~/.codex`.
 
 When the account manager opens Codex, it records the selected profile and
 refreshes the default-home links. If Codex is later opened manually, or Codex
 self-updates and relaunches itself, the app still reads the same active account
 through `~/.codex`. The menu bar reports this as `Codex 路径：已接管`.
 
-If an old regular `~/.codex/auth.json` or `~/.codex/config.toml` already exists
-while the profile already has its own file, the tool moves the default file into
+If an old regular `~/.codex/auth.json` already exists while the profile already
+has its own file, the tool moves the default file into
 `~/.codex/.codex-profile-switcher-backups/` before replacing it with a symlink.
-It does not print or inspect token contents.
+Older per-profile `config.toml` files are merged into the shared default config
+and then linked back into each profile. Hook review state is also mirrored across
+the default `~/.codex/hooks.json` path and each profile's `hooks.json` symlink
+path, so CLI profile runs and Desktop default-home runs see the same reviewed
+hooks. The tool does not print or inspect token contents.
 
 ### Another Mac
 

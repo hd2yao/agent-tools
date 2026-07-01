@@ -1,5 +1,9 @@
 # Codex Profile Launch Closure Implementation Plan
 
+> Superseded by `v0.3.0`: Codex Desktop now uses the default-home bridge where
+> only `auth.json` is account-specific and `config.toml` is shared local state.
+> This older plan is kept as implementation history.
+
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** Make Codex Profile Switcher the reliable local entry point for account switching while making manual Codex launches visible and recoverable.

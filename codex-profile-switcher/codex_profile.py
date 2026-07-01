@@ -12,6 +12,7 @@ import sqlite3
 import subprocess
 import sys
 import time
+import tomllib
 from pathlib import Path
 from typing import Mapping, Sequence
 
@@ -42,6 +43,7 @@ SHARED_FILE_ENTRIES = (
     "session_index.jsonl",
     "models_cache.json",
     "AGENTS.md",
+    "config.toml",
     "state_5.sqlite",
     ".codex-global-state.json",
 )
@@ -54,7 +56,6 @@ PROFILE_LOCAL_ENTRY_NAMES = {
     ".personality_migration",
     ".tmp",
     "auth.json",
-    "config.toml",
     "goals_1.sqlite",
     "installation_id",
     "log",
@@ -68,7 +69,7 @@ PROFILE_LOCAL_PREFIXES = ("auth.json", "chrome-native-hosts", "config.toml")
 PROFILE_LOCAL_SUFFIXES = ("-shm", "-wal")
 PROFILE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 ACTIVE_PROFILE_FILE = ".codex-profile-switcher-active.json"
-PROFILE_ACCOUNT_FILES = ("auth.json", "config.toml")
+PROFILE_ACCOUNT_FILES = ("auth.json",)
 BRIDGE_BACKUP_DIR = ".codex-profile-switcher-backups"
 
 
@@ -200,6 +201,116 @@ def _merge_json_entry(source: Path, target: Path) -> None:
     source.unlink()
 
 
+def _read_toml_file(path: Path) -> dict:
+    text = path.read_text(encoding="utf-8")
+    if not text.strip():
+        return {}
+    return tomllib.loads(text)
+
+
+def _toml_quote(text: str) -> str:
+    return '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def _toml_key(key: str) -> str:
+    if re.fullmatch(r"[A-Za-z0-9_-]+", key):
+        return key
+    return _toml_quote(key)
+
+
+def _toml_value(value: object) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, int) and not isinstance(value, bool):
+        return str(value)
+    if isinstance(value, float):
+        return repr(value)
+    if isinstance(value, str):
+        return _toml_quote(value)
+    if isinstance(value, list):
+        return "[" + ", ".join(_toml_value(item) for item in value) + "]"
+    raise TypeError(f"unsupported TOML value type: {type(value).__name__}")
+
+
+def _toml_lines(data: Mapping[str, object], prefix: tuple[str, ...] = ()) -> list[str]:
+    lines: list[str] = []
+    scalar_items = [(key, value) for key, value in data.items() if not isinstance(value, dict)]
+    table_items = [(key, value) for key, value in data.items() if isinstance(value, dict)]
+    if prefix:
+        lines.append("[" + ".".join(_toml_key(part) for part in prefix) + "]")
+    for key, value in scalar_items:
+        lines.append(f"{_toml_key(key)} = {_toml_value(value)}")
+    for key, value in table_items:
+        if lines:
+            lines.append("")
+        lines.extend(_toml_lines(value, (*prefix, key)))
+    return lines
+
+
+def _write_toml_file(path: Path, data: Mapping[str, object]) -> None:
+    text = "\n".join(_toml_lines(data)).rstrip() + "\n"
+    path.write_text(text, encoding="utf-8")
+    path.chmod(0o600)
+
+
+def _merge_toml_values(shared_value: object, profile_value: object) -> object:
+    if isinstance(shared_value, dict) and isinstance(profile_value, dict):
+        merged = dict(shared_value)
+        for key, value in profile_value.items():
+            merged[key] = (
+                _merge_toml_values(merged[key], value) if key in merged else value
+            )
+        return merged
+    return profile_value
+
+
+def _merge_toml_entry(source: Path, target: Path) -> None:
+    if not target.exists():
+        shutil.move(str(source), str(target))
+        target.chmod(0o600)
+        return
+    merged = _merge_toml_values(_read_toml_file(target), _read_toml_file(source))
+    if not isinstance(merged, dict):
+        raise RuntimeError(f"cannot merge TOML root value from {source}")
+    _write_toml_file(target, merged)
+    source.unlink()
+
+
+def _sync_hook_state_aliases(config_path: Path, shared_home: Path, profile: Path) -> None:
+    if not config_path.exists():
+        return
+    config = _read_toml_file(config_path)
+    hooks = config.get("hooks")
+    if not isinstance(hooks, dict):
+        return
+    state = hooks.get("state")
+    if not isinstance(state, dict):
+        return
+
+    alias_paths = [shared_home.expanduser() / "hooks.json", profile.expanduser() / "hooks.json"]
+    aliases = []
+    for path in alias_paths:
+        for value in (str(path), str(path.resolve(strict=False))):
+            if value not in aliases:
+                aliases.append(value)
+    additions: dict[str, object] = {}
+    for key, value in list(state.items()):
+        if not isinstance(key, str):
+            continue
+        for alias in aliases:
+            prefix = alias + ":"
+            if key.startswith(prefix):
+                suffix = key[len(alias) :]
+                for other_alias in aliases:
+                    alias_key = other_alias + suffix
+                    if alias_key not in state:
+                        additions[alias_key] = value
+                break
+    if additions:
+        state.update(additions)
+        _write_toml_file(config_path, config)
+
+
 def _merge_existing_entry(source: Path, target: Path) -> None:
     if source.is_dir() and target.is_dir():
         shutil.copytree(source, target, dirs_exist_ok=True)
@@ -210,6 +321,9 @@ def _merge_existing_entry(source: Path, target: Path) -> None:
         return
     if source.suffix == ".json":
         _merge_json_entry(source, target)
+        return
+    if source.suffix == ".toml":
+        _merge_toml_entry(source, target)
         return
     if source.is_file() and target.is_file():
         existing = source.read_bytes()
@@ -257,13 +371,32 @@ def _link_shared_entry(link: Path, target: Path) -> None:
     link.symlink_to(target, target_is_directory=target.is_dir())
 
 
+def _ensure_shared_config_target(shared_home: Path) -> Path:
+    target = shared_home.expanduser() / "config.toml"
+    target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if target.is_symlink():
+        data = target.read_bytes() if target.exists() else b""
+        target.unlink()
+        target.write_bytes(data)
+        target.chmod(0o600)
+    elif not target.exists():
+        target.touch(mode=0o600)
+    return target
+
+
 def prepare_profile_home(profile: Path, shared_home: Path) -> Path:
     profile.mkdir(parents=True, exist_ok=True, mode=0o700)
     profile.chmod(0o700)
     for name in SHARED_STATE_ENTRIES:
         link = profile / name
-        target = _ensure_shared_target(shared_home, name)
+        target = (
+            _ensure_shared_config_target(shared_home)
+            if name == "config.toml"
+            else _ensure_shared_target(shared_home, name)
+        )
         _link_shared_entry(link, target)
+        if name == "config.toml":
+            _sync_hook_state_aliases(target, shared_home, profile)
     for link_name, target_name in SHARED_STATE_LINKS.items():
         link = profile / link_name
         target = _ensure_shared_target(shared_home, target_name)

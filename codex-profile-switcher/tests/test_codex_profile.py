@@ -203,6 +203,101 @@ class ProfileHelperTests(unittest.TestCase):
         self.assertTrue(hooks_json_link.is_symlink())
         self.assertEqual(hooks_json_link.resolve(), (shared_home / "hooks.json").resolve())
 
+    def test_prepare_profile_merges_and_links_config_to_shared_home(self):
+        from codex_profile import prepare_profile_home
+
+        profile = self.root / "account-a"
+        shared_home = self.root / "shared-codex"
+        profile.mkdir()
+        shared_home.mkdir()
+        (profile / "config.toml").write_text(
+            '\n'.join(
+                [
+                    'model = "gpt-5.5"',
+                    '',
+                    '[projects."/work/from-profile"]',
+                    'trust_level = "trusted"',
+                    '',
+                    '[hooks.state."/shared/hooks.json:pre_compact:0:0"]',
+                    'trusted_hash = "profile-hash"',
+                    '',
+                ]
+            ),
+            encoding="utf-8",
+        )
+        (shared_home / "config.toml").write_text(
+            '\n'.join(
+                [
+                    'approval_policy = "on-request"',
+                    '',
+                    '[projects."/work/from-shared"]',
+                    'trust_level = "trusted"',
+                    '',
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+        prepare_profile_home(profile, shared_home)
+
+        config_link = profile / "config.toml"
+        self.assertTrue(config_link.is_symlink())
+        self.assertEqual(config_link.resolve(), (shared_home / "config.toml").resolve())
+        shared_config = (shared_home / "config.toml").read_text(encoding="utf-8")
+        self.assertIn('approval_policy = "on-request"', shared_config)
+        self.assertIn('model = "gpt-5.5"', shared_config)
+        self.assertIn('[projects."/work/from-profile"]', shared_config)
+        self.assertIn('[projects."/work/from-shared"]', shared_config)
+        self.assertIn('[hooks.state."/shared/hooks.json:pre_compact:0:0"]', shared_config)
+
+    def test_prepare_profile_converts_old_default_config_symlink_to_shared_file(self):
+        from codex_profile import prepare_profile_home
+
+        profile = self.root / "account-a"
+        shared_home = self.root / "shared-codex"
+        profile.mkdir()
+        shared_home.mkdir()
+        (profile / "config.toml").write_text(
+            '[hooks.state."/shared/hooks.json:pre_compact:0:0"]\ntrusted_hash = "hash"\n',
+            encoding="utf-8",
+        )
+        (shared_home / "config.toml").symlink_to(profile / "config.toml")
+
+        prepare_profile_home(profile, shared_home)
+
+        self.assertFalse((shared_home / "config.toml").is_symlink())
+        self.assertTrue((profile / "config.toml").is_symlink())
+        self.assertEqual((profile / "config.toml").resolve(), (shared_home / "config.toml").resolve())
+        self.assertIn(
+            'trusted_hash = "hash"',
+            (shared_home / "config.toml").read_text(encoding="utf-8"),
+        )
+
+    def test_prepare_profile_adds_hook_trust_alias_for_profile_path(self):
+        from codex_profile import prepare_profile_home
+
+        profile = self.root / "account-a"
+        shared_home = self.root / "shared-codex"
+        profile.mkdir()
+        shared_home.mkdir()
+        (shared_home / "config.toml").write_text(
+            f'[hooks.state."{shared_home}/hooks.json:pre_compact:0:0"]\n'
+            'trusted_hash = "hash"\n',
+            encoding="utf-8",
+        )
+
+        prepare_profile_home(profile, shared_home)
+
+        shared_config = (shared_home / "config.toml").read_text(encoding="utf-8")
+        self.assertIn(
+            f'[hooks.state."{shared_home}/hooks.json:pre_compact:0:0"]',
+            shared_config,
+        )
+        self.assertIn(
+            f'[hooks.state."{profile}/hooks.json:pre_compact:0:0"]',
+            shared_config,
+        )
+
     def test_prepare_profile_does_not_share_new_private_or_runtime_entries(self):
         from codex_profile import prepare_profile_home
 
@@ -213,7 +308,6 @@ class ProfileHelperTests(unittest.TestCase):
         for name in (
             ".codex-profile-switcher-active.json",
             "auth.json",
-            "config.toml",
             "tmp",
             "process_manager",
             "logs_2.sqlite-wal",
@@ -229,7 +323,6 @@ class ProfileHelperTests(unittest.TestCase):
         for name in (
             ".codex-profile-switcher-active.json",
             "auth.json",
-            "config.toml",
             "tmp",
             "process_manager",
             "logs_2.sqlite-wal",
@@ -533,16 +626,14 @@ class CommandTests(unittest.TestCase):
         shared_home.mkdir()
         profile.mkdir()
         (shared_home / "auth.json").write_text("default-auth", encoding="utf-8")
-        (shared_home / "config.toml").write_text("default-config", encoding="utf-8")
 
-        activate_default_home_profile(profile, "account-a", shared_home=shared_home)
+        result = activate_default_home_profile(profile, "account-a", shared_home=shared_home)
 
         self.assertTrue((profile / "auth.json").is_file())
         self.assertEqual((profile / "auth.json").read_text(encoding="utf-8"), "default-auth")
         self.assertTrue((shared_home / "auth.json").is_symlink())
         self.assertEqual((shared_home / "auth.json").resolve(), (profile / "auth.json").resolve())
-        self.assertTrue((shared_home / "config.toml").is_symlink())
-        self.assertEqual((shared_home / "config.toml").resolve(), (profile / "config.toml").resolve())
+        self.assertNotIn("config.toml", result["files"])
 
     def test_default_home_bridge_backs_up_default_files_when_profile_has_files(self):
         from codex_profile import activate_default_home_profile
