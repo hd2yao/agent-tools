@@ -260,6 +260,12 @@ seconds while it is running. Background refresh updates the status item without
 showing a temporary loading state. Manual refresh is still available for
 immediate checks.
 
+Account limit reads are done in parallel across profiles. The app also keeps a
+short local cache of the last successful app-server account status. If a
+background refresh hits a transient app-server timeout, the popover keeps the
+last known quota and marks the profile as `暂存` instead of clearing the card to
+`UNKNOWN`.
+
 The bottom local token panel shows the latest 14-day input, cached input,
 output, and reasoning token split from shared rollout logs. Codex app-server currently returns
 account usage as daily total token buckets; it does not expose account-specific

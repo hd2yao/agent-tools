@@ -63,6 +63,7 @@ struct ProfileStatus: Decodable {
     let config: String
     let rateLimits: RateLimits
     let usage: AccountUsage?
+    let remoteStale: Bool?
     let remoteError: String?
 
     enum CodingKeys: String, CodingKey {
@@ -71,6 +72,7 @@ struct ProfileStatus: Decodable {
         case config
         case rateLimits = "rate_limits"
         case usage
+        case remoteStale = "remote_stale"
         case remoteError = "remote_error"
     }
 }
@@ -1096,7 +1098,8 @@ final class AccountCardView: NSView {
         name.alignment = .left
         name.lineBreakMode = .byTruncatingTail
 
-        let plan = NSTextField(labelWithString: "套餐：\(profile.rateLimits.planType?.uppercased() ?? "UNKNOWN")")
+        let staleSuffix = profile.remoteStale == true ? " · 暂存" : ""
+        let plan = NSTextField(labelWithString: "套餐：\(profile.rateLimits.planType?.uppercased() ?? "UNKNOWN")\(staleSuffix)")
         plan.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .bold)
         plan.textColor = NSColor(calibratedRed: 0.14, green: 0.28, blue: 0.46, alpha: 1)
         plan.alignment = .left

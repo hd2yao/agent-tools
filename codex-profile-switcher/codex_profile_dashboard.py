@@ -13,6 +13,7 @@ import sqlite3
 import subprocess
 import time
 import webbrowser
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -31,6 +32,7 @@ PROFILE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 WEB_ROOT = Path(__file__).resolve().parent / "web"
 RUNTIME_GREEN_ROLLOUT_MS = 90_000
 RUNTIME_RECENT_ACTIVITY_MS = 15 * 60_000
+REMOTE_STATUS_CACHE_SECONDS = 10 * 60
 
 
 def normalize_window(value: dict | None) -> dict | None:
@@ -474,29 +476,136 @@ def read_app_server_account_snapshot(
     }
 
 
+def _remote_status_cache_path(shared_home: Path, profile_name: str) -> Path:
+    safe_name = re.sub(r"[^A-Za-z0-9_.-]", "_", profile_name)
+    return shared_home / "cache" / "codex-profile-switcher" / "remote-status" / f"{safe_name}.json"
+
+
+def _write_remote_status_cache(
+    shared_home: Path,
+    profile_name: str,
+    remote: dict,
+    now_seconds: float,
+) -> None:
+    if not remote.get("ok") or not remote.get("rate_limits"):
+        return
+    path = _remote_status_cache_path(shared_home, profile_name)
+    payload = {
+        "cached_at": now_seconds,
+        "rate_limits": remote.get("rate_limits"),
+        "usage": remote.get("usage"),
+    }
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        tmp.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        tmp.replace(path)
+    except OSError:
+        return
+
+
+def _read_remote_status_cache(
+    shared_home: Path,
+    profile_name: str,
+    now_seconds: float,
+    max_age_seconds: int = REMOTE_STATUS_CACHE_SECONDS,
+) -> dict | None:
+    path = _remote_status_cache_path(shared_home, profile_name)
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    cached_at = payload.get("cached_at")
+    if not isinstance(cached_at, (int, float)):
+        return None
+    if now_seconds - cached_at > max_age_seconds:
+        return None
+    return {
+        "ok": True,
+        "rate_limits": payload.get("rate_limits"),
+        "usage": payload.get("usage"),
+        "error": None,
+        "stale": True,
+        "cached_at": cached_at,
+    }
+
+
+def _read_remote_status_with_cache(
+    profile: Path,
+    shared_home: Path,
+    remote_reader: Callable[[Path], dict],
+    now_seconds: float,
+) -> dict:
+    try:
+        remote = remote_reader(profile)
+    except Exception:
+        remote = {
+            "ok": False,
+            "rate_limits": None,
+            "usage": None,
+            "error": "status reader failed",
+        }
+    if remote.get("ok") and remote.get("rate_limits"):
+        _write_remote_status_cache(shared_home, profile.name, remote, now_seconds)
+        return {**remote, "stale": False, "cached_at": None}
+
+    cached = _read_remote_status_cache(shared_home, profile.name, now_seconds)
+    if cached is not None:
+        cached["error"] = remote.get("error")
+        return cached
+    return {**remote, "stale": False, "cached_at": None}
+
+
 def build_profiles_payload(
     profile_root: Path,
     shared_home: Path,
     read_remote: bool = True,
+    remote_reader: Callable[[Path], dict] | None = None,
+    now_seconds: float | None = None,
 ) -> dict:
+    now = time.time() if now_seconds is None else now_seconds
     local_snapshot = read_local_token_snapshot(shared_home)
+    profile_paths = (
+        sorted(path for path in profile_root.iterdir() if path.is_dir())
+        if profile_root.exists()
+        else []
+    )
+    remote_by_name: dict[str, dict | None] = {}
+    if read_remote and profile_paths:
+        reader = remote_reader or read_app_server_account_snapshot
+        with ThreadPoolExecutor(max_workers=min(4, len(profile_paths))) as executor:
+            futures = {
+                executor.submit(
+                    _read_remote_status_with_cache,
+                    profile,
+                    shared_home,
+                    reader,
+                    now,
+                ): profile
+                for profile in profile_paths
+            }
+            for future in as_completed(futures):
+                profile = futures[future]
+                remote_by_name[profile.name] = future.result()
+
     profiles = []
-    if profile_root.exists():
-        for profile in sorted(path for path in profile_root.iterdir() if path.is_dir()):
-            remote = read_app_server_account_snapshot(profile) if read_remote else None
-            profiles.append(
-                {
-                    "name": profile.name,
-                    "path": str(profile),
-                    "auth": "present" if (profile / "auth.json").is_file() else "missing",
-                    "config": "present" if (profile / "config.toml").is_file() else "missing",
-                    "rate_limits": normalize_rate_limits(
-                        (remote or {}).get("rate_limits") or {}
-                    ),
-                    "usage": (remote or {}).get("usage"),
-                    "remote_error": (remote or {}).get("error") if remote else None,
-                }
-            )
+    for profile in profile_paths:
+        remote = remote_by_name.get(profile.name)
+        profiles.append(
+            {
+                "name": profile.name,
+                "path": str(profile),
+                "auth": "present" if (profile / "auth.json").is_file() else "missing",
+                "config": "present" if (profile / "config.toml").is_file() else "missing",
+                "rate_limits": normalize_rate_limits(
+                    (remote or {}).get("rate_limits") or {}
+                ),
+                "usage": (remote or {}).get("usage"),
+                "remote_error": (remote or {}).get("error") if remote else None,
+                "remote_stale": bool((remote or {}).get("stale")),
+                "remote_cached_at": (remote or {}).get("cached_at") if remote else None,
+            }
+        )
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "profile_root": str(profile_root),

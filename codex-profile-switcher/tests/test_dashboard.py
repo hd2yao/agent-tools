@@ -235,6 +235,64 @@ class ProfileApiTests(unittest.TestCase):
             self.assertNotIn("secret-token", text)
             self.assertEqual(result["profiles"][0]["auth"], "present")
 
+    def test_build_profiles_payload_uses_cached_remote_status_on_transient_failure(self):
+        from codex_profile_dashboard import build_profiles_payload
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "profiles"
+            shared = Path(tmp) / "shared"
+            profile = root / "account-a"
+            profile.mkdir(parents=True)
+            shared.mkdir()
+
+            successful_remote = {
+                "ok": True,
+                "rate_limits": {
+                    "rateLimits": {
+                        "limitId": "codex",
+                        "planType": "plus",
+                        "primary": {"usedPercent": 25, "resetsAt": 1782700000},
+                        "credits": {"balance": 1},
+                    }
+                },
+                "usage": {"dailyUsageBuckets": [{"startDate": "2026-07-01", "tokens": 42}]},
+                "error": None,
+            }
+
+            first = build_profiles_payload(
+                root,
+                shared,
+                read_remote=True,
+                remote_reader=lambda _: successful_remote,
+                now_seconds=1000,
+            )
+
+            self.assertEqual(first["profiles"][0]["rate_limits"]["plan_type"], "plus")
+            self.assertFalse(first["profiles"][0]["remote_stale"])
+
+            second = build_profiles_payload(
+                root,
+                shared,
+                read_remote=True,
+                remote_reader=lambda _: {
+                    "ok": False,
+                    "rate_limits": None,
+                    "usage": None,
+                    "error": "app-server timeout",
+                },
+                now_seconds=1060,
+            )
+
+            profile_payload = second["profiles"][0]
+            self.assertEqual(profile_payload["rate_limits"]["plan_type"], "plus")
+            self.assertEqual(
+                profile_payload["rate_limits"]["primary"]["remaining_percent"],
+                75,
+            )
+            self.assertEqual(profile_payload["usage"]["dailyUsageBuckets"][0]["tokens"], 42)
+            self.assertTrue(profile_payload["remote_stale"])
+            self.assertEqual(profile_payload["remote_error"], "app-server timeout")
+
     def test_read_sqlite_history_summary(self):
         import sqlite3
         from codex_profile_dashboard import read_sqlite_history_summary
