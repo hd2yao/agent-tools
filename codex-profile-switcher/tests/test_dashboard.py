@@ -215,6 +215,21 @@ class AppServerClientTests(unittest.TestCase):
             {"jsonrpc": "2.0", "id": 3, "method": "account/rateLimits/read"},
         )
 
+    def test_resolve_codex_binary_prefers_app_bundle_binary(self):
+        from codex_profile_dashboard import resolve_codex_binary
+
+        with tempfile.TemporaryDirectory() as tmp:
+            bundled = Path(tmp) / "Codex.app" / "Contents" / "Resources" / "codex"
+            bundled.parent.mkdir(parents=True)
+            bundled.write_text("#!/bin/sh\n", encoding="utf-8")
+
+            result = resolve_codex_binary(
+                app_binary=bundled,
+                path_lookup=lambda _: "/opt/homebrew/bin/codex",
+            )
+
+            self.assertEqual(result, str(bundled))
+
 
 class ProfileApiTests(unittest.TestCase):
     def test_build_profiles_payload_does_not_include_secret_contents(self):

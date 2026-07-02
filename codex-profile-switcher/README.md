@@ -252,25 +252,31 @@ state light:
 - red: no live process or recent Codex activity was found
 
 The popover closes when clicking elsewhere, matching normal menu bar behavior.
-It shows each profile with plan, auth/config state, 5-hour and 7-day reset
-windows, reset credits, compact 7-day token usage, and switch actions.
+It has two pages:
+
+- `额度`: each profile shows plan, auth/config state, 5-hour and 7-day reset
+  windows, reset credits, and switch actions.
+- `Token 分析`: each profile has its own recent daily usage chart. Hovering a
+  bar shows the exact date and token count. A separate shared local panel shows
+  input, cached input, output, and reasoning token split from rollout logs.
 
 The app refreshes status on launch, after a profile switch, and every 60
 seconds while it is running. Background refresh updates the status item without
 showing a temporary loading state. Manual refresh is still available for
 immediate checks.
 
-Account limit reads are done in parallel across profiles. The app also keeps a
-short local cache of the last successful app-server account status. If a
-background refresh hits a transient app-server timeout, the popover keeps the
-last known quota and marks the profile as `暂存` instead of clearing the card to
-`UNKNOWN`.
+Account limit reads are done in parallel across profiles. The app prefers the
+Codex.app bundled `codex` binary for app-server reads, then falls back to the
+`codex` on `PATH`. This matters because the bundled app-server may expose newer
+fields such as `rateLimitResetCredits` before an older shell CLI does. The app
+also keeps a short local cache of the last successful app-server account status.
+If a background refresh hits a transient app-server timeout, the popover keeps
+the last known quota and marks the profile as `暂存` instead of clearing the card
+to `UNKNOWN`.
 
-The bottom local token panel shows the latest 14-day input, cached input,
-output, and reasoning token split from shared rollout logs. Codex app-server currently returns
-account usage as daily total token buckets; it does not expose account-specific
-model/input/output/cache breakdowns, so those detailed splits are shown as
-shared local statistics.
+Codex app-server currently returns account usage as daily total token buckets;
+it does not expose account-specific model/input/output/cache breakdowns, so
+those detailed splits are shown as shared local statistics.
 
 The quit row exits only the menu bar account manager. It does not quit Codex
 Desktop. Start it again by opening the installed app.

@@ -33,6 +33,7 @@ WEB_ROOT = Path(__file__).resolve().parent / "web"
 RUNTIME_GREEN_ROLLOUT_MS = 90_000
 RUNTIME_RECENT_ACTIVITY_MS = 15 * 60_000
 REMOTE_STATUS_CACHE_SECONDS = 10 * 60
+CODEX_APP_BINARY = Path("/Applications/Codex.app/Contents/Resources/codex")
 
 
 def normalize_window(value: dict | None) -> dict | None:
@@ -376,6 +377,19 @@ def build_rpc_request(request_id: int, method: str, params: dict | None = None) 
     return request
 
 
+def resolve_codex_binary(
+    *,
+    app_binary: Path = CODEX_APP_BINARY,
+    path_lookup: Callable[[str], str | None] = shutil.which,
+) -> str | None:
+    override = os.environ.get("CODEX_PROFILE_SWITCHER_CODEX")
+    if override:
+        return override
+    if app_binary.is_file():
+        return str(app_binary)
+    return path_lookup("codex")
+
+
 def _stop_process(process: subprocess.Popen) -> None:
     if process.poll() is not None:
         return
@@ -391,7 +405,7 @@ def read_app_server_account_snapshot(
     profile_home: Path,
     timeout_seconds: float = 8.0,
 ) -> dict:
-    codex = shutil.which("codex")
+    codex = resolve_codex_binary()
     if not codex:
         return {"ok": False, "rate_limits": None, "usage": None, "error": "codex not found"}
 

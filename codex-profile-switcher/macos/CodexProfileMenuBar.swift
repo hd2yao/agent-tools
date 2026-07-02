@@ -332,6 +332,11 @@ enum RuntimeLight {
     }
 }
 
+enum ManagerPage {
+    case quota
+    case token
+}
+
 enum TimeText {
     static func beijingFull(_ value: String?) -> String {
         guard let value else {
@@ -372,6 +377,17 @@ enum TimeText {
             return "--"
         }
         return format(Date(timeIntervalSince1970: timestamp), dateFormat: "M月d日")
+    }
+
+    static func monthDay(_ value: String) -> String {
+        let parser = DateFormatter()
+        parser.locale = Locale(identifier: "en_US_POSIX")
+        parser.timeZone = TimeZone(identifier: "Asia/Shanghai")
+        parser.dateFormat = "yyyy-MM-dd"
+        guard let date = parser.date(from: value) else {
+            return value
+        }
+        return format(date, dateFormat: "M/d")
     }
 
     private static func format(_ date: Date, dateFormat: String) -> String {
@@ -429,6 +445,7 @@ final class CodexProfileMenuBarApp: NSObject, NSApplicationDelegate, NSPopoverDe
     private var refreshTimer: Timer?
     private var globalEventMonitor: Any?
     private var localEventMonitor: Any?
+    private var currentPage: ManagerPage = .quota
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -460,7 +477,7 @@ final class CodexProfileMenuBarApp: NSObject, NSApplicationDelegate, NSPopoverDe
         popover.behavior = .applicationDefined
         popover.animates = true
         popover.delegate = self
-        popover.contentSize = NSSize(width: 460, height: 870)
+        popover.contentSize = NSSize(width: 460, height: 920)
     }
 
     private func startAutoRefresh() {
@@ -635,6 +652,11 @@ final class CodexProfileMenuBarApp: NSObject, NSApplicationDelegate, NSPopoverDe
             payload: latestPayload,
             message: message ?? latestError,
             isRefreshing: isRefreshing,
+            page: currentPage,
+            setPageAction: { [weak self] page in
+                self?.currentPage = page
+                self?.updatePopover()
+            },
             refreshAction: { [weak self] in self?.refreshStatus(nil) },
             launchAction: { [weak self] in self?.launchActiveProfile() },
             quitAction: { NSApp.terminate(nil) },
@@ -721,6 +743,8 @@ final class AccountManagerViewController: NSViewController {
     private let payload: DashboardPayload?
     private let message: String?
     private let isRefreshing: Bool
+    private let page: ManagerPage
+    private let setPageAction: (ManagerPage) -> Void
     private let refreshAction: () -> Void
     private let launchAction: () -> Void
     private let quitAction: () -> Void
@@ -730,6 +754,8 @@ final class AccountManagerViewController: NSViewController {
         payload: DashboardPayload?,
         message: String?,
         isRefreshing: Bool,
+        page: ManagerPage,
+        setPageAction: @escaping (ManagerPage) -> Void,
         refreshAction: @escaping () -> Void,
         launchAction: @escaping () -> Void,
         quitAction: @escaping () -> Void,
@@ -738,6 +764,8 @@ final class AccountManagerViewController: NSViewController {
         self.payload = payload
         self.message = message
         self.isRefreshing = isRefreshing
+        self.page = page
+        self.setPageAction = setPageAction
         self.refreshAction = refreshAction
         self.launchAction = launchAction
         self.quitAction = quitAction
@@ -750,7 +778,7 @@ final class AccountManagerViewController: NSViewController {
     }
 
     override func loadView() {
-        view = AccountManagerView(frame: NSRect(x: 0, y: 0, width: 460, height: 870))
+        view = AccountManagerView(frame: NSRect(x: 0, y: 0, width: 460, height: 920))
     }
 
     override func viewDidLoad() {
@@ -778,28 +806,39 @@ final class AccountManagerViewController: NSViewController {
         ])
 
         content.addArrangedSubview(headerView())
+        content.addArrangedSubview(pageToggle())
 
         if let message {
             content.addArrangedSubview(messageView(message))
         }
 
         if let payload {
-            for (index, profile) in payload.profiles.enumerated() {
-                content.addArrangedSubview(
-                    AccountCardView(
-                        profile: profile,
-                        index: index,
-                        isActive: payload.activeProfile == profile.name,
-                        switchAction: switchAction
+            switch page {
+            case .quota:
+                for (index, profile) in payload.profiles.enumerated() {
+                    content.addArrangedSubview(
+                        AccountCardView(
+                            profile: profile,
+                            index: index,
+                            isActive: payload.activeProfile == profile.name,
+                            switchAction: switchAction
+                        )
                     )
-                )
-            }
-            if let snapshot = payload.localSnapshot {
-                content.addArrangedSubview(TokenSummaryView(snapshot: snapshot))
+                }
+            case .token:
+                content.addArrangedSubview(TokenDashboardView(payload: payload))
             }
         }
 
         content.addArrangedSubview(actionRow())
+    }
+
+    private func pageToggle() -> NSView {
+        PageToggleView(
+            activePage: page,
+            quotaAction: { self.setPageAction(.quota) },
+            tokenAction: { self.setPageAction(.token) }
+        )
     }
 
     private func headerView() -> NSView {
@@ -1019,6 +1058,89 @@ final class AccountManagerView: NSView {
     }
 }
 
+final class PageToggleView: NSView {
+    init(activePage: ManagerPage, quotaAction: @escaping () -> Void, tokenAction: @escaping () -> Void) {
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+        widthAnchor.constraint(equalToConstant: 424).isActive = true
+        heightAnchor.constraint(equalToConstant: 34).isActive = true
+        wantsLayer = true
+
+        let row = NSStackView()
+        row.orientation = .horizontal
+        row.spacing = 4
+        row.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(row)
+
+        NSLayoutConstraint.activate([
+            row.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 3),
+            row.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -3),
+            row.topAnchor.constraint(equalTo: topAnchor, constant: 3),
+            row.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -3),
+        ])
+
+        row.addArrangedSubview(
+            PageToggleButtonView(title: "额度", isActive: activePage == .quota, action: quotaAction)
+        )
+        row.addArrangedSubview(
+            PageToggleButtonView(title: "Token 分析", isActive: activePage == .token, action: tokenAction)
+        )
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor.white.withAlphaComponent(0.36).setFill()
+        NSBezierPath(roundedRect: bounds, xRadius: 12, yRadius: 12).fill()
+    }
+}
+
+final class PageToggleButtonView: NSView {
+    private let title: String
+    private let isActive: Bool
+    private let action: () -> Void
+
+    init(title: String, isActive: Bool, action: @escaping () -> Void) {
+        self.title = title
+        self.isActive = isActive
+        self.action = action
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+        widthAnchor.constraint(equalToConstant: 207).isActive = true
+        wantsLayer = true
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        action()
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        if isActive {
+            NSColor(calibratedRed: 0.10, green: 0.28, blue: 0.25, alpha: 0.88).setFill()
+        } else {
+            NSColor.white.withAlphaComponent(0.18).setFill()
+        }
+        NSBezierPath(roundedRect: bounds, xRadius: 10, yRadius: 10).fill()
+
+        let text = title as NSString
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 13, weight: .bold),
+            .foregroundColor: isActive ? NSColor.white : NSColor.black.withAlphaComponent(0.66),
+        ]
+        let size = text.size(withAttributes: attributes)
+        text.draw(
+            at: CGPoint(x: bounds.midX - size.width / 2, y: bounds.midY - size.height / 2),
+            withAttributes: attributes
+        )
+    }
+}
+
 final class AccountCardView: NSView {
     private let profile: ProfileStatus
     private let index: Int
@@ -1033,7 +1155,7 @@ final class AccountCardView: NSView {
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
         widthAnchor.constraint(equalToConstant: 424).isActive = true
-        heightAnchor.constraint(equalToConstant: 238).isActive = true
+        heightAnchor.constraint(equalToConstant: 210).isActive = true
         wantsLayer = true
         layer?.cornerRadius = 18
         layer?.borderColor = NSColor.white.withAlphaComponent(0.75).cgColor
@@ -1071,7 +1193,6 @@ final class AccountCardView: NSView {
         stack.addArrangedSubview(titleRow())
         stack.addArrangedSubview(barRow(label: "5小时额度", window: profile.rateLimits.primary))
         stack.addArrangedSubview(barRow(label: "7天额度", window: profile.rateLimits.secondary))
-        stack.addArrangedSubview(usageChartRow())
         stack.addArrangedSubview(footerRow())
     }
 
@@ -1159,38 +1280,6 @@ final class AccountCardView: NSView {
         return row
     }
 
-    private func usageChartRow() -> NSView {
-        let row = NSStackView()
-        row.orientation = .horizontal
-        row.spacing = 10
-        row.alignment = .centerY
-
-        let title = NSTextField(labelWithString: "近7日用量")
-        title.font = NSFont.systemFont(ofSize: 13, weight: .semibold)
-        title.textColor = NSColor.black
-        title.translatesAutoresizingMaskIntoConstraints = false
-        title.widthAnchor.constraint(equalToConstant: 82).isActive = true
-
-        let buckets = Array((profile.usage?.dailyUsageBuckets ?? []).suffix(7))
-        let chart = DailyUsageChartView(buckets: buckets)
-        chart.translatesAutoresizingMaskIntoConstraints = false
-        chart.widthAnchor.constraint(equalToConstant: 218).isActive = true
-        chart.heightAnchor.constraint(equalToConstant: 24).isActive = true
-
-        let latest = buckets.last?.tokens
-        let value = NSTextField(labelWithString: TokenText.compact(latest))
-        value.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .bold)
-        value.textColor = NSColor.black
-        value.alignment = .right
-        value.translatesAutoresizingMaskIntoConstraints = false
-        value.widthAnchor.constraint(equalToConstant: 76).isActive = true
-
-        row.addArrangedSubview(title)
-        row.addArrangedSubview(chart)
-        row.addArrangedSubview(value)
-        return row
-    }
-
     private func footerRow() -> NSView {
         let row = NSStackView()
         row.orientation = .horizontal
@@ -1250,7 +1339,7 @@ final class AccountCardView: NSView {
         if let expiresAt = credits.expiresAt {
             return "\(countText) · \(TimeText.beijingMonthDay(expiresAt))到期"
         }
-        return "\(countText) · 到期时间未提供"
+        return "\(countText)可用"
     }
 
     private func infoLine(
@@ -1304,8 +1393,170 @@ final class AccountCardView: NSView {
     }
 }
 
+final class TokenDashboardView: NSView {
+    private let payload: DashboardPayload
+
+    init(payload: DashboardPayload) {
+        self.payload = payload
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+        widthAnchor.constraint(equalToConstant: 424).isActive = true
+        heightAnchor.constraint(equalToConstant: 560).isActive = true
+        build()
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    private func build() {
+        let stack = NSStackView()
+        stack.orientation = .vertical
+        stack.spacing = 10
+        stack.alignment = .leading
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(stack)
+
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor),
+            stack.topAnchor.constraint(equalTo: topAnchor),
+            stack.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor),
+        ])
+
+        let title = NSTextField(labelWithString: "Token 分析")
+        title.font = NSFont.systemFont(ofSize: 16, weight: .heavy)
+        title.textColor = NSColor.black.withAlphaComponent(0.82)
+        title.alignment = .left
+        stack.addArrangedSubview(title)
+
+        for (index, profile) in payload.profiles.enumerated() {
+            stack.addArrangedSubview(AccountTokenCardView(profile: profile, index: index))
+        }
+
+        if let snapshot = payload.localSnapshot {
+            stack.addArrangedSubview(TokenSummaryView(snapshot: snapshot))
+        }
+    }
+}
+
+final class AccountTokenCardView: NSView {
+    private let profile: ProfileStatus
+    private let index: Int
+
+    init(profile: ProfileStatus, index: Int) {
+        self.profile = profile
+        self.index = index
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+        widthAnchor.constraint(equalToConstant: 424).isActive = true
+        heightAnchor.constraint(equalToConstant: 164).isActive = true
+        wantsLayer = true
+        layer?.cornerRadius = 16
+        layer?.borderColor = NSColor.white.withAlphaComponent(0.70).cgColor
+        layer?.borderWidth = 1
+        build()
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let path = NSBezierPath(roundedRect: bounds, xRadius: 16, yRadius: 16)
+        let color = index % 2 == 0
+            ? NSColor(calibratedRed: 0.92, green: 1.0, blue: 0.97, alpha: 0.94)
+            : NSColor(calibratedRed: 1.0, green: 0.95, blue: 1.0, alpha: 0.94)
+        color.setFill()
+        path.fill()
+    }
+
+    private func build() {
+        let stack = NSStackView()
+        stack.orientation = .vertical
+        stack.spacing = 8
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(stack)
+
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
+            stack.topAnchor.constraint(equalTo: topAnchor, constant: 12),
+            stack.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -12),
+        ])
+
+        stack.addArrangedSubview(headerRow())
+
+        let buckets = Array((profile.usage?.dailyUsageBuckets ?? []).suffix(14))
+        let chart = DailyUsageChartView(buckets: buckets)
+        chart.translatesAutoresizingMaskIntoConstraints = false
+        chart.widthAnchor.constraint(equalToConstant: 396).isActive = true
+        chart.heightAnchor.constraint(equalToConstant: 82).isActive = true
+        stack.addArrangedSubview(chart)
+
+        stack.addArrangedSubview(metricsRow(buckets: buckets))
+    }
+
+    private func headerRow() -> NSView {
+        let row = NSStackView()
+        row.orientation = .horizontal
+        row.alignment = .centerY
+        row.spacing = 8
+        row.translatesAutoresizingMaskIntoConstraints = false
+        row.widthAnchor.constraint(equalToConstant: 396).isActive = true
+
+        let name = NSTextField(labelWithString: profile.name)
+        name.font = NSFont.systemFont(ofSize: 14, weight: .heavy)
+        name.textColor = NSColor.black.withAlphaComponent(0.86)
+        name.lineBreakMode = .byTruncatingTail
+        row.addArrangedSubview(name)
+
+        let spacer = NSView()
+        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        row.addArrangedSubview(spacer)
+
+        let total = tokenTotal(Array((profile.usage?.dailyUsageBuckets ?? []).suffix(14)))
+        let value = NSTextField(labelWithString: "近14日 \(TokenText.compact(total))")
+        value.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .bold)
+        value.textColor = NSColor.black.withAlphaComponent(0.72)
+        row.addArrangedSubview(value)
+        return row
+    }
+
+    private func metricsRow(buckets: [DailyUsageBucket]) -> NSView {
+        let row = NSStackView()
+        row.orientation = .horizontal
+        row.spacing = 14
+        row.alignment = .centerY
+        row.translatesAutoresizingMaskIntoConstraints = false
+        row.widthAnchor.constraint(equalToConstant: 396).isActive = true
+
+        let latest = buckets.last?.tokens
+        let peak = buckets.map(\.tokens).max()
+        let streak = profile.usage?.summary?.currentStreakDays
+        let lifetime = profile.usage?.summary?.lifetimeTokens
+        for text in [
+            "今日 \(TokenText.compact(latest))",
+            "峰值 \(TokenText.compact(peak))",
+            "连续 \(streak.map { "\($0)天" } ?? "--")",
+            "累计 \(TokenText.compact(lifetime))",
+        ] {
+            let label = NSTextField(labelWithString: text)
+            label.font = NSFont.monospacedSystemFont(ofSize: 10.5, weight: .medium)
+            label.textColor = NSColor.black.withAlphaComponent(0.60)
+            row.addArrangedSubview(label)
+        }
+        return row
+    }
+
+    private func tokenTotal(_ buckets: [DailyUsageBucket]) -> Int {
+        buckets.reduce(0) { $0 + $1.tokens }
+    }
+}
+
 final class DailyUsageChartView: NSView {
     private let buckets: [DailyUsageBucket]
+    private var hoveredIndex: Int?
 
     init(buckets: [DailyUsageBucket]) {
         self.buckets = buckets
@@ -1317,15 +1568,39 @@ final class DailyUsageChartView: NSView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach { removeTrackingArea($0) }
+        addTrackingArea(
+            NSTrackingArea(
+                rect: bounds,
+                options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect],
+                owner: self,
+                userInfo: nil
+            )
+        )
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        hoveredIndex = barRects().firstIndex { $0.rect.insetBy(dx: -4, dy: -8).contains(point) }
+        needsDisplay = true
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        hoveredIndex = nil
+        needsDisplay = true
+    }
+
     override func draw(_ dirtyRect: NSRect) {
         let background = NSBezierPath(roundedRect: bounds, xRadius: 7, yRadius: 7)
-        NSColor.white.withAlphaComponent(0.48).setFill()
+        NSColor.white.withAlphaComponent(0.54).setFill()
         background.fill()
 
         guard !buckets.isEmpty else {
             let text = "暂无" as NSString
             text.draw(
-                at: CGPoint(x: 94, y: 4),
+                at: CGPoint(x: bounds.midX - 13, y: bounds.midY - 7),
                 withAttributes: [
                     .font: NSFont.systemFont(ofSize: 11, weight: .medium),
                     .foregroundColor: NSColor.black.withAlphaComponent(0.4),
@@ -1334,25 +1609,88 @@ final class DailyUsageChartView: NSView {
             return
         }
 
-        let maxTokens = max(1, buckets.map(\.tokens).max() ?? 1)
-        let gap: CGFloat = 5
-        let width = (bounds.width - CGFloat(buckets.count + 1) * gap) / CGFloat(buckets.count)
-        for (index, bucket) in buckets.enumerated() {
-            let ratio = CGFloat(bucket.tokens) / CGFloat(maxTokens)
-            let height = max(3, (bounds.height - 8) * ratio)
-            let x = bounds.minX + gap + CGFloat(index) * (width + gap)
-            let y = bounds.minY + 4
-            let rect = NSRect(x: x, y: y, width: width, height: height)
-            let bar = NSBezierPath(roundedRect: rect, xRadius: 3, yRadius: 3)
-            let color = NSColor(
-                calibratedRed: 0.32 + CGFloat(index) * 0.035,
-                green: 0.58,
-                blue: 0.92,
-                alpha: 0.86
-            )
+        drawGrid()
+        let rects = barRects()
+        for (index, item) in rects.enumerated() {
+            let bar = NSBezierPath(roundedRect: item.rect, xRadius: 3, yRadius: 3)
+            let isHovered = hoveredIndex == index
+            let color = isHovered
+                ? NSColor(calibratedRed: 0.12, green: 0.38, blue: 0.82, alpha: 0.96)
+                : NSColor(calibratedRed: 0.40, green: 0.62, blue: 0.92, alpha: 0.82)
             color.setFill()
             bar.fill()
+
+            if index % 3 == 0 || index == rects.count - 1 {
+                drawAxisLabel(TimeText.monthDay(item.bucket.startDate), x: item.rect.midX)
+            }
         }
+
+        if let hoveredIndex, hoveredIndex < rects.count {
+            drawTooltip(for: rects[hoveredIndex])
+        }
+    }
+
+    private func chartRect() -> NSRect {
+        bounds.insetBy(dx: 10, dy: 18).offsetBy(dx: 0, dy: 6)
+    }
+
+    private func barRects() -> [(rect: NSRect, bucket: DailyUsageBucket)] {
+        guard !buckets.isEmpty else {
+            return []
+        }
+        let chart = chartRect()
+        let maxTokens = max(1, buckets.map(\.tokens).max() ?? 1)
+        let gap: CGFloat = 5
+        let width = max(8, (chart.width - CGFloat(buckets.count - 1) * gap) / CGFloat(buckets.count))
+        return buckets.enumerated().map { index, bucket in
+            let ratio = CGFloat(bucket.tokens) / CGFloat(maxTokens)
+            let height = max(4, chart.height * ratio)
+            let x = chart.minX + CGFloat(index) * (width + gap)
+            let y = chart.minY
+            return (NSRect(x: x, y: y, width: width, height: height), bucket)
+        }
+    }
+
+    private func drawGrid() {
+        let chart = chartRect()
+        NSColor.black.withAlphaComponent(0.10).setStroke()
+        for step in 0...2 {
+            let y = chart.minY + chart.height * CGFloat(step) / 2
+            let line = NSBezierPath()
+            line.move(to: CGPoint(x: chart.minX, y: y))
+            line.line(to: CGPoint(x: chart.maxX, y: y))
+            line.lineWidth = 0.7
+            line.stroke()
+        }
+    }
+
+    private func drawAxisLabel(_ text: String, x: CGFloat) {
+        let label = text as NSString
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.monospacedSystemFont(ofSize: 8.5, weight: .medium),
+            .foregroundColor: NSColor.black.withAlphaComponent(0.45),
+        ]
+        let size = label.size(withAttributes: attributes)
+        label.draw(
+            at: CGPoint(x: x - size.width / 2, y: bounds.minY + 3),
+            withAttributes: attributes
+        )
+    }
+
+    private func drawTooltip(for item: (rect: NSRect, bucket: DailyUsageBucket)) {
+        let text = "\(TimeText.monthDay(item.bucket.startDate)) · \(TokenText.compact(item.bucket.tokens)) token" as NSString
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.monospacedSystemFont(ofSize: 10, weight: .bold),
+            .foregroundColor: NSColor.white,
+        ]
+        let size = text.size(withAttributes: attributes)
+        let width = min(bounds.width - 16, size.width + 16)
+        let x = min(max(bounds.minX + 8, item.rect.midX - width / 2), bounds.maxX - width - 8)
+        let y = min(bounds.maxY - 26, item.rect.maxY + 6)
+        let bubble = NSRect(x: x, y: y, width: width, height: 22)
+        NSColor(calibratedWhite: 0.10, alpha: 0.90).setFill()
+        NSBezierPath(roundedRect: bubble, xRadius: 7, yRadius: 7).fill()
+        text.draw(at: CGPoint(x: bubble.minX + 8, y: bubble.minY + 5), withAttributes: attributes)
     }
 }
 
@@ -1364,7 +1702,7 @@ final class TokenSummaryView: NSView {
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
         widthAnchor.constraint(equalToConstant: 424).isActive = true
-        heightAnchor.constraint(equalToConstant: 82).isActive = true
+        heightAnchor.constraint(equalToConstant: 104).isActive = true
         wantsLayer = true
         layer?.cornerRadius = 16
         layer?.borderColor = NSColor.white.withAlphaComponent(0.65).cgColor
@@ -1396,7 +1734,7 @@ final class TokenSummaryView: NSView {
         ])
 
         let total = displayTotal()
-        let title = NSTextField(labelWithString: "本地14日 token · \(TokenText.compact(total.totalTokens))")
+        let title = NSTextField(labelWithString: "本地14日拆分（共享） · \(TokenText.compact(total.totalTokens))")
         title.font = NSFont.systemFont(ofSize: 13, weight: .heavy)
         title.textColor = NSColor.black.withAlphaComponent(0.78)
         stack.addArrangedSubview(title)
@@ -1404,7 +1742,7 @@ final class TokenSummaryView: NSView {
         let chart = TokenSplitBarView(total: total)
         chart.translatesAutoresizingMaskIntoConstraints = false
         chart.widthAnchor.constraint(equalToConstant: 396).isActive = true
-        chart.heightAnchor.constraint(equalToConstant: 18).isActive = true
+        chart.heightAnchor.constraint(equalToConstant: 22).isActive = true
         stack.addArrangedSubview(chart)
 
         let detail = NSTextField(labelWithString: tokenBreakdownText())
