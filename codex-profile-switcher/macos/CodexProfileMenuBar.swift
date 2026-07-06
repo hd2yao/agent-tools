@@ -718,7 +718,15 @@ final class CodexProfileMenuBarApp: NSObject, NSApplicationDelegate, NSPopoverDe
         if process.terminationStatus == 0 {
             return .success(output)
         }
-        let message = errorOutput.split(separator: "\n").first.map(String.init) ?? "Command failed."
+        let message = errorOutput
+            .split(separator: "\n")
+            .reversed()
+            .first { line in
+                let value = line.trimmingCharacters(in: .whitespaces)
+                return !value.isEmpty && !value.hasPrefix("File ") && value != "Traceback (most recent call last):"
+            }
+            .map(String.init)
+            ?? "Command failed."
         return .failure(message)
     }
 
