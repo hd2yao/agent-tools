@@ -255,7 +255,9 @@ The popover closes when clicking elsewhere, matching normal menu bar behavior.
 It has two pages:
 
 - `额度`: each profile shows plan, auth/config state, 5-hour and 7-day reset
-  windows, reset credits, and switch actions.
+  windows, reset credit count, the nearest reset-credit expiry, and switch
+  actions. A compact detail panel lists all available reset-credit expiry times
+  per managed profile.
 - `Token 分析`: each profile has its own recent daily usage chart. Hovering a
   bar shows the exact date and token count. A separate shared local panel shows
   input, cached input, output, and reasoning token split from rollout logs.
@@ -273,6 +275,14 @@ also keeps a short local cache of the last successful app-server account status.
 If a background refresh hits a transient app-server timeout, the popover keeps
 the last known quota and marks the profile as `暂存` instead of clearing the card
 to `UNKNOWN`.
+
+Reset-credit card details are read with a read-only GET request to ChatGPT's
+`/backend-api/wham/rate-limit-reset-credits` endpoint using each managed
+profile's local `auth.json` access token. The app stores only normalized,
+masked card summaries in its local cache; it never stores access tokens or raw
+credit IDs. Background refreshes reuse the cache for up to 6 hours unless the
+app-server reset-credit count changes. Manual refresh and profile switches force
+a fresh reset-credit detail read.
 
 Codex app-server currently returns account usage as daily total token buckets;
 it does not expose account-specific model/input/output/cache breakdowns, so

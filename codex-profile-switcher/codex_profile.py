@@ -874,12 +874,16 @@ def cmd_ui(args: argparse.Namespace) -> int:
     return run_dashboard(args.host, args.port, args.open_browser)
 
 
-def build_status_payload() -> dict:
+def build_status_payload(force_reset_credit_refresh: bool = False) -> dict:
     from codex_profile_dashboard import build_profiles_payload, read_runtime_status
 
     sync_profile_homes()
     repair_default_home_bridge_for_active_profile()
-    payload = build_profiles_payload(get_profile_root(), get_shared_home())
+    payload = build_profiles_payload(
+        get_profile_root(),
+        get_shared_home(),
+        force_reset_credit_refresh=force_reset_credit_refresh,
+    )
     payload["active_profile"] = read_active_profile()
     payload["runtime_status"] = read_runtime_status(get_shared_home(), get_profile_root())
     payload["desktop_status"] = build_desktop_status()
@@ -888,7 +892,11 @@ def build_status_payload() -> dict:
 
 
 def cmd_status(args: argparse.Namespace) -> int:
-    payload = build_status_payload()
+    payload = (
+        build_status_payload(force_reset_credit_refresh=True)
+        if args.refresh_reset_credits
+        else build_status_payload()
+    )
     if args.json:
         print(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
         return 0
@@ -973,6 +981,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--json",
         action="store_true",
         help="print compact JSON status",
+    )
+    status_parser.add_argument(
+        "--refresh-reset-credits",
+        action="store_true",
+        help="force a fresh read of reset credit card details",
     )
     status_parser.set_defaults(func=cmd_status)
 

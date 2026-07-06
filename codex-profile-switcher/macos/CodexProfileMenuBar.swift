@@ -62,6 +62,9 @@ struct ProfileStatus: Decodable {
     let auth: String
     let config: String
     let rateLimits: RateLimits
+    let resetCreditDetails: ResetCreditDetails?
+    let resetCreditStale: Bool?
+    let resetCreditError: String?
     let usage: AccountUsage?
     let remoteStale: Bool?
     let remoteError: String?
@@ -71,6 +74,9 @@ struct ProfileStatus: Decodable {
         case auth
         case config
         case rateLimits = "rate_limits"
+        case resetCreditDetails = "reset_credit_details"
+        case resetCreditStale = "reset_credit_stale"
+        case resetCreditError = "reset_credit_error"
         case usage
         case remoteStale = "remote_stale"
         case remoteError = "remote_error"
@@ -109,6 +115,38 @@ struct ResetCredits: Decodable {
         case availableCount = "available_count"
         case hasCredits = "has_credits"
         case unlimited
+        case expiresAt = "expires_at"
+    }
+}
+
+struct ResetCreditDetails: Decodable {
+    let available: Bool?
+    let availableCount: Int?
+    let totalEarnedCount: Int?
+    let credits: [ResetCreditCard]
+    let earliestExpiresAt: TimeInterval?
+
+    enum CodingKeys: String, CodingKey {
+        case available
+        case availableCount = "available_count"
+        case totalEarnedCount = "total_earned_count"
+        case credits
+        case earliestExpiresAt = "earliest_expires_at"
+    }
+}
+
+struct ResetCreditCard: Decodable {
+    let id: String?
+    let status: String?
+    let used: Bool?
+    let grantedAt: TimeInterval?
+    let expiresAt: TimeInterval?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case status
+        case used
+        case grantedAt = "granted_at"
         case expiresAt = "expires_at"
     }
 }
@@ -379,6 +417,13 @@ enum TimeText {
         return format(Date(timeIntervalSince1970: timestamp), dateFormat: "M月d日")
     }
 
+    static func beijingMonthDayMinute(_ timestamp: TimeInterval?) -> String {
+        guard let timestamp else {
+            return "--"
+        }
+        return format(Date(timeIntervalSince1970: timestamp), dateFormat: "M月d日 HH:mm")
+    }
+
     static func monthDay(_ value: String) -> String {
         let parser = DateFormatter()
         parser.locale = Locale(identifier: "en_US_POSIX")
@@ -477,13 +522,13 @@ final class CodexProfileMenuBarApp: NSObject, NSApplicationDelegate, NSPopoverDe
         popover.behavior = .applicationDefined
         popover.animates = true
         popover.delegate = self
-        popover.contentSize = NSSize(width: 460, height: 920)
+        popover.contentSize = NSSize(width: 460, height: 980)
     }
 
     private func startAutoRefresh() {
         refreshTimer?.invalidate()
         refreshTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
-            self?.refreshStatus(showProgress: false)
+            self?.refreshStatus(showProgress: false, forceResetCredits: false)
         }
         RunLoop.main.add(refreshTimer!, forMode: .common)
     }
@@ -502,10 +547,10 @@ final class CodexProfileMenuBarApp: NSObject, NSApplicationDelegate, NSPopoverDe
     }
 
     @objc private func refreshStatus(_ sender: Any?) {
-        refreshStatus(showProgress: true)
+        refreshStatus(showProgress: true, forceResetCredits: true)
     }
 
-    private func refreshStatus(showProgress: Bool) {
+    private func refreshStatus(showProgress: Bool, forceResetCredits: Bool = false) {
         if isRefreshing {
             return
         }
@@ -515,7 +560,11 @@ final class CodexProfileMenuBarApp: NSObject, NSApplicationDelegate, NSPopoverDe
             updatePopover(message: "正在刷新 Codex 账号...")
         }
         DispatchQueue.global(qos: .userInitiated).async {
-            let result = Self.runPython(arguments: ["status", "--json"])
+            var arguments = ["status", "--json"]
+            if forceResetCredits {
+                arguments.append("--refresh-reset-credits")
+            }
+            let result = Self.runPython(arguments: arguments)
             DispatchQueue.main.async {
                 self.isRefreshing = false
                 switch result {
@@ -682,7 +731,7 @@ final class CodexProfileMenuBarApp: NSObject, NSApplicationDelegate, NSPopoverDe
                 switch result {
                 case .success:
                     self.updatePopover(message: "已切换到 \(name)。")
-                    self.refreshStatus(showProgress: false)
+                    self.refreshStatus(showProgress: false, forceResetCredits: true)
                 case .failure(let error):
                     self.latestError = error
                     self.updateStatusTitle()
@@ -786,7 +835,7 @@ final class AccountManagerViewController: NSViewController {
     }
 
     override func loadView() {
-        view = AccountManagerView(frame: NSRect(x: 0, y: 0, width: 460, height: 920))
+        view = AccountManagerView(frame: NSRect(x: 0, y: 0, width: 460, height: 980))
     }
 
     override func viewDidLoad() {
@@ -833,6 +882,7 @@ final class AccountManagerViewController: NSViewController {
                         )
                     )
                 }
+                content.addArrangedSubview(ResetCreditsPanelView(profiles: payload.profiles))
             case .token:
                 content.addArrangedSubview(TokenDashboardView(payload: payload))
             }
@@ -1149,6 +1199,113 @@ final class PageToggleButtonView: NSView {
     }
 }
 
+final class ResetCreditsPanelView: NSView {
+    private let profiles: [ProfileStatus]
+
+    init(profiles: [ProfileStatus]) {
+        self.profiles = profiles
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+        widthAnchor.constraint(equalToConstant: 424).isActive = true
+        heightAnchor.constraint(equalToConstant: CGFloat(48 + max(1, profiles.count) * 42)).isActive = true
+        wantsLayer = true
+        layer?.cornerRadius = 16
+        layer?.borderColor = NSColor.white.withAlphaComponent(0.62).cgColor
+        layer?.borderWidth = 1
+        build()
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let path = NSBezierPath(roundedRect: bounds, xRadius: 16, yRadius: 16)
+        NSColor.white.withAlphaComponent(0.38).setFill()
+        path.fill()
+    }
+
+    private func build() {
+        let stack = NSStackView()
+        stack.orientation = .vertical
+        stack.spacing = 7
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(stack)
+
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
+            stack.topAnchor.constraint(equalTo: topAnchor, constant: 10),
+            stack.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -10),
+        ])
+
+        let title = NSTextField(labelWithString: "重置卡明细")
+        title.font = NSFont.systemFont(ofSize: 13, weight: .heavy)
+        title.textColor = NSColor.black.withAlphaComponent(0.78)
+        stack.addArrangedSubview(title)
+
+        if profiles.isEmpty {
+            stack.addArrangedSubview(emptyRow("暂无账号"))
+            return
+        }
+        for profile in profiles {
+            stack.addArrangedSubview(profileRow(profile))
+        }
+    }
+
+    private func emptyRow(_ text: String) -> NSView {
+        let label = NSTextField(labelWithString: text)
+        label.font = NSFont.systemFont(ofSize: 12, weight: .medium)
+        label.textColor = NSColor.black.withAlphaComponent(0.48)
+        return label
+    }
+
+    private func profileRow(_ profile: ProfileStatus) -> NSView {
+        let row = NSStackView()
+        row.orientation = .horizontal
+        row.spacing = 8
+        row.alignment = .firstBaseline
+        row.translatesAutoresizingMaskIntoConstraints = false
+        row.widthAnchor.constraint(equalToConstant: 396).isActive = true
+
+        let name = NSTextField(labelWithString: profile.name)
+        name.font = NSFont.systemFont(ofSize: 11.5, weight: .bold)
+        name.textColor = NSColor.black.withAlphaComponent(0.78)
+        name.lineBreakMode = .byTruncatingTail
+        name.translatesAutoresizingMaskIntoConstraints = false
+        name.widthAnchor.constraint(equalToConstant: 132).isActive = true
+        row.addArrangedSubview(name)
+
+        let detail = NSTextField(labelWithString: detailText(profile))
+        detail.font = NSFont.monospacedSystemFont(ofSize: 10.5, weight: .medium)
+        detail.textColor = NSColor.black.withAlphaComponent(0.62)
+        detail.lineBreakMode = .byTruncatingTail
+        detail.translatesAutoresizingMaskIntoConstraints = false
+        detail.widthAnchor.constraint(equalToConstant: 256).isActive = true
+        row.addArrangedSubview(detail)
+        return row
+    }
+
+    private func detailText(_ profile: ProfileStatus) -> String {
+        guard let details = profile.resetCreditDetails else {
+            return profile.resetCreditError ?? "未读取"
+        }
+        let count = details.availableCount ?? profile.rateLimits.resetCredits?.availableCount ?? 0
+        let visibleCards = details.credits
+            .filter { $0.used != true }
+            .sorted { ($0.expiresAt ?? .greatestFiniteMagnitude) < ($1.expiresAt ?? .greatestFiniteMagnitude) }
+        if visibleCards.isEmpty {
+            return "\(count) 张可用 · 暂无到期明细"
+        }
+        let dates = visibleCards
+            .prefix(4)
+            .map { TimeText.beijingMonthDayMinute($0.expiresAt) }
+            .joined(separator: " · ")
+        let suffix = visibleCards.count > 4 ? " · +" : ""
+        return "\(count) 张可用 · \(dates)\(suffix)"
+    }
+}
+
 final class AccountCardView: NSView {
     private let profile: ProfileStatus
     private let index: Int
@@ -1337,6 +1494,14 @@ final class AccountCardView: NSView {
     }
 
     private func resetCreditsText() -> String {
+        if let details = profile.resetCreditDetails, details.available == true {
+            let count = details.availableCount ?? profile.rateLimits.resetCredits?.availableCount
+            let countText = count.map { "\($0) 张" } ?? "--"
+            if let expiresAt = details.earliestExpiresAt {
+                return "\(countText) · 最近 \(TimeText.beijingMonthDay(expiresAt))到期"
+            }
+            return "\(countText)可用"
+        }
         guard let credits = profile.rateLimits.resetCredits, credits.available == true else {
             return "未提供"
         }

@@ -8,6 +8,43 @@ from threading import Thread
 
 
 class DashboardNormalizationTests(unittest.TestCase):
+    def test_normalize_reset_credit_details_masks_ids_and_parses_times(self):
+        from codex_profile_dashboard import normalize_reset_credit_details
+
+        result = normalize_reset_credit_details(
+            {
+                "available_count": 2,
+                "total_earned_count": 4,
+                "credits": [
+                    {
+                        "id": "RateLimitResetCredit-abcdef123456",
+                        "status": "available",
+                        "granted_at": "2026-06-18T00:36:51Z",
+                        "expires_at": "2026-07-18T00:36:51Z",
+                    },
+                    {
+                        "id": "RateLimitResetCredit-fedcba654321",
+                        "status": "used",
+                        "created_at": 1783000000,
+                        "expiration_time": 1785600000000,
+                        "used": True,
+                    },
+                ],
+            }
+        )
+
+        self.assertTrue(result["available"])
+        self.assertEqual(result["available_count"], 2)
+        self.assertEqual(result["total_earned_count"], 4)
+        self.assertEqual(result["earliest_expires_at"], 1784335011)
+        self.assertEqual(result["credits"][0]["status"], "available")
+        self.assertEqual(result["credits"][0]["granted_at"], 1781743011)
+        self.assertEqual(result["credits"][0]["expires_at"], 1784335011)
+        self.assertEqual(result["credits"][0]["used"], False)
+        self.assertRegex(result["credits"][0]["id"], r"^Rate\.\.\.3456 hash:[0-9a-f]{10}$")
+        self.assertNotIn("abcdef123456", result["credits"][0]["id"])
+        self.assertEqual(result["credits"][1]["used"], True)
+
     def test_normalize_rate_limits_adds_remaining_percent(self):
         from codex_profile_dashboard import normalize_rate_limits
 
@@ -321,6 +358,59 @@ class ProfileApiTests(unittest.TestCase):
             self.assertEqual(profile_payload["usage"]["dailyUsageBuckets"][0]["tokens"], 42)
             self.assertTrue(profile_payload["remote_stale"])
             self.assertEqual(profile_payload["remote_error"], "app-server timeout")
+
+    def test_build_profiles_payload_includes_reset_credit_details(self):
+        from codex_profile_dashboard import build_profiles_payload
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "profiles"
+            shared = Path(tmp) / "shared"
+            profile = root / "account-a"
+            profile.mkdir(parents=True)
+            shared.mkdir()
+            (profile / "auth.json").write_text("{}", encoding="utf-8")
+
+            def remote_reader(_profile):
+                return {
+                    "ok": True,
+                    "rate_limits": {
+                        "rateLimits": {
+                            "limitId": "codex",
+                            "credits": {"balance": 1},
+                        }
+                    },
+                    "usage": None,
+                    "error": None,
+                }
+
+            def reset_credit_reader(_profile):
+                return {
+                    "ok": True,
+                    "details": {
+                        "available": True,
+                        "available_count": 1,
+                        "credits": [
+                            {
+                                "status": "available",
+                                "expires_at": 1784344611,
+                            }
+                        ],
+                        "earliest_expires_at": 1784344611,
+                    },
+                    "error": None,
+                }
+
+            result = build_profiles_payload(
+                root,
+                shared,
+                remote_reader=remote_reader,
+                reset_credit_reader=reset_credit_reader,
+            )
+
+            details = result["profiles"][0]["reset_credit_details"]
+            self.assertEqual(details["available_count"], 1)
+            self.assertEqual(details["earliest_expires_at"], 1784344611)
+            self.assertEqual(details["credits"][0]["status"], "available")
 
     def test_read_sqlite_history_summary(self):
         import sqlite3
