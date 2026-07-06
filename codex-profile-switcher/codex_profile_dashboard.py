@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import mimetypes
 import os
 import re
@@ -12,6 +13,8 @@ import shutil
 import sqlite3
 import subprocess
 import time
+import urllib.error
+import urllib.request
 import webbrowser
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
@@ -33,7 +36,27 @@ WEB_ROOT = Path(__file__).resolve().parent / "web"
 RUNTIME_GREEN_ROLLOUT_MS = 90_000
 RUNTIME_RECENT_ACTIVITY_MS = 15 * 60_000
 REMOTE_STATUS_CACHE_SECONDS = 10 * 60
+RESET_CREDIT_DETAILS_CACHE_SECONDS = 6 * 60 * 60
 CODEX_APP_BINARY = Path("/Applications/Codex.app/Contents/Resources/codex")
+RESET_CREDITS_ENDPOINT = "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits"
+RESET_CREDIT_GRANTED_KEYS = ("granted_at", "grantedAt", "created_at", "createdAt", "issued_at", "issuedAt")
+RESET_CREDIT_EXPIRES_KEYS = (
+    "expires_at",
+    "expiresAt",
+    "expiration_time",
+    "expirationTime",
+    "expired_at",
+    "expiredAt",
+)
+RESET_CREDIT_USED_KEYS = (
+    "used",
+    "is_used",
+    "isUsed",
+    "consumed",
+    "is_consumed",
+    "isConsumed",
+    "redeemed",
+)
 
 
 def normalize_window(value: dict | None) -> dict | None:
@@ -74,6 +97,60 @@ def _optional_number(value: object | None) -> int | float | None:
     return int(number) if number.is_integer() else number
 
 
+def _optional_timestamp(value: object | None) -> int | float | None:
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        timestamp = float(value)
+        if timestamp > 10_000_000_000:
+            timestamp = timestamp / 1000
+        return int(timestamp) if timestamp.is_integer() else timestamp
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        try:
+            return _optional_timestamp(float(text))
+        except ValueError:
+            pass
+        try:
+            parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        timestamp = parsed.timestamp()
+        return int(timestamp) if timestamp.is_integer() else timestamp
+    return None
+
+
+def _mask_identifier(value: object | None) -> str | None:
+    if value is None:
+        return None
+    text = str(value)
+    digest = hashlib.sha256(text.encode("utf-8", errors="ignore")).hexdigest()[:10]
+    if len(text) <= 8:
+        return f"hash:{digest}"
+    return f"{text[:4]}...{text[-4:]} hash:{digest}"
+
+
+def _find_access_token(value: object) -> str | None:
+    if isinstance(value, dict):
+        for key, child in value.items():
+            key_text = str(key).lower()
+            if key_text == "access_token" and isinstance(child, str) and child.strip():
+                return child.strip()
+            found = _find_access_token(child)
+            if found:
+                return found
+    if isinstance(value, list):
+        for child in value:
+            found = _find_access_token(child)
+            if found:
+                return found
+    return None
+
+
 def normalize_reset_credits(payload: dict, limits: dict) -> dict:
     candidates = [
         payload.get("rateLimitResetCredits"),
@@ -101,6 +178,64 @@ def normalize_reset_credits(payload: dict, limits: dict) -> dict:
                 "resetsAt",
             )
         ),
+    }
+
+
+def normalize_reset_credit_details(payload: dict | None) -> dict:
+    value = payload or {}
+    credits = value.get("credits") if isinstance(value.get("credits"), list) else []
+    normalized_credits = []
+    for item in credits:
+        if not isinstance(item, dict):
+            continue
+        status = _first_present(item, "status", "state", "type") or "unknown"
+        used = _first_present(item, *RESET_CREDIT_USED_KEYS)
+        if used is None:
+            used = str(status).lower() not in {"available", "active", "unused"}
+        granted_at = _optional_timestamp(_first_present(item, *RESET_CREDIT_GRANTED_KEYS))
+        expires_at = _optional_timestamp(_first_present(item, *RESET_CREDIT_EXPIRES_KEYS))
+        card = {
+            "id": _mask_identifier(
+                _first_present(
+                    item,
+                    "id",
+                    "uuid",
+                    "credit_id",
+                    "creditId",
+                    "reset_credit_id",
+                    "resetCreditId",
+                )
+            ),
+            "status": status,
+            "used": bool(used),
+            "granted_at": granted_at,
+            "expires_at": expires_at,
+        }
+        normalized_credits.append(card)
+
+    available_count = _optional_int(
+        _first_present(value, "available_count", "availableCount", "count", "balance")
+    )
+    if available_count is None:
+        available_count = sum(
+            1
+            for card in normalized_credits
+            if not card["used"] and str(card["status"]).lower() in {"available", "active", "unused"}
+        )
+    total_earned_count = _optional_int(
+        _first_present(value, "total_earned_count", "totalEarnedCount", "total")
+    )
+    available_expirations = [
+        card["expires_at"]
+        for card in normalized_credits
+        if card["expires_at"] is not None and not card["used"]
+    ]
+    return {
+        "available": bool(value),
+        "available_count": available_count,
+        "total_earned_count": total_earned_count,
+        "credits": normalized_credits,
+        "earliest_expires_at": min(available_expirations) if available_expirations else None,
     }
 
 
@@ -494,9 +629,64 @@ def read_app_server_account_snapshot(
     }
 
 
+def read_reset_credit_details(
+    profile_home: Path,
+    timeout_seconds: float = 12.0,
+) -> dict:
+    auth_path = profile_home / "auth.json"
+    try:
+        auth = json.loads(auth_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"ok": False, "details": None, "error": "auth unavailable"}
+    access_token = _find_access_token(auth)
+    if not access_token:
+        return {"ok": False, "details": None, "error": "access token unavailable"}
+
+    request = urllib.request.Request(
+        RESET_CREDITS_ENDPOINT,
+        headers={
+            "Authorization": f"Bearer {access_token}",
+            "Accept": "application/json",
+            "User-Agent": "codex-profile-switcher/1.0",
+        },
+        method="GET",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+            raw = response.read(1_000_000)
+    except urllib.error.HTTPError as error:
+        return {
+            "ok": False,
+            "details": None,
+            "error": f"reset credits http {error.code}",
+        }
+    except OSError:
+        return {"ok": False, "details": None, "error": "reset credits unavailable"}
+    try:
+        payload = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return {"ok": False, "details": None, "error": "reset credits bad json"}
+    return {
+        "ok": True,
+        "details": normalize_reset_credit_details(payload),
+        "error": None,
+    }
+
+
 def _remote_status_cache_path(shared_home: Path, profile_name: str) -> Path:
     safe_name = re.sub(r"[^A-Za-z0-9_.-]", "_", profile_name)
     return shared_home / "cache" / "codex-profile-switcher" / "remote-status" / f"{safe_name}.json"
+
+
+def _reset_credit_details_cache_path(shared_home: Path, profile_name: str) -> Path:
+    safe_name = re.sub(r"[^A-Za-z0-9_.-]", "_", profile_name)
+    return (
+        shared_home
+        / "cache"
+        / "codex-profile-switcher"
+        / "reset-credit-details"
+        / f"{safe_name}.json"
+    )
 
 
 def _write_remote_status_cache(
@@ -574,11 +764,105 @@ def _read_remote_status_with_cache(
     return {**remote, "stale": False, "cached_at": None}
 
 
+def _write_reset_credit_details_cache(
+    shared_home: Path,
+    profile_name: str,
+    details: dict,
+    now_seconds: float,
+) -> None:
+    if not details.get("available"):
+        return
+    path = _reset_credit_details_cache_path(shared_home, profile_name)
+    payload = {
+        "cached_at": now_seconds,
+        "details": details,
+    }
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        tmp.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        tmp.replace(path)
+    except OSError:
+        return
+
+
+def _read_reset_credit_details_cache(
+    shared_home: Path,
+    profile_name: str,
+    now_seconds: float,
+    *,
+    expected_count: int | None = None,
+    max_age_seconds: int | None = RESET_CREDIT_DETAILS_CACHE_SECONDS,
+) -> dict | None:
+    path = _reset_credit_details_cache_path(shared_home, profile_name)
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    cached_at = payload.get("cached_at")
+    details = payload.get("details")
+    if not isinstance(cached_at, (int, float)) or not isinstance(details, dict):
+        return None
+    if max_age_seconds is not None and now_seconds - cached_at > max_age_seconds:
+        return None
+    if expected_count is not None and details.get("available_count") != expected_count:
+        return None
+    return {
+        "ok": True,
+        "details": details,
+        "error": None,
+        "stale": True,
+        "cached_at": cached_at,
+    }
+
+
+def _read_reset_credit_details_with_cache(
+    profile: Path,
+    shared_home: Path,
+    reset_credit_reader: Callable[[Path], dict],
+    now_seconds: float,
+    *,
+    expected_count: int | None = None,
+    force_refresh: bool = False,
+) -> dict:
+    if not force_refresh:
+        cached = _read_reset_credit_details_cache(
+            shared_home,
+            profile.name,
+            now_seconds,
+            expected_count=expected_count,
+        )
+        if cached is not None:
+            return cached
+    try:
+        remote = reset_credit_reader(profile)
+    except Exception:
+        remote = {"ok": False, "details": None, "error": "reset credit reader failed"}
+    if remote.get("ok") and remote.get("details"):
+        details = remote["details"]
+        _write_reset_credit_details_cache(shared_home, profile.name, details, now_seconds)
+        return {**remote, "stale": False, "cached_at": None}
+
+    cached = _read_reset_credit_details_cache(
+        shared_home,
+        profile.name,
+        now_seconds,
+        expected_count=None,
+        max_age_seconds=None,
+    )
+    if cached is not None:
+        cached["error"] = remote.get("error")
+        return cached
+    return {**remote, "stale": False, "cached_at": None}
+
+
 def build_profiles_payload(
     profile_root: Path,
     shared_home: Path,
     read_remote: bool = True,
     remote_reader: Callable[[Path], dict] | None = None,
+    reset_credit_reader: Callable[[Path], dict] | None = None,
+    force_reset_credit_refresh: bool = False,
     now_seconds: float | None = None,
 ) -> dict:
     now = time.time() if now_seconds is None else now_seconds
@@ -606,9 +890,35 @@ def build_profiles_payload(
                 profile = futures[future]
                 remote_by_name[profile.name] = future.result()
 
+    reset_details_by_name: dict[str, dict | None] = {}
+    if read_remote and profile_paths:
+        reader = reset_credit_reader or read_reset_credit_details
+        with ThreadPoolExecutor(max_workers=min(4, len(profile_paths))) as executor:
+            futures = {}
+            for profile in profile_paths:
+                remote = remote_by_name.get(profile.name)
+                expected_count = normalize_rate_limits(
+                    (remote or {}).get("rate_limits") or {}
+                )["reset_credits"]["available_count"]
+                futures[
+                    executor.submit(
+                        _read_reset_credit_details_with_cache,
+                        profile,
+                        shared_home,
+                        reader,
+                        now,
+                        expected_count=expected_count,
+                        force_refresh=force_reset_credit_refresh,
+                    )
+                ] = profile
+            for future in as_completed(futures):
+                profile = futures[future]
+                reset_details_by_name[profile.name] = future.result()
+
     profiles = []
     for profile in profile_paths:
         remote = remote_by_name.get(profile.name)
+        reset_details = reset_details_by_name.get(profile.name) or {}
         profiles.append(
             {
                 "name": profile.name,
@@ -619,6 +929,10 @@ def build_profiles_payload(
                     (remote or {}).get("rate_limits") or {}
                 ),
                 "usage": (remote or {}).get("usage"),
+                "reset_credit_details": reset_details.get("details"),
+                "reset_credit_error": reset_details.get("error") if reset_details else None,
+                "reset_credit_stale": bool(reset_details.get("stale")) if reset_details else False,
+                "reset_credit_cached_at": reset_details.get("cached_at") if reset_details else None,
                 "remote_error": (remote or {}).get("error") if remote else None,
                 "remote_stale": bool((remote or {}).get("stale")),
                 "remote_cached_at": (remote or {}).get("cached_at") if remote else None,
