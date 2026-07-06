@@ -205,6 +205,20 @@ class LocalTokenSnapshotTests(unittest.TestCase):
             self.assertEqual(result["event_count"], 0)
             self.assertEqual(result["bad_line_count"], 0)
 
+    def test_token_snapshot_skips_rollout_files_that_disappear_during_scan(self):
+        from codex_profile_dashboard import read_local_token_snapshot
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            rollout = root / "sessions" / "2026" / "07" / "06" / "rollout-vanished.jsonl"
+            rollout.parent.mkdir(parents=True)
+            rollout.symlink_to(root / "missing-rollout.jsonl")
+
+            result = read_local_token_snapshot(root)
+
+            self.assertEqual(result["event_count"], 0)
+            self.assertEqual(result["bad_line_count"], 0)
+
 
 class AppServerClientTests(unittest.TestCase):
     def test_build_rpc_request(self):

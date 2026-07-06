@@ -182,7 +182,11 @@ def read_local_token_snapshot(shared_home: Path) -> dict:
             file_latest_timestamp = None
             file_latest_usage = None
             file_model = "unknown"
-            with path.open(encoding="utf-8") as handle:
+            try:
+                handle = path.open(encoding="utf-8")
+            except OSError:
+                continue
+            with handle:
                 for line in handle:
                     try:
                         row = json.loads(line)
