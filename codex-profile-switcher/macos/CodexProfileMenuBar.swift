@@ -1,6 +1,15 @@
 import AppKit
 import Foundation
 
+private enum MenuLayout {
+    static let popoverWidth: CGFloat = 460
+    static let contentWidth: CGFloat = 424
+    static let contentInset: CGFloat = 18
+    static let verticalSpacing: CGFloat = 14
+    static let maxVisibleHeight: CGFloat = 860
+    static let minVisibleHeight: CGFloat = 480
+}
+
 struct DashboardPayload: Decodable {
     let generatedAt: String
     let activeProfile: String?
@@ -522,7 +531,7 @@ final class CodexProfileMenuBarApp: NSObject, NSApplicationDelegate, NSPopoverDe
         popover.behavior = .applicationDefined
         popover.animates = true
         popover.delegate = self
-        popover.contentSize = NSSize(width: 460, height: 980)
+        popover.contentSize = NSSize(width: MenuLayout.popoverWidth, height: MenuLayout.maxVisibleHeight)
     }
 
     private func startAutoRefresh() {
@@ -541,9 +550,26 @@ final class CodexProfileMenuBarApp: NSObject, NSApplicationDelegate, NSPopoverDe
             popover.performClose(sender)
         } else {
             updatePopover()
-            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+            popover.show(relativeTo: statusIconAnchorRect(in: button), of: button, preferredEdge: .minY)
             startPopoverDismissMonitors()
         }
+    }
+
+    private func statusIconAnchorRect(in button: NSStatusBarButton) -> NSRect {
+        let iconWidth = button.image?.size.width ?? 22
+        let anchorWidth = min(max(iconWidth, 22), button.bounds.width)
+        let x: CGFloat
+        switch button.imagePosition {
+        case .imageRight, .imageTrailing:
+            x = max(0, button.bounds.width - anchorWidth)
+        case .imageOnly, .imageLeft, .imageLeading, .imageOverlaps, .imageBelow, .imageAbove:
+            x = 0
+        case .noImage:
+            x = button.bounds.midX - anchorWidth / 2
+        @unknown default:
+            x = 0
+        }
+        return NSRect(x: x, y: 0, width: anchorWidth, height: button.bounds.height)
     }
 
     @objc private func refreshStatus(_ sender: Any?) {
@@ -697,7 +723,7 @@ final class CodexProfileMenuBarApp: NSObject, NSApplicationDelegate, NSPopoverDe
     }
 
     private func updatePopover(message: String? = nil) {
-        popover.contentViewController = AccountManagerViewController(
+        let controller = AccountManagerViewController(
             payload: latestPayload,
             message: message ?? latestError,
             isRefreshing: isRefreshing,
@@ -711,6 +737,8 @@ final class CodexProfileMenuBarApp: NSObject, NSApplicationDelegate, NSPopoverDe
             quitAction: { NSApp.terminate(nil) },
             switchAction: { [weak self] name in self?.switchProfile(name) }
         )
+        popover.contentViewController = controller
+        popover.contentSize = controller.preferredContentSize
     }
 
     private func launchActiveProfile() {
@@ -835,7 +863,45 @@ final class AccountManagerViewController: NSViewController {
     }
 
     override func loadView() {
-        view = AccountManagerView(frame: NSRect(x: 0, y: 0, width: 460, height: 980))
+        let size = Self.preferredSize(payload: payload, page: page, hasMessage: message != nil)
+        preferredContentSize = size
+        view = AccountManagerView(frame: NSRect(origin: .zero, size: size))
+    }
+
+    private static func preferredSize(payload: DashboardPayload?, page: ManagerPage, hasMessage: Bool) -> NSSize {
+        let contentHeight = estimatedContentHeight(payload: payload, page: page, hasMessage: hasMessage)
+        let screenLimit = max(
+            MenuLayout.minVisibleHeight,
+            (NSScreen.main?.visibleFrame.height ?? MenuLayout.maxVisibleHeight) - 64
+        )
+        let maxHeight = min(MenuLayout.maxVisibleHeight, screenLimit)
+        let height = min(max(contentHeight, MenuLayout.minVisibleHeight), maxHeight)
+        return NSSize(width: MenuLayout.popoverWidth, height: height)
+    }
+
+    private static func estimatedContentHeight(payload: DashboardPayload?, page: ManagerPage, hasMessage: Bool) -> CGFloat {
+        var itemHeights: [CGFloat] = [104, 34]
+        if hasMessage {
+            itemHeights.append(18)
+        }
+        if let payload {
+            switch page {
+            case .quota:
+                itemHeights.append(CGFloat(payload.profiles.count) * AccountCardView.cardHeight)
+                itemHeights.append(ResetCreditsPanelView.panelHeight(for: payload.profiles))
+            case .token:
+                itemHeights.append(560)
+            }
+        }
+        itemHeights.append(actionRowHeight(payload: payload))
+        let spacing = CGFloat(max(0, itemHeights.count - 1)) * MenuLayout.verticalSpacing
+        return MenuLayout.contentInset * 2 + itemHeights.reduce(0, +) + spacing
+    }
+
+    private static func actionRowHeight(payload: DashboardPayload?) -> CGFloat {
+        let hasLaunchAction = (payload?.activeProfile ?? payload?.profiles.first?.name) != nil
+        let rowCount = hasLaunchAction ? 3 : 2
+        return CGFloat(rowCount) * 36 + CGFloat(rowCount - 1) * 2
     }
 
     override func viewDidLoad() {
@@ -848,18 +914,46 @@ final class AccountManagerViewController: NSViewController {
             return
         }
 
+        let scrollView = NSScrollView()
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.drawsBackground = false
+        scrollView.borderType = .noBorder
+        scrollView.hasVerticalScroller = true
+        scrollView.scrollerStyle = .overlay
+        scrollView.verticalScrollElasticity = .allowed
+        root.addSubview(scrollView)
+
+        let document = NSView()
+        document.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.documentView = document
+
+        let actions = actionRow()
+        root.addSubview(actions)
+
         let content = NSStackView()
         content.orientation = .vertical
-        content.spacing = 14
+        content.spacing = MenuLayout.verticalSpacing
         content.alignment = .leading
         content.translatesAutoresizingMaskIntoConstraints = false
-        root.addSubview(content)
+        document.addSubview(content)
 
         NSLayoutConstraint.activate([
-            content.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 18),
-            content.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -18),
-            content.topAnchor.constraint(equalTo: root.topAnchor, constant: 18),
-            content.bottomAnchor.constraint(lessThanOrEqualTo: root.bottomAnchor, constant: -16),
+            scrollView.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+            scrollView.topAnchor.constraint(equalTo: root.topAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: actions.topAnchor, constant: -8),
+            document.leadingAnchor.constraint(equalTo: scrollView.contentView.leadingAnchor),
+            document.trailingAnchor.constraint(equalTo: scrollView.contentView.trailingAnchor),
+            document.topAnchor.constraint(equalTo: scrollView.contentView.topAnchor),
+            document.widthAnchor.constraint(equalTo: scrollView.contentView.widthAnchor),
+            document.heightAnchor.constraint(greaterThanOrEqualTo: scrollView.contentView.heightAnchor),
+            content.leadingAnchor.constraint(equalTo: document.leadingAnchor, constant: MenuLayout.contentInset),
+            content.trailingAnchor.constraint(equalTo: document.trailingAnchor, constant: -MenuLayout.contentInset),
+            content.topAnchor.constraint(equalTo: document.topAnchor, constant: MenuLayout.contentInset),
+            document.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: 16),
+            actions.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: MenuLayout.contentInset),
+            actions.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -MenuLayout.contentInset),
+            actions.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -14),
         ])
 
         content.addArrangedSubview(headerView())
@@ -888,7 +982,6 @@ final class AccountManagerViewController: NSViewController {
             }
         }
 
-        content.addArrangedSubview(actionRow())
     }
 
     private func pageToggle() -> NSView {
@@ -1201,13 +1294,19 @@ final class PageToggleButtonView: NSView {
 
 final class ResetCreditsPanelView: NSView {
     private let profiles: [ProfileStatus]
+    private static let innerWidth: CGFloat = 396
+    private static let nameColumnWidth: CGFloat = 128
+    private static let gridWidth: CGFloat = 260
+    private static let pillSpacing: CGFloat = 8
+    private static let pillHeight: CGFloat = 24
+    private static let pillWidth: CGFloat = (gridWidth - pillSpacing) / 2
 
     init(profiles: [ProfileStatus]) {
         self.profiles = profiles
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
-        widthAnchor.constraint(equalToConstant: 424).isActive = true
-        heightAnchor.constraint(equalToConstant: CGFloat(48 + max(1, profiles.count) * 42)).isActive = true
+        widthAnchor.constraint(equalToConstant: MenuLayout.contentWidth).isActive = true
+        heightAnchor.constraint(equalToConstant: Self.panelHeight(for: profiles)).isActive = true
         wantsLayer = true
         layer?.cornerRadius = 16
         layer?.borderColor = NSColor.white.withAlphaComponent(0.62).cgColor
@@ -1219,6 +1318,24 @@ final class ResetCreditsPanelView: NSView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    static func panelHeight(for profiles: [ProfileStatus]) -> CGFloat {
+        if profiles.isEmpty {
+            return 88
+        }
+        let rowsHeight = profiles.reduce(CGFloat(0)) { total, profile in
+            total + profileSectionHeight(for: profile)
+        }
+        let sectionSpacing = CGFloat(max(0, profiles.count - 1)) * 8
+        return 46 + rowsHeight + sectionSpacing
+    }
+
+    private static func profileSectionHeight(for profile: ProfileStatus) -> CGFloat {
+        let count = availableCards(for: profile).count
+        let rowCount = max(1, Int(ceil(Double(min(max(count, 1), 6)) / 2.0)))
+        let pillsHeight = CGFloat(rowCount) * pillHeight + CGFloat(rowCount - 1) * 6
+        return max(32, pillsHeight)
+    }
+
     override func draw(_ dirtyRect: NSRect) {
         let path = NSBezierPath(roundedRect: bounds, xRadius: 16, yRadius: 16)
         NSColor.white.withAlphaComponent(0.38).setFill()
@@ -1228,7 +1345,8 @@ final class ResetCreditsPanelView: NSView {
     private func build() {
         let stack = NSStackView()
         stack.orientation = .vertical
-        stack.spacing = 7
+        stack.spacing = 10
+        stack.alignment = .leading
         stack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stack)
 
@@ -1242,6 +1360,9 @@ final class ResetCreditsPanelView: NSView {
         let title = NSTextField(labelWithString: "重置卡明细")
         title.font = NSFont.systemFont(ofSize: 13, weight: .heavy)
         title.textColor = NSColor.black.withAlphaComponent(0.78)
+        title.alignment = .center
+        title.translatesAutoresizingMaskIntoConstraints = false
+        title.widthAnchor.constraint(equalToConstant: Self.innerWidth).isActive = true
         stack.addArrangedSubview(title)
 
         if profiles.isEmpty {
@@ -1249,7 +1370,7 @@ final class ResetCreditsPanelView: NSView {
             return
         }
         for profile in profiles {
-            stack.addArrangedSubview(profileRow(profile))
+            stack.addArrangedSubview(profileSection(profile))
         }
     }
 
@@ -1260,53 +1381,149 @@ final class ResetCreditsPanelView: NSView {
         return label
     }
 
-    private func profileRow(_ profile: ProfileStatus) -> NSView {
-        let row = NSStackView()
-        row.orientation = .horizontal
-        row.spacing = 8
-        row.alignment = .firstBaseline
-        row.translatesAutoresizingMaskIntoConstraints = false
-        row.widthAnchor.constraint(equalToConstant: 396).isActive = true
+    private func profileSection(_ profile: ProfileStatus) -> NSView {
+        let section = NSStackView()
+        section.orientation = .horizontal
+        section.spacing = 8
+        section.alignment = .top
+        section.translatesAutoresizingMaskIntoConstraints = false
+        section.widthAnchor.constraint(equalToConstant: Self.innerWidth).isActive = true
+
+        let profileInfo = NSStackView()
+        profileInfo.orientation = .vertical
+        profileInfo.spacing = 2
+        profileInfo.alignment = .leading
+        profileInfo.translatesAutoresizingMaskIntoConstraints = false
+        profileInfo.widthAnchor.constraint(equalToConstant: Self.nameColumnWidth).isActive = true
 
         let name = NSTextField(labelWithString: profile.name)
-        name.font = NSFont.systemFont(ofSize: 11.5, weight: .bold)
+        name.font = NSFont.systemFont(ofSize: 11.5, weight: .heavy)
         name.textColor = NSColor.black.withAlphaComponent(0.78)
         name.lineBreakMode = .byTruncatingTail
         name.translatesAutoresizingMaskIntoConstraints = false
-        name.widthAnchor.constraint(equalToConstant: 132).isActive = true
-        row.addArrangedSubview(name)
+        name.widthAnchor.constraint(equalToConstant: Self.nameColumnWidth).isActive = true
+        profileInfo.addArrangedSubview(name)
 
-        let detail = NSTextField(labelWithString: detailText(profile))
-        detail.font = NSFont.monospacedSystemFont(ofSize: 10.5, weight: .medium)
+        let detail = NSTextField(labelWithString: headerText(profile))
+        detail.font = NSFont.systemFont(ofSize: 10.5, weight: .semibold)
         detail.textColor = NSColor.black.withAlphaComponent(0.62)
-        detail.lineBreakMode = .byTruncatingTail
+        detail.alignment = .left
         detail.translatesAutoresizingMaskIntoConstraints = false
-        detail.widthAnchor.constraint(equalToConstant: 256).isActive = true
-        row.addArrangedSubview(detail)
-        return row
+        detail.widthAnchor.constraint(equalToConstant: Self.nameColumnWidth).isActive = true
+        profileInfo.addArrangedSubview(detail)
+
+        section.addArrangedSubview(profileInfo)
+        section.addArrangedSubview(cardGrid(profile))
+        return section
     }
 
-    private func detailText(_ profile: ProfileStatus) -> String {
+    private func headerText(_ profile: ProfileStatus) -> String {
         guard let details = profile.resetCreditDetails else {
             return profile.resetCreditError ?? "未读取"
         }
         let count = details.availableCount ?? profile.rateLimits.resetCredits?.availableCount ?? 0
-        let visibleCards = details.credits
+        return "\(count) 张可用"
+    }
+
+    private func cardGrid(_ profile: ProfileStatus) -> NSView {
+        let cards = Self.availableCards(for: profile)
+        if cards.isEmpty {
+            return emptyPill(profile.resetCreditError ?? "暂无可用到期明细")
+        }
+
+        let grid = NSStackView()
+        grid.orientation = .vertical
+        grid.spacing = 6
+        grid.alignment = .leading
+        grid.translatesAutoresizingMaskIntoConstraints = false
+        grid.widthAnchor.constraint(equalToConstant: Self.gridWidth).isActive = true
+
+        let visibleCards = Array(cards.prefix(5))
+        var pills = visibleCards.enumerated().map { index, card in
+            resetCreditPill(index: index + 1, card: card)
+        }
+        if cards.count > visibleCards.count {
+            pills.append(summaryPill("还有 \(cards.count - visibleCards.count) 张"))
+        }
+
+        var index = 0
+        while index < pills.count {
+            let row = NSStackView()
+            row.orientation = .horizontal
+            row.spacing = Self.pillSpacing
+            row.translatesAutoresizingMaskIntoConstraints = false
+            row.widthAnchor.constraint(equalToConstant: Self.gridWidth).isActive = true
+            row.addArrangedSubview(pills[index])
+            if index + 1 < pills.count {
+                row.addArrangedSubview(pills[index + 1])
+            } else {
+                row.addArrangedSubview(spacerPill())
+            }
+            grid.addArrangedSubview(row)
+            index += 2
+        }
+        return grid
+    }
+
+    private func resetCreditPill(index: Int, card: ResetCreditCard) -> NSView {
+        let text = "\(index)  \(TimeText.beijingMonthDayMinute(card.expiresAt))"
+        return pillView(text: text, color: NSColor.white.withAlphaComponent(0.46), textColor: NSColor.black.withAlphaComponent(0.70))
+    }
+
+    private func summaryPill(_ text: String) -> NSView {
+        pillView(text: text, color: NSColor.white.withAlphaComponent(0.30), textColor: NSColor.black.withAlphaComponent(0.52))
+    }
+
+    private func emptyPill(_ text: String) -> NSView {
+        pillView(text: text, color: NSColor.white.withAlphaComponent(0.28), textColor: NSColor.black.withAlphaComponent(0.42), fullWidth: true)
+    }
+
+    private func spacerPill() -> NSView {
+        let view = NSView()
+        view.translatesAutoresizingMaskIntoConstraints = false
+        view.widthAnchor.constraint(equalToConstant: Self.pillWidth).isActive = true
+        view.heightAnchor.constraint(equalToConstant: Self.pillHeight).isActive = true
+        return view
+    }
+
+    private func pillView(text: String, color: NSColor, textColor: NSColor, fullWidth: Bool = false) -> NSView {
+        let view = NSView()
+        view.translatesAutoresizingMaskIntoConstraints = false
+        view.widthAnchor.constraint(equalToConstant: fullWidth ? Self.gridWidth : Self.pillWidth).isActive = true
+        view.heightAnchor.constraint(equalToConstant: Self.pillHeight).isActive = true
+        view.wantsLayer = true
+        view.layer?.cornerRadius = 9
+        view.layer?.backgroundColor = color.cgColor
+
+        let label = NSTextField(labelWithString: text)
+        label.font = NSFont.monospacedSystemFont(ofSize: 10.5, weight: .semibold)
+        label.textColor = textColor
+        label.alignment = .center
+        label.lineBreakMode = .byTruncatingTail
+        label.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(label)
+
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 8),
+            label.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -8),
+            label.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+        ])
+        return view
+    }
+
+    private static func availableCards(for profile: ProfileStatus) -> [ResetCreditCard] {
+        guard let details = profile.resetCreditDetails else {
+            return []
+        }
+        return details.credits
             .filter { $0.used != true }
             .sorted { ($0.expiresAt ?? .greatestFiniteMagnitude) < ($1.expiresAt ?? .greatestFiniteMagnitude) }
-        if visibleCards.isEmpty {
-            return "\(count) 张可用 · 暂无到期明细"
-        }
-        let dates = visibleCards
-            .prefix(4)
-            .map { TimeText.beijingMonthDayMinute($0.expiresAt) }
-            .joined(separator: " · ")
-        let suffix = visibleCards.count > 4 ? " · +" : ""
-        return "\(count) 张可用 · \(dates)\(suffix)"
     }
 }
 
 final class AccountCardView: NSView {
+    static let cardHeight: CGFloat = 190
+
     private let profile: ProfileStatus
     private let index: Int
     private let isActive: Bool
@@ -1320,7 +1537,7 @@ final class AccountCardView: NSView {
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
         widthAnchor.constraint(equalToConstant: 424).isActive = true
-        heightAnchor.constraint(equalToConstant: 210).isActive = true
+        heightAnchor.constraint(equalToConstant: Self.cardHeight).isActive = true
         wantsLayer = true
         layer?.cornerRadius = 18
         layer?.borderColor = NSColor.white.withAlphaComponent(0.75).cgColor
