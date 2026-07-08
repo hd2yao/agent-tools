@@ -153,6 +153,8 @@ func printDryRun(_ settings: ReminderSettings) {
     print("confirm_control=nsbutton")
     print("accepts_first_mouse=true")
     print("visual_style=macos_compact_toast")
+    print("icon_style=folded_paper_airplane")
+    print("visual_hierarchy=message_button_airplane")
     print("motion=slow_enter_wait_confirm_exit")
     print("icon_semantics=airplane_leads_banner_trails")
     print("decorations=minimal")
@@ -662,146 +664,81 @@ final class PlaneReminderView: NSView {
 
         context.saveGState()
         context.translateBy(x: origin.x + 76, y: origin.y + 48)
-        context.rotate(by: sin(animationClock * 1.8) * 0.035)
+        context.rotate(by: -0.06 + sin(animationClock * 1.8) * 0.025)
         context.translateBy(x: -76, y: -48)
 
         NSGraphicsContext.saveGraphicsState()
         let shadow = NSShadow()
-        shadow.shadowColor = NSColor(calibratedWhite: 0, alpha: 0.12)
-        shadow.shadowBlurRadius = 10
-        shadow.shadowOffset = CGSize(width: 0, height: 3)
+        shadow.shadowColor = NSColor(calibratedWhite: 0, alpha: 0.14)
+        shadow.shadowBlurRadius = 12
+        shadow.shadowOffset = CGSize(width: 0, height: 4)
         shadow.set()
 
         NSColor(calibratedRed: 0.90, green: 0.97, blue: 1.0, alpha: 1).setFill()
-        let body = NSBezierPath()
-        body.move(to: CGPoint(x: 24, y: 47))
-        body.curve(
-            to: CGPoint(x: 122, y: 30),
-            controlPoint1: CGPoint(x: 50, y: 28),
-            controlPoint2: CGPoint(x: 96, y: 28)
-        )
-        body.curve(
-            to: CGPoint(x: 146, y: 48),
-            controlPoint1: CGPoint(x: 136, y: 30),
-            controlPoint2: CGPoint(x: 146, y: 38)
-        )
-        body.curve(
-            to: CGPoint(x: 122, y: 66),
-            controlPoint1: CGPoint(x: 146, y: 58),
-            controlPoint2: CGPoint(x: 136, y: 66)
-        )
-        body.curve(
-            to: CGPoint(x: 24, y: 56),
-            controlPoint1: CGPoint(x: 92, y: 66),
-            controlPoint2: CGPoint(x: 50, y: 61)
-        )
-        body.curve(
-            to: CGPoint(x: 24, y: 47),
-            controlPoint1: CGPoint(x: 17, y: 55),
-            controlPoint2: CGPoint(x: 17, y: 49)
-        )
-        body.close()
-        body.fill()
+        let outline = paperPlaneOutline()
+        outline.fill()
         NSGraphicsContext.restoreGraphicsState()
 
-        NSColor(calibratedRed: 0.19, green: 0.52, blue: 0.89, alpha: 1).setStroke()
-        body.lineWidth = 2
-        body.stroke()
+        NSColor(calibratedRed: 0.16, green: 0.52, blue: 0.86, alpha: 1).setFill()
+        paperPlaneUpperFold().fill()
 
-        NSColor(calibratedRed: 0.12, green: 0.52, blue: 0.88, alpha: 1).setFill()
-        let belly = NSBezierPath()
-        belly.move(to: CGPoint(x: 39, y: 50))
-        belly.curve(
-            to: CGPoint(x: 122, y: 53),
-            controlPoint1: CGPoint(x: 62, y: 56),
-            controlPoint2: CGPoint(x: 94, y: 57)
-        )
-        belly.curve(
-            to: CGPoint(x: 122, y: 63),
-            controlPoint1: CGPoint(x: 127, y: 56),
-            controlPoint2: CGPoint(x: 127, y: 60)
-        )
-        belly.curve(
-            to: CGPoint(x: 43, y: 58),
-            controlPoint1: CGPoint(x: 98, y: 67),
-            controlPoint2: CGPoint(x: 63, y: 64)
-        )
-        belly.curve(
-            to: CGPoint(x: 39, y: 50),
-            controlPoint1: CGPoint(x: 37, y: 56),
-            controlPoint2: CGPoint(x: 36, y: 52)
-        )
-        belly.close()
-        belly.fill()
+        NSColor(calibratedRed: 0.33, green: 0.70, blue: 0.96, alpha: 1).setFill()
+        paperPlaneLowerFold().fill()
 
-        drawTail()
-        drawWing()
-        drawCockpit()
-        drawPropeller(center: CGPoint(x: 146, y: 48))
+        NSColor(calibratedRed: 0.73, green: 0.91, blue: 0.99, alpha: 1).setFill()
+        paperPlaneTailFold().fill()
+
+        NSColor(calibratedRed: 0.12, green: 0.38, blue: 0.68, alpha: 0.86).setStroke()
+        outline.lineWidth = 1.7
+        outline.stroke()
+
+        NSColor(calibratedRed: 0.62, green: 0.86, blue: 0.98, alpha: 0.9).setStroke()
+        let foldLine = NSBezierPath()
+        foldLine.move(to: CGPoint(x: 76, y: 58))
+        foldLine.line(to: CGPoint(x: 144, y: 16))
+        foldLine.lineWidth = 1.1
+        foldLine.stroke()
 
         context.restoreGState()
     }
 
-    private func drawPropeller(center: CGPoint) {
-        NSColor(calibratedWhite: 1, alpha: 0.72).setFill()
-        for index in 0..<4 {
-            let angle = animationClock * .pi * 10 + CGFloat(index) * .pi / 2
-            let transform = NSAffineTransform()
-            transform.translateX(by: center.x, yBy: center.y)
-            transform.rotate(byRadians: angle)
-            transform.translateX(by: -center.x, yBy: -center.y)
-
-            let blade = NSBezierPath(ovalIn: NSRect(x: center.x - 4, y: center.y - 24, width: 8, height: 22))
-            blade.transform(using: transform as AffineTransform)
-            blade.fill()
-        }
-
-        NSColor(calibratedRed: 0.20, green: 0.48, blue: 0.80, alpha: 1).setFill()
-        NSBezierPath(ovalIn: NSRect(x: center.x - 5, y: center.y - 5, width: 10, height: 10)).fill()
+    private func paperPlaneOutline() -> NSBezierPath {
+        let path = NSBezierPath()
+        path.move(to: CGPoint(x: 7, y: 52))
+        path.line(to: CGPoint(x: 146, y: 16))
+        path.line(to: CGPoint(x: 108, y: 84))
+        path.line(to: CGPoint(x: 77, y: 60))
+        path.line(to: CGPoint(x: 48, y: 77))
+        path.line(to: CGPoint(x: 60, y: 61))
+        path.close()
+        return path
     }
 
-    private func drawCockpit() {
-        NSColor(calibratedRed: 1, green: 0.88, blue: 0.38, alpha: 1).setFill()
-        let cockpit = NSBezierPath(roundedRect: NSRect(x: 88, y: 31, width: 28, height: 15), xRadius: 8, yRadius: 8)
-        cockpit.fill()
+    private func paperPlaneUpperFold() -> NSBezierPath {
+        let path = NSBezierPath()
+        path.move(to: CGPoint(x: 7, y: 52))
+        path.line(to: CGPoint(x: 146, y: 16))
+        path.line(to: CGPoint(x: 77, y: 60))
+        path.close()
+        return path
     }
 
-    private func drawTail() {
-        NSColor(calibratedRed: 0.45, green: 0.80, blue: 0.62, alpha: 1).setFill()
-        let topTail = NSBezierPath()
-        topTail.move(to: CGPoint(x: 30, y: 40))
-        topTail.line(to: CGPoint(x: 8, y: 18))
-        topTail.curve(to: CGPoint(x: 44, y: 41), controlPoint1: CGPoint(x: 26, y: 19), controlPoint2: CGPoint(x: 39, y: 29))
-        topTail.close()
-        topTail.fill()
-
-        NSColor(calibratedRed: 0.24, green: 0.61, blue: 0.92, alpha: 1).setFill()
-        let tail = NSBezierPath()
-        tail.move(to: CGPoint(x: 31, y: 56))
-        tail.line(to: CGPoint(x: 9, y: 75))
-        tail.curve(to: CGPoint(x: 46, y: 59), controlPoint1: CGPoint(x: 27, y: 75), controlPoint2: CGPoint(x: 40, y: 67))
-        tail.close()
-        tail.fill()
+    private func paperPlaneLowerFold() -> NSBezierPath {
+        let path = NSBezierPath()
+        path.move(to: CGPoint(x: 77, y: 60))
+        path.line(to: CGPoint(x: 108, y: 84))
+        path.line(to: CGPoint(x: 92, y: 65))
+        path.close()
+        return path
     }
 
-    private func drawWing() {
-        NSColor(calibratedRed: 0.46, green: 0.82, blue: 0.68, alpha: 1).setFill()
-        let upperWing = NSBezierPath()
-        upperWing.move(to: CGPoint(x: 67, y: 42))
-        upperWing.line(to: CGPoint(x: 94, y: 9))
-        upperWing.curve(to: CGPoint(x: 115, y: 22), controlPoint1: CGPoint(x: 106, y: 9), controlPoint2: CGPoint(x: 116, y: 15))
-        upperWing.line(to: CGPoint(x: 84, y: 51))
-        upperWing.close()
-        upperWing.fill()
-
-        NSColor(calibratedRed: 0.30, green: 0.66, blue: 0.95, alpha: 1).setFill()
-        let lowerWing = NSBezierPath()
-        lowerWing.move(to: CGPoint(x: 66, y: 53))
-        lowerWing.line(to: CGPoint(x: 100, y: 76))
-        lowerWing.curve(to: CGPoint(x: 117, y: 63), controlPoint1: CGPoint(x: 112, y: 75), controlPoint2: CGPoint(x: 119, y: 69))
-        lowerWing.line(to: CGPoint(x: 83, y: 47))
-        lowerWing.close()
-        lowerWing.fill()
+    private func paperPlaneTailFold() -> NSBezierPath {
+        let path = NSBezierPath()
+        path.move(to: CGPoint(x: 48, y: 77))
+        path.line(to: CGPoint(x: 77, y: 60))
+        path.line(to: CGPoint(x: 60, y: 61))
+        path.close()
+        return path
     }
 
     private func drawTowLine(from start: CGPoint, to end: CGPoint) {
