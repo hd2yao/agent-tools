@@ -622,8 +622,8 @@ def read_local_token_snapshot(shared_home: Path) -> dict:
 
 
 def read_sqlite_history_summary(shared_home: Path) -> dict:
-    path = shared_home / "state_5.sqlite"
-    if not path.exists():
+    path = _sqlite_state_path(shared_home)
+    if path is None:
         return {"available": False, "thread_count": 0, "tokens_used": 0, "error": None}
     try:
         conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5)
@@ -644,6 +644,175 @@ def read_sqlite_history_summary(shared_home: Path) -> dict:
         "available": True,
         "thread_count": int(row[0] or 0),
         "tokens_used": int(row[1] or 0),
+        "error": None,
+    }
+
+
+def _sqlite_state_path(shared_home: Path) -> Path | None:
+    for path in (shared_home / "state_5.sqlite", shared_home / "sqlite" / "state_5.sqlite"):
+        if path.exists():
+            return path
+    return None
+
+
+def read_project_rankings(shared_home: Path, limit: int = 8) -> dict:
+    path = _sqlite_state_path(shared_home)
+    if path is None:
+        return {"available": False, "projects": [], "error": None}
+    try:
+        conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5)
+        try:
+            rows = conn.execute(
+                """
+                select cwd,
+                       count(*),
+                       coalesce(sum(tokens_used), 0),
+                       coalesce(max(updated_at), 0)
+                from threads
+                where cwd is not null and cwd != ''
+                group by cwd
+                order by coalesce(sum(tokens_used), 0) desc,
+                         coalesce(max(updated_at), 0) desc
+                limit ?
+                """,
+                (limit,),
+            ).fetchall()
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return {"available": False, "projects": [], "error": "sqlite unavailable"}
+
+    projects = []
+    for cwd, thread_count, tokens_used, latest_updated_at in rows:
+        path_value = str(cwd)
+        projects.append(
+            {
+                "name": Path(path_value).name or path_value,
+                "path": path_value,
+                "thread_count": int(thread_count or 0),
+                "tokens_used": int(tokens_used or 0),
+                "latest_updated_at": int(latest_updated_at or 0),
+            }
+        )
+    return {"available": True, "projects": projects, "error": None}
+
+
+def read_tool_rankings(shared_home: Path, limit: int = 12) -> dict:
+    path = _sqlite_state_path(shared_home)
+    if path is None:
+        return {"available": False, "tools": [], "error": None}
+    try:
+        conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5)
+        try:
+            rows = conn.execute(
+                """
+                select coalesce(thread_dynamic_tools.namespace, ''),
+                       thread_dynamic_tools.name,
+                       count(*),
+                       coalesce(max(threads.updated_at), 0),
+                       coalesce(sum(threads.tokens_used), 0)
+                from thread_dynamic_tools
+                join threads on threads.id = thread_dynamic_tools.thread_id
+                where thread_dynamic_tools.name is not null
+                  and thread_dynamic_tools.name != ''
+                group by coalesce(thread_dynamic_tools.namespace, ''),
+                         thread_dynamic_tools.name
+                order by count(*) desc, coalesce(max(threads.updated_at), 0) desc
+                limit ?
+                """,
+                (limit,),
+            ).fetchall()
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return {"available": False, "tools": [], "error": "sqlite unavailable"}
+
+    tools = []
+    for namespace, name, call_count, latest_updated_at, thread_tokens in rows:
+        namespace_value = str(namespace or "")
+        name_value = str(name)
+        tools.append(
+            {
+                "id": f"{namespace_value}.{name_value}" if namespace_value else name_value,
+                "namespace": namespace_value,
+                "name": name_value,
+                "call_count": int(call_count or 0),
+                "latest_updated_at": int(latest_updated_at or 0),
+                "thread_tokens": int(thread_tokens or 0),
+            }
+        )
+    return {"available": True, "tools": tools, "error": None}
+
+
+def _skill_name_from_path(path_value: str) -> str | None:
+    path = Path(path_value)
+    if path.name != "SKILL.md" or path.parent.name in ("", "."):
+        return None
+    return path.parent.name
+
+
+def _skill_names_from_row(row: dict) -> set[str]:
+    payload = row.get("payload") or {}
+    if not isinstance(payload, dict):
+        return set()
+    names: set[str] = set()
+    parsed = payload.get("parsed_cmd") or row.get("parsed_cmd") or []
+    if isinstance(parsed, list):
+        for item in parsed:
+            if not isinstance(item, dict):
+                continue
+            path_value = item.get("path")
+            if not isinstance(path_value, str):
+                continue
+            name = _skill_name_from_path(path_value)
+            if name:
+                names.add(name)
+    return names
+
+
+def read_skill_rankings(shared_home: Path, limit: int = 12) -> dict:
+    skills: dict[str, dict] = {}
+    bad_line_count = 0
+    search_roots = (shared_home / "sessions", shared_home / "archived_sessions")
+    for root in search_roots:
+        if not root.exists():
+            continue
+        for path in sorted(root.rglob("rollout-*.jsonl")):
+            try:
+                handle = path.open(encoding="utf-8")
+            except OSError:
+                continue
+            with handle:
+                for line in handle:
+                    try:
+                        row = json.loads(line)
+                    except json.JSONDecodeError:
+                        bad_line_count += 1
+                        continue
+                    timestamp = row.get("timestamp")
+                    for name in _skill_names_from_row(row):
+                        item = skills.setdefault(
+                            name,
+                            {"name": name, "use_count": 0, "latest_timestamp": None},
+                        )
+                        item["use_count"] += 1
+                        if (
+                            isinstance(timestamp, str)
+                            and (
+                                item["latest_timestamp"] is None
+                                or timestamp > item["latest_timestamp"]
+                            )
+                        ):
+                            item["latest_timestamp"] = timestamp
+    ranked = sorted(
+        skills.values(),
+        key=lambda item: (item["use_count"], item.get("latest_timestamp") or ""),
+        reverse=True,
+    )[:limit]
+    return {
+        "available": bool(ranked),
+        "skills": ranked,
+        "bad_line_count": bad_line_count,
         "error": None,
     }
 
@@ -1204,6 +1373,9 @@ def build_profiles_payload(
         "shared_home": str(shared_home),
         "local_snapshot": local_snapshot,
         "history": read_sqlite_history_summary(shared_home),
+        "project_rankings": read_project_rankings(shared_home),
+        "tool_rankings": read_tool_rankings(shared_home),
+        "skill_rankings": read_skill_rankings(shared_home),
         "attribution_summary": {
             "active_profile": attribution_ledger.get("active_profile"),
             "managed": bool(attribution_ledger.get("managed")),

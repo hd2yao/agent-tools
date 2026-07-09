@@ -684,6 +684,148 @@ class ProfileApiTests(unittest.TestCase):
             self.assertEqual(result["thread_count"], 2)
             self.assertEqual(result["tokens_used"], 25)
 
+    def test_read_project_rankings_groups_threads_by_workspace(self):
+        import sqlite3
+        from codex_profile_dashboard import read_project_rankings
+
+        with tempfile.TemporaryDirectory() as tmp:
+            shared = Path(tmp)
+            conn = sqlite3.connect(shared / "state_5.sqlite")
+            try:
+                conn.execute(
+                    "create table threads (id text, cwd text, tokens_used integer, updated_at integer)"
+                )
+                conn.execute("insert into threads values ('t1', '/work/alpha', 40, 100)")
+                conn.execute("insert into threads values ('t2', '/work/alpha', 60, 200)")
+                conn.execute("insert into threads values ('t3', '/work/beta', 20, 300)")
+                conn.commit()
+            finally:
+                conn.close()
+
+            result = read_project_rankings(shared, limit=2)
+
+            self.assertTrue(result["available"])
+            self.assertEqual(result["projects"][0]["name"], "alpha")
+            self.assertEqual(result["projects"][0]["path"], "/work/alpha")
+            self.assertEqual(result["projects"][0]["tokens_used"], 100)
+            self.assertEqual(result["projects"][0]["thread_count"], 2)
+            self.assertEqual(result["projects"][0]["latest_updated_at"], 200)
+            self.assertEqual(result["projects"][1]["name"], "beta")
+
+    def test_read_tool_rankings_groups_dynamic_tools(self):
+        import sqlite3
+        from codex_profile_dashboard import read_tool_rankings
+
+        with tempfile.TemporaryDirectory() as tmp:
+            shared = Path(tmp)
+            conn = sqlite3.connect(shared / "state_5.sqlite")
+            try:
+                conn.execute(
+                    "create table threads (id text, tokens_used integer, updated_at integer)"
+                )
+                conn.execute(
+                    "create table thread_dynamic_tools (thread_id text, name text, namespace text)"
+                )
+                conn.execute("insert into threads values ('t1', 40, 100)")
+                conn.execute("insert into threads values ('t2', 80, 300)")
+                conn.execute("insert into thread_dynamic_tools values ('t1', 'exec_command', 'tools')")
+                conn.execute("insert into thread_dynamic_tools values ('t2', 'exec_command', 'tools')")
+                conn.execute("insert into thread_dynamic_tools values ('t2', 'apply_patch', 'tools')")
+                conn.commit()
+            finally:
+                conn.close()
+
+            result = read_tool_rankings(shared, limit=2)
+
+            self.assertTrue(result["available"])
+            self.assertEqual(result["tools"][0]["name"], "exec_command")
+            self.assertEqual(result["tools"][0]["namespace"], "tools")
+            self.assertEqual(result["tools"][0]["call_count"], 2)
+            self.assertEqual(result["tools"][0]["latest_updated_at"], 300)
+            self.assertEqual(result["tools"][1]["name"], "apply_patch")
+
+    def test_read_skill_rankings_counts_skill_file_reads(self):
+        from codex_profile_dashboard import read_skill_rankings
+
+        with tempfile.TemporaryDirectory() as tmp:
+            shared = Path(tmp)
+            rollout = shared / "sessions" / "2026" / "07" / "09" / "rollout-test.jsonl"
+            rollout.parent.mkdir(parents=True)
+            rollout.write_text(
+                "\n".join(
+                    [
+                        json.dumps(
+                            {
+                                "timestamp": "2026-07-09T01:00:00Z",
+                                "type": "event_msg",
+                                "payload": {
+                                    "type": "exec_command_end",
+                                    "parsed_cmd": [
+                                        {
+                                            "type": "read",
+                                            "path": "/Users/me/.codex/skills/frontend-ui-guardrail/SKILL.md",
+                                        }
+                                    ],
+                                },
+                            }
+                        ),
+                        json.dumps(
+                            {
+                                "timestamp": "2026-07-09T02:00:00Z",
+                                "type": "event_msg",
+                                "payload": {
+                                    "type": "exec_command_end",
+                                    "parsed_cmd": [
+                                        {
+                                            "type": "read",
+                                            "path": "/Users/me/.codex/skills/frontend-ui-guardrail/SKILL.md",
+                                        }
+                                    ],
+                                },
+                            }
+                        ),
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            result = read_skill_rankings(shared)
+
+            self.assertTrue(result["available"])
+            self.assertEqual(result["skills"][0]["name"], "frontend-ui-guardrail")
+            self.assertEqual(result["skills"][0]["use_count"], 2)
+            self.assertEqual(result["skills"][0]["latest_timestamp"], "2026-07-09T02:00:00Z")
+
+    def test_build_profiles_payload_includes_local_rankings(self):
+        import sqlite3
+        from codex_profile_dashboard import build_profiles_payload
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "profiles"
+            shared = Path(tmp) / "shared"
+            (root / "account-a").mkdir(parents=True)
+            shared.mkdir()
+            conn = sqlite3.connect(shared / "state_5.sqlite")
+            try:
+                conn.execute(
+                    "create table threads (id text, cwd text, tokens_used integer, updated_at integer)"
+                )
+                conn.execute(
+                    "create table thread_dynamic_tools (thread_id text, name text, namespace text)"
+                )
+                conn.execute("insert into threads values ('t1', '/work/alpha', 100, 200)")
+                conn.execute("insert into thread_dynamic_tools values ('t1', 'exec_command', 'tools')")
+                conn.commit()
+            finally:
+                conn.close()
+
+            result = build_profiles_payload(root, shared, read_remote=False)
+
+            self.assertEqual(result["project_rankings"]["projects"][0]["name"], "alpha")
+            self.assertEqual(result["tool_rankings"]["tools"][0]["name"], "exec_command")
+            self.assertIn("skill_rankings", result)
+
 
 class RuntimeStatusTests(unittest.TestCase):
     def test_runtime_status_is_green_with_live_process(self):
