@@ -8,6 +8,48 @@ from threading import Thread
 
 
 class DashboardNormalizationTests(unittest.TestCase):
+    def test_summarize_account_usage_marks_today_missing_when_account_data_lags(self):
+        from datetime import datetime, timezone
+
+        from codex_profile_dashboard import summarize_account_usage
+
+        result = summarize_account_usage(
+            {
+                "dailyUsageBuckets": [
+                    {"startDate": "2026-07-06", "tokens": 10},
+                    {"startDate": "2026-07-07", "tokens": 20},
+                    {"startDate": "2026-07-08", "tokens": 30},
+                ]
+            },
+            now=datetime(2026, 7, 9, 1, 0, tzinfo=timezone.utc),
+        )
+
+        self.assertIsNone(result["today_tokens"])
+        self.assertFalse(result["today_available"])
+        self.assertEqual(result["latest_date"], "2026-07-08")
+        self.assertEqual(result["last_7_tokens"], 60)
+        self.assertEqual(result["last_14_tokens"], 60)
+
+    def test_summarize_account_usage_uses_today_when_present(self):
+        from datetime import datetime, timezone
+
+        from codex_profile_dashboard import summarize_account_usage
+
+        result = summarize_account_usage(
+            {
+                "dailyUsageBuckets": [
+                    {"startDate": "2026-07-08", "tokens": 30},
+                    {"startDate": "2026-07-09", "tokens": 45},
+                ]
+            },
+            now=datetime(2026, 7, 9, 1, 0, tzinfo=timezone.utc),
+        )
+
+        self.assertEqual(result["today_tokens"], 45)
+        self.assertTrue(result["today_available"])
+        self.assertEqual(result["latest_date"], "2026-07-09")
+        self.assertEqual(result["last_7_tokens"], 75)
+
     def test_normalize_reset_credit_details_masks_ids_and_parses_times(self):
         from codex_profile_dashboard import normalize_reset_credit_details
 
@@ -356,6 +398,7 @@ class ProfileApiTests(unittest.TestCase):
                 75,
             )
             self.assertEqual(profile_payload["usage"]["dailyUsageBuckets"][0]["tokens"], 42)
+            self.assertEqual(profile_payload["usage_metrics"]["last_7_tokens"], 42)
             self.assertTrue(profile_payload["remote_stale"])
             self.assertEqual(profile_payload["remote_error"], "app-server timeout")
 

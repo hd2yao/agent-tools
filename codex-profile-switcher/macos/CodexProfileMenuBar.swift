@@ -75,6 +75,7 @@ struct ProfileStatus: Decodable {
     let resetCreditStale: Bool?
     let resetCreditError: String?
     let usage: AccountUsage?
+    let usageMetrics: AccountUsageMetrics?
     let remoteStale: Bool?
     let remoteError: String?
 
@@ -87,6 +88,7 @@ struct ProfileStatus: Decodable {
         case resetCreditStale = "reset_credit_stale"
         case resetCreditError = "reset_credit_error"
         case usage
+        case usageMetrics = "usage_metrics"
         case remoteStale = "remote_stale"
         case remoteError = "remote_error"
     }
@@ -185,6 +187,24 @@ struct UsageSummary: Decodable {
 struct DailyUsageBucket: Decodable {
     let startDate: String
     let tokens: Int
+}
+
+struct AccountUsageMetrics: Decodable {
+    let todayTokens: Int?
+    let todayAvailable: Bool
+    let last7Tokens: Int?
+    let last14Tokens: Int?
+    let latestDate: String?
+    let source: String?
+
+    enum CodingKeys: String, CodingKey {
+        case todayTokens = "today_tokens"
+        case todayAvailable = "today_available"
+        case last7Tokens = "last_7_tokens"
+        case last14Tokens = "last_14_tokens"
+        case latestDate = "latest_date"
+        case source
+    }
 }
 
 struct LocalTokenSnapshot: Decodable {
@@ -442,6 +462,20 @@ enum TimeText {
             return value
         }
         return format(date, dateFormat: "M/d")
+    }
+
+    static func monthDayChinese(_ value: String?) -> String {
+        guard let value else {
+            return "--"
+        }
+        let parser = DateFormatter()
+        parser.locale = Locale(identifier: "en_US_POSIX")
+        parser.timeZone = TimeZone(identifier: "Asia/Shanghai")
+        parser.dateFormat = "yyyy-MM-dd"
+        guard let date = parser.date(from: value) else {
+            return value
+        }
+        return format(date, dateFormat: "M月d日")
     }
 
     private static func format(_ date: Date, dateFormat: String) -> String {
@@ -1399,25 +1433,25 @@ final class OverviewDashboardView: NSView {
 
         metrics.addArrangedSubview(
             MetricTileView(
-                title: "当前账号",
-                value: profileInitials(active?.name),
-                caption: compactProfileName(active?.name),
+                title: "今日 token",
+                value: todayTokenValue(active),
+                caption: todayTokenCaption(active),
                 tint: NSColor(calibratedRed: 0.32, green: 0.58, blue: 0.96, alpha: 1)
             )
         )
         metrics.addArrangedSubview(
             MetricTileView(
-                title: "14日 token",
-                value: TokenText.compact(localTokenTotal()),
-                caption: "本地共享",
+                title: "近7日 token",
+                value: TokenText.compact(active?.usageMetrics?.last7Tokens),
+                caption: "当前账号",
                 tint: NSColor(calibratedRed: 0.56, green: 0.42, blue: 0.92, alpha: 1)
             )
         )
         metrics.addArrangedSubview(
             MetricTileView(
                 title: "重置卡",
-                value: "\(totalResetCredits())张",
-                caption: nearestCreditExpiry(),
+                value: "\(activeResetCreditCount(active))张",
+                caption: activeNearestCreditExpiry(active),
                 tint: NSColor(calibratedRed: 0.96, green: 0.64, blue: 0.18, alpha: 1)
             )
         )
@@ -1432,47 +1466,32 @@ final class OverviewDashboardView: NSView {
         return payload.profiles.first { $0.name == active } ?? payload.profiles.first
     }
 
-    private func profileInitials(_ name: String?) -> String {
-        guard let name else {
+    private func todayTokenValue(_ profile: ProfileStatus?) -> String {
+        guard profile?.usageMetrics?.todayAvailable == true else {
             return "--"
         }
-        let parts = name
-            .split(separator: "-")
-            .filter { !$0.isEmpty && $0.lowercased() != "hd" }
-        let source = parts.isEmpty ? name.split(separator: "-") : parts
-        let value = source.prefix(2).compactMap { $0.first }.map { String($0).uppercased() }.joined()
-        return value.isEmpty ? "--" : value
+        return TokenText.compact(profile?.usageMetrics?.todayTokens)
     }
 
-    private func compactProfileName(_ name: String?) -> String {
-        guard let name else {
-            return "未读取"
+    private func todayTokenCaption(_ profile: ProfileStatus?) -> String {
+        guard let metrics = profile?.usageMetrics else {
+            return "账号统计"
         }
-        return name.replacingOccurrences(of: "hd-", with: "")
+        if metrics.todayAvailable {
+            return "账号统计"
+        }
+        return "至\(TimeText.monthDayChinese(metrics.latestDate))"
     }
 
-    private func localTokenTotal() -> Int {
-        guard let snapshot = payload.localSnapshot else {
+    private func activeResetCreditCount(_ profile: ProfileStatus?) -> Int {
+        guard let profile else {
             return 0
         }
-        guard let daily = snapshot.daily, !daily.isEmpty else {
-            return snapshot.total.totalTokens
-        }
-        return daily.reduce(0) { $0 + $1.totalTokens }
+        return profile.resetCreditDetails?.availableCount ?? profile.rateLimits.resetCredits?.availableCount ?? 0
     }
 
-    private func totalResetCredits() -> Int {
-        payload.profiles.reduce(0) { total, profile in
-            let detail = profile.resetCreditDetails?.availableCount
-            let fallback = profile.rateLimits.resetCredits?.availableCount
-            return total + (detail ?? fallback ?? 0)
-        }
-    }
-
-    private func nearestCreditExpiry() -> String {
-        let expiry = payload.profiles
-            .compactMap { $0.resetCreditDetails?.earliestExpiresAt ?? $0.rateLimits.resetCredits?.expiresAt }
-            .min()
+    private func activeNearestCreditExpiry(_ profile: ProfileStatus?) -> String {
+        let expiry = profile?.resetCreditDetails?.earliestExpiresAt ?? profile?.rateLimits.resetCredits?.expiresAt
         guard let expiry else {
             return "暂无到期"
         }
@@ -1749,11 +1768,10 @@ final class PageToggleButtonView: NSView {
 final class ResetCreditsPanelView: NSView {
     private let profiles: [ProfileStatus]
     private static let innerWidth: CGFloat = MenuLayout.contentWidth - 28
-    private static let nameColumnWidth: CGFloat = 142
-    private static let gridWidth: CGFloat = innerWidth - nameColumnWidth - 8
+    private static let gridWidth: CGFloat = innerWidth
     private static let pillSpacing: CGFloat = 8
     private static let pillHeight: CGFloat = 24
-    private static let pillWidth: CGFloat = (gridWidth - pillSpacing) / 2
+    private static let pillWidth: CGFloat = (gridWidth - pillSpacing * 2) / 3
 
     init(profiles: [ProfileStatus]) {
         self.profiles = profiles
@@ -1779,15 +1797,15 @@ final class ResetCreditsPanelView: NSView {
         let rowsHeight = profiles.reduce(CGFloat(0)) { total, profile in
             total + profileSectionHeight(for: profile)
         }
-        let sectionSpacing = CGFloat(max(0, profiles.count - 1)) * 8
-        return 46 + rowsHeight + sectionSpacing
+        let sectionSpacing = CGFloat(max(0, profiles.count - 1)) * 12
+        return 50 + rowsHeight + sectionSpacing
     }
 
     private static func profileSectionHeight(for profile: ProfileStatus) -> CGFloat {
         let count = availableCards(for: profile).count
-        let rowCount = max(1, Int(ceil(Double(min(max(count, 1), 6)) / 2.0)))
+        let rowCount = max(1, Int(ceil(Double(min(max(count, 1), 6)) / 3.0)))
         let pillsHeight = CGFloat(rowCount) * pillHeight + CGFloat(rowCount - 1) * 6
-        return max(32, pillsHeight)
+        return 28 + pillsHeight
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -1799,7 +1817,7 @@ final class ResetCreditsPanelView: NSView {
     private func build() {
         let stack = NSStackView()
         stack.orientation = .vertical
-        stack.spacing = 10
+        stack.spacing = 12
         stack.alignment = .leading
         stack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stack)
@@ -1811,13 +1829,7 @@ final class ResetCreditsPanelView: NSView {
             stack.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -10),
         ])
 
-        let title = NSTextField(labelWithString: "重置卡明细")
-        title.font = NSFont.systemFont(ofSize: 13, weight: .heavy)
-        title.textColor = NSColor.black.withAlphaComponent(0.78)
-        title.alignment = .center
-        title.translatesAutoresizingMaskIntoConstraints = false
-        title.widthAnchor.constraint(equalToConstant: Self.innerWidth).isActive = true
-        stack.addArrangedSubview(title)
+        stack.addArrangedSubview(titleRow())
 
         if profiles.isEmpty {
             stack.addArrangedSubview(emptyRow("暂无账号"))
@@ -1826,6 +1838,30 @@ final class ResetCreditsPanelView: NSView {
         for profile in profiles {
             stack.addArrangedSubview(profileSection(profile))
         }
+    }
+
+    private func titleRow() -> NSView {
+        let row = NSStackView()
+        row.orientation = .horizontal
+        row.spacing = 8
+        row.alignment = .firstBaseline
+        row.translatesAutoresizingMaskIntoConstraints = false
+        row.widthAnchor.constraint(equalToConstant: Self.innerWidth).isActive = true
+
+        let title = NSTextField(labelWithString: "重置卡")
+        title.font = NSFont.systemFont(ofSize: 13.5, weight: .heavy)
+        title.textColor = NSColor.black.withAlphaComponent(0.80)
+        row.addArrangedSubview(title)
+
+        let subtitle = NSTextField(labelWithString: "按账号分组显示到期时间")
+        subtitle.font = NSFont.systemFont(ofSize: 10.5, weight: .medium)
+        subtitle.textColor = NSColor.black.withAlphaComponent(0.46)
+        row.addArrangedSubview(subtitle)
+
+        let spacer = NSView()
+        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        row.addArrangedSubview(spacer)
+        return row
     }
 
     private func emptyRow(_ text: String) -> NSView {
@@ -1837,38 +1873,43 @@ final class ResetCreditsPanelView: NSView {
 
     private func profileSection(_ profile: ProfileStatus) -> NSView {
         let section = NSStackView()
-        section.orientation = .horizontal
-        section.spacing = 8
-        section.alignment = .top
+        section.orientation = .vertical
+        section.spacing = 7
+        section.alignment = .leading
         section.translatesAutoresizingMaskIntoConstraints = false
         section.widthAnchor.constraint(equalToConstant: Self.innerWidth).isActive = true
 
-        let profileInfo = NSStackView()
-        profileInfo.orientation = .vertical
-        profileInfo.spacing = 2
-        profileInfo.alignment = .leading
-        profileInfo.translatesAutoresizingMaskIntoConstraints = false
-        profileInfo.widthAnchor.constraint(equalToConstant: Self.nameColumnWidth).isActive = true
+        section.addArrangedSubview(profileHeader(profile))
+        section.addArrangedSubview(cardGrid(profile))
+        return section
+    }
+
+    private func profileHeader(_ profile: ProfileStatus) -> NSView {
+        let row = NSStackView()
+        row.orientation = .horizontal
+        row.spacing = 8
+        row.alignment = .firstBaseline
+        row.translatesAutoresizingMaskIntoConstraints = false
+        row.widthAnchor.constraint(equalToConstant: Self.innerWidth).isActive = true
 
         let name = NSTextField(labelWithString: profile.name)
-        name.font = NSFont.systemFont(ofSize: 11.5, weight: .heavy)
+        name.font = NSFont.systemFont(ofSize: 12, weight: .heavy)
         name.textColor = NSColor.black.withAlphaComponent(0.78)
         name.lineBreakMode = .byTruncatingTail
         name.translatesAutoresizingMaskIntoConstraints = false
-        name.widthAnchor.constraint(equalToConstant: Self.nameColumnWidth).isActive = true
-        profileInfo.addArrangedSubview(name)
+        name.widthAnchor.constraint(equalToConstant: 190).isActive = true
+        row.addArrangedSubview(name)
 
-        let detail = NSTextField(labelWithString: headerText(profile))
-        detail.font = NSFont.systemFont(ofSize: 10.5, weight: .semibold)
+        let detail = NSTextField(labelWithString: "\(headerText(profile)) · \(nearestText(profile))")
+        detail.font = NSFont.systemFont(ofSize: 11, weight: .semibold)
         detail.textColor = NSColor.black.withAlphaComponent(0.62)
         detail.alignment = .left
+        detail.lineBreakMode = .byTruncatingTail
         detail.translatesAutoresizingMaskIntoConstraints = false
-        detail.widthAnchor.constraint(equalToConstant: Self.nameColumnWidth).isActive = true
-        profileInfo.addArrangedSubview(detail)
+        detail.widthAnchor.constraint(equalToConstant: Self.innerWidth - 198).isActive = true
+        row.addArrangedSubview(detail)
 
-        section.addArrangedSubview(profileInfo)
-        section.addArrangedSubview(cardGrid(profile))
-        return section
+        return row
     }
 
     private func headerText(_ profile: ProfileStatus) -> String {
@@ -1877,6 +1918,20 @@ final class ResetCreditsPanelView: NSView {
         }
         let count = details.availableCount ?? profile.rateLimits.resetCredits?.availableCount ?? 0
         return "\(count) 张可用"
+    }
+
+    private func nearestText(_ profile: ProfileStatus) -> String {
+        guard let cards = profile.resetCreditDetails?.credits else {
+            return "到期时间未读取"
+        }
+        let expiry = cards
+            .filter { $0.used != true }
+            .compactMap(\.expiresAt)
+            .min()
+        guard let expiry else {
+            return "暂无可用卡"
+        }
+        return "最近 \(TimeText.beijingMonthDay(expiry)) 到期"
     }
 
     private func cardGrid(_ profile: ProfileStatus) -> NSView {
@@ -1894,7 +1949,7 @@ final class ResetCreditsPanelView: NSView {
 
         let visibleCards = Array(cards.prefix(5))
         var pills = visibleCards.enumerated().map { index, card in
-            resetCreditPill(index: index + 1, card: card)
+            resetCreditPill(card: card)
         }
         if cards.count > visibleCards.count {
             pills.append(summaryPill("还有 \(cards.count - visibleCards.count) 张"))
@@ -1913,14 +1968,19 @@ final class ResetCreditsPanelView: NSView {
             } else {
                 row.addArrangedSubview(spacerPill())
             }
+            if index + 2 < pills.count {
+                row.addArrangedSubview(pills[index + 2])
+            } else {
+                row.addArrangedSubview(spacerPill())
+            }
             grid.addArrangedSubview(row)
-            index += 2
+            index += 3
         }
         return grid
     }
 
-    private func resetCreditPill(index: Int, card: ResetCreditCard) -> NSView {
-        let text = "\(index)  \(TimeText.beijingMonthDayMinute(card.expiresAt))"
+    private func resetCreditPill(card: ResetCreditCard) -> NSView {
+        let text = TimeText.beijingMonthDayMinute(card.expiresAt)
         return pillView(text: text, color: NSColor.white.withAlphaComponent(0.46), textColor: NSColor.black.withAlphaComponent(0.70))
     }
 
@@ -1977,6 +2037,10 @@ final class ResetCreditsPanelView: NSView {
 
 final class AccountCardView: NSView {
     static let cardHeight: CGFloat = 160
+    private static let rowWidth: CGFloat = MenuLayout.contentWidth - 28
+    private static let labelWidth: CGFloat = 88
+    private static let barWidth: CGFloat = 232
+    private static let valueWidth: CGFloat = 82
 
     private let profile: ProfileStatus
     private let index: Int
@@ -2097,17 +2161,19 @@ final class AccountCardView: NSView {
         row.orientation = .horizontal
         row.spacing = 10
         row.alignment = .centerY
+        row.translatesAutoresizingMaskIntoConstraints = false
+        row.widthAnchor.constraint(equalToConstant: Self.rowWidth).isActive = true
 
         let title = NSTextField(labelWithString: label)
-        title.font = NSFont.systemFont(ofSize: 13, weight: .semibold)
+        title.font = NSFont.systemFont(ofSize: 12.5, weight: .semibold)
         title.textColor = NSColor.black
         title.translatesAutoresizingMaskIntoConstraints = false
-        title.widthAnchor.constraint(equalToConstant: 78).isActive = true
+        title.widthAnchor.constraint(equalToConstant: Self.labelWidth).isActive = true
 
         let remaining = window?.remainingPercent
         let bar = PixelBarView(percent: remaining ?? 0, color: AccountHealth(remaining: remaining).color)
         bar.translatesAutoresizingMaskIntoConstraints = false
-        bar.widthAnchor.constraint(equalToConstant: 242).isActive = true
+        bar.widthAnchor.constraint(equalToConstant: Self.barWidth).isActive = true
         bar.heightAnchor.constraint(equalToConstant: 16).isActive = true
 
         let value = NSTextField(labelWithString: "\(remaining.map { "\($0)%" } ?? "--") 剩余")
@@ -2115,7 +2181,7 @@ final class AccountCardView: NSView {
         value.textColor = NSColor.black
         value.alignment = .right
         value.translatesAutoresizingMaskIntoConstraints = false
-        value.widthAnchor.constraint(equalToConstant: 82).isActive = true
+        value.widthAnchor.constraint(equalToConstant: Self.valueWidth).isActive = true
 
         row.addArrangedSubview(title)
         row.addArrangedSubview(bar)
@@ -2139,21 +2205,13 @@ final class AccountCardView: NSView {
         details.spacing = 2
         details.alignment = .leading
         details.translatesAutoresizingMaskIntoConstraints = false
-        details.widthAnchor.constraint(equalToConstant: 408).isActive = true
+        details.widthAnchor.constraint(equalToConstant: Self.rowWidth).isActive = true
 
-        details.addArrangedSubview(infoLine(label: "使用：", value: usage, valueWeight: .semibold))
+        details.addArrangedSubview(infoLine(label: "使用", value: usage, valueWeight: .semibold))
         details.addArrangedSubview(
             infoLine(
-                label: "重置：",
+                label: "重置",
                 value: "5小时 \(primaryReset) · 7天 \(secondaryReset)",
-                valueWeight: .medium,
-                valueAlpha: 0.72
-            )
-        )
-        details.addArrangedSubview(
-            infoLine(
-                label: "重置机会：",
-                value: resetCreditsText(),
                 valueWeight: .medium,
                 valueAlpha: 0.72
             )
@@ -2161,28 +2219,6 @@ final class AccountCardView: NSView {
         row.addArrangedSubview(details)
 
         return row
-    }
-
-    private func resetCreditsText() -> String {
-        if let details = profile.resetCreditDetails, details.available == true {
-            let count = details.availableCount ?? profile.rateLimits.resetCredits?.availableCount
-            let countText = count.map { "\($0) 张" } ?? "--"
-            if let expiresAt = details.earliestExpiresAt {
-                return "\(countText) · 最近 \(TimeText.beijingMonthDay(expiresAt))到期"
-            }
-            return "\(countText)可用"
-        }
-        guard let credits = profile.rateLimits.resetCredits, credits.available == true else {
-            return "未提供"
-        }
-        if credits.unlimited == true {
-            return "不限"
-        }
-        let countText = credits.availableCount.map { "\($0) 次" } ?? "--"
-        if let expiresAt = credits.expiresAt {
-            return "\(countText) · \(TimeText.beijingMonthDay(expiresAt))到期"
-        }
-        return "\(countText)可用"
     }
 
     private func infoLine(
@@ -2196,22 +2232,22 @@ final class AccountCardView: NSView {
         row.spacing = 8
         row.alignment = .firstBaseline
         row.translatesAutoresizingMaskIntoConstraints = false
-        row.widthAnchor.constraint(equalToConstant: 408).isActive = true
+        row.widthAnchor.constraint(equalToConstant: Self.rowWidth).isActive = true
 
         let title = NSTextField(labelWithString: label)
-        title.font = NSFont.systemFont(ofSize: 12, weight: .semibold)
+        title.font = NSFont.systemFont(ofSize: 12.5, weight: .semibold)
         title.textColor = NSColor.black
         title.alignment = .left
         title.translatesAutoresizingMaskIntoConstraints = false
-        title.widthAnchor.constraint(equalToConstant: 76).isActive = true
+        title.widthAnchor.constraint(equalToConstant: Self.labelWidth).isActive = true
 
         let detail = NSTextField(labelWithString: value)
-        detail.font = NSFont.systemFont(ofSize: 12, weight: valueWeight)
+        detail.font = NSFont.systemFont(ofSize: 12.5, weight: valueWeight)
         detail.textColor = NSColor.black.withAlphaComponent(valueAlpha)
         detail.alignment = .left
         detail.lineBreakMode = .byTruncatingTail
         detail.translatesAutoresizingMaskIntoConstraints = false
-        detail.widthAnchor.constraint(equalToConstant: 324).isActive = true
+        detail.widthAnchor.constraint(equalToConstant: Self.rowWidth - Self.labelWidth - 8).isActive = true
 
         row.addArrangedSubview(title)
         row.addArrangedSubview(detail)

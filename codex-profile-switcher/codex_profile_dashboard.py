@@ -22,6 +22,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Callable
+from zoneinfo import ZoneInfo
 
 
 DEFAULT_USAGE = {
@@ -273,6 +274,34 @@ def _date_key(timestamp: str | None) -> str | None:
     if isinstance(timestamp, str) and len(timestamp) >= 10:
         return timestamp[:10]
     return None
+
+
+def summarize_account_usage(usage: dict | None, now: datetime | None = None) -> dict:
+    now_value = now or datetime.now(timezone.utc)
+    today_key = now_value.astimezone(ZoneInfo("Asia/Shanghai")).date().isoformat()
+    raw_buckets = (usage or {}).get("dailyUsageBuckets") or []
+    buckets = []
+    for item in raw_buckets:
+        if not isinstance(item, dict):
+            continue
+        date = item.get("startDate")
+        if not isinstance(date, str):
+            continue
+        buckets.append({"date": date, "tokens": int(item.get("tokens") or 0)})
+    buckets.sort(key=lambda item: item["date"])
+
+    latest_date = buckets[-1]["date"] if buckets else None
+    today_bucket = next((item for item in reversed(buckets) if item["date"] == today_key), None)
+    last_7 = buckets[-7:]
+    last_14 = buckets[-14:]
+    return {
+        "today_tokens": today_bucket["tokens"] if today_bucket else None,
+        "today_available": today_bucket is not None,
+        "last_7_tokens": sum(item["tokens"] for item in last_7) if last_7 else None,
+        "last_14_tokens": sum(item["tokens"] for item in last_14) if last_14 else None,
+        "latest_date": latest_date,
+        "source": "account_usage",
+    }
 
 
 def _extract_token_count(row: dict) -> tuple[dict, dict | None] | None:
@@ -929,6 +958,10 @@ def build_profiles_payload(
                     (remote or {}).get("rate_limits") or {}
                 ),
                 "usage": (remote or {}).get("usage"),
+                "usage_metrics": summarize_account_usage(
+                    (remote or {}).get("usage"),
+                    now=datetime.fromtimestamp(now, timezone.utc),
+                ),
                 "reset_credit_details": reset_details.get("details"),
                 "reset_credit_error": reset_details.get("error") if reset_details else None,
                 "reset_credit_stale": bool(reset_details.get("stale")) if reset_details else False,
