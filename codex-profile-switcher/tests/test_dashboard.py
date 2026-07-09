@@ -663,6 +663,50 @@ class ProfileApiTests(unittest.TestCase):
             self.assertEqual(attribution["today_source"], "attribution_estimate")
             self.assertEqual(result["attribution_summary"]["active_profile"], "account-a")
 
+    def test_build_profiles_payload_seeds_attribution_baseline_for_active_profile(self):
+        from codex_profile_dashboard import build_profiles_payload, read_attribution_ledger
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "profiles"
+            shared = Path(tmp) / "shared"
+            (root / "account-a").mkdir(parents=True)
+            shared.mkdir()
+            rollout = shared / "sessions" / "2026" / "07" / "09" / "rollout-test.jsonl"
+            rollout.parent.mkdir(parents=True)
+            rollout.write_text(
+                json.dumps(
+                    {
+                        "timestamp": "2026-07-09T04:10:00Z",
+                        "payload": {
+                            "type": "token_count",
+                            "info": {
+                                "total_token_usage": {
+                                    "input_tokens": 80,
+                                    "cached_input_tokens": 20,
+                                    "output_tokens": 10,
+                                    "reasoning_output_tokens": 0,
+                                    "total_tokens": 90,
+                                }
+                            },
+                        },
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            result = build_profiles_payload(
+                root,
+                shared,
+                read_remote=False,
+                active_profile="account-a",
+                now_seconds=1783587600,
+            )
+
+            self.assertEqual(result["attribution_summary"]["active_profile"], "account-a")
+            self.assertEqual(result["profiles"][0]["token_attribution"]["today_display_tokens"], 0)
+            self.assertEqual(read_attribution_ledger(shared)["baseline"]["total_tokens"], 90)
+
     def test_read_sqlite_history_summary(self):
         import sqlite3
         from codex_profile_dashboard import read_sqlite_history_summary

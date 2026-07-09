@@ -1279,6 +1279,7 @@ def build_profiles_payload(
     remote_reader: Callable[[Path], dict] | None = None,
     reset_credit_reader: Callable[[Path], dict] | None = None,
     force_reset_credit_refresh: bool = False,
+    active_profile: str | None = None,
     now_seconds: float | None = None,
 ) -> dict:
     now = time.time() if now_seconds is None else now_seconds
@@ -1333,6 +1334,19 @@ def build_profiles_payload(
 
     profiles = []
     attribution_ledger = read_attribution_ledger(shared_home)
+    if (
+        active_profile
+        and not attribution_ledger.get("active_profile")
+        and any(profile.name == active_profile for profile in profile_paths)
+    ):
+        record_attribution_baseline(
+            shared_home,
+            active_profile,
+            local_snapshot,
+            managed=True,
+            now_seconds=now,
+        )
+        attribution_ledger = read_attribution_ledger(shared_home)
     for profile in profile_paths:
         remote = remote_by_name.get(profile.name)
         reset_details = reset_details_by_name.get(profile.name) or {}

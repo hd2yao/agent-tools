@@ -894,12 +894,14 @@ def build_status_payload(force_reset_credit_refresh: bool = False) -> dict:
 
     sync_profile_homes()
     repair_default_home_bridge_for_active_profile()
+    active_profile = read_active_profile()
     payload = build_profiles_payload(
         get_profile_root(),
         get_shared_home(),
         force_reset_credit_refresh=force_reset_credit_refresh,
+        active_profile=active_profile,
     )
-    payload["active_profile"] = read_active_profile()
+    payload["active_profile"] = active_profile
     payload["runtime_status"] = read_runtime_status(get_shared_home(), get_profile_root())
     payload["desktop_status"] = build_desktop_status()
     payload["default_home_bridge"] = payload["desktop_status"].get("default_home_bridge")
