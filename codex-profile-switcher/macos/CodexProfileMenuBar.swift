@@ -2,12 +2,12 @@ import AppKit
 import Foundation
 
 private enum MenuLayout {
-    static let popoverWidth: CGFloat = 500
-    static let contentWidth: CGFloat = 464
+    static let popoverWidth: CGFloat = 390
+    static let contentWidth: CGFloat = 354
     static let contentInset: CGFloat = 18
     static let verticalSpacing: CGFloat = 12
-    static let maxVisibleHeight: CGFloat = 860
-    static let minVisibleHeight: CGFloat = 480
+    static let maxVisibleHeight: CGFloat = 420
+    static let minVisibleHeight: CGFloat = 300
 }
 
 struct DashboardPayload: Decodable {
@@ -530,6 +530,39 @@ enum ManagerPage {
     case token
 }
 
+enum DashboardSectionTab: CaseIterable {
+    case usage
+    case quota
+    case projects
+    case tools
+
+    var title: String {
+        switch self {
+        case .usage:
+            return "用量趋势"
+        case .quota:
+            return "账号额度"
+        case .projects:
+            return "项目排行"
+        case .tools:
+            return "工具 / Skill"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .usage:
+            return "chart.bar"
+        case .quota:
+            return "gauge"
+        case .projects:
+            return "folder"
+        case .tools:
+            return "puzzlepiece.extension"
+        }
+    }
+}
+
 enum TimeText {
     static func beijingFull(_ value: String?) -> String {
         guard let value else {
@@ -1020,7 +1053,7 @@ final class DashboardWindowController: NSWindowController {
             switchAction: switchAction
         )
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 920, height: 660),
+            contentRect: NSRect(x: 0, y: 0, width: 1040, height: 700),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -1047,7 +1080,8 @@ final class MainDashboardViewController: NSViewController {
     private var payload: DashboardPayload
     private let refreshAction: () -> Void
     private let switchAction: (String) -> Void
-    private let contentWidth: CGFloat = 860
+    private let contentWidth: CGFloat = 960
+    private var selectedTab: DashboardSectionTab = .usage
 
     init(
         payload: DashboardPayload,
@@ -1065,7 +1099,7 @@ final class MainDashboardViewController: NSViewController {
     }
 
     override func loadView() {
-        view = MainDashboardRootView(frame: NSRect(x: 0, y: 0, width: 920, height: 660))
+        view = MainDashboardRootView(frame: NSRect(x: 0, y: 0, width: 1040, height: 700))
     }
 
     override func viewDidLoad() {
@@ -1119,26 +1153,30 @@ final class MainDashboardViewController: NSViewController {
 
         stack.addArrangedSubview(mainHeader())
         stack.addArrangedSubview(MainHeroPanelView(payload: payload, width: contentWidth))
+        stack.addArrangedSubview(
+            DashboardTabBarView(
+                selectedTab: selectedTab,
+                width: contentWidth,
+                selectAction: { [weak self] tab in
+                    self?.selectedTab = tab
+                    self?.build()
+                }
+            )
+        )
+        stack.addArrangedSubview(selectedAnalyticsPanel())
+    }
 
-        let middle = NSStackView()
-        middle.orientation = .horizontal
-        middle.spacing = 16
-        middle.alignment = .top
-        middle.translatesAutoresizingMaskIntoConstraints = false
-        middle.widthAnchor.constraint(equalToConstant: contentWidth).isActive = true
-        middle.addArrangedSubview(TokenTrendPanelView(payload: payload, width: 520))
-        middle.addArrangedSubview(AccountsCompactPanelView(payload: payload, width: 324, switchAction: switchAction))
-        stack.addArrangedSubview(middle)
-
-        let bottom = NSStackView()
-        bottom.orientation = .horizontal
-        bottom.spacing = 16
-        bottom.alignment = .top
-        bottom.translatesAutoresizingMaskIntoConstraints = false
-        bottom.widthAnchor.constraint(equalToConstant: contentWidth).isActive = true
-        bottom.addArrangedSubview(ProjectRankingPanelView(payload: payload, width: 414))
-        bottom.addArrangedSubview(ToolSkillPanelView(payload: payload, width: 430))
-        stack.addArrangedSubview(bottom)
+    private func selectedAnalyticsPanel() -> NSView {
+        switch selectedTab {
+        case .usage:
+            return UsageTrendAnalyticsPanelView(payload: payload, width: contentWidth)
+        case .quota:
+            return QuotaOperationsPanelView(payload: payload, width: contentWidth, switchAction: switchAction)
+        case .projects:
+            return DashboardAnalyticsPanelView(payload: payload, width: contentWidth, mode: .projects)
+        case .tools:
+            return DashboardAnalyticsPanelView(payload: payload, width: contentWidth, mode: .tools)
+        }
     }
 
     private func mainHeader() -> NSView {
@@ -1202,9 +1240,9 @@ final class MainDashboardRootView: NSView {
         bounds.fill()
         let panel = NSBezierPath(roundedRect: bounds.insetBy(dx: 10, dy: 10), xRadius: 28, yRadius: 28)
         NSGradient(colors: [
-            NSColor(calibratedRed: 0.74, green: 0.86, blue: 0.78, alpha: 0.72),
-            NSColor(calibratedRed: 0.92, green: 0.84, blue: 0.74, alpha: 0.58),
-            NSColor(calibratedRed: 0.75, green: 0.78, blue: 0.95, alpha: 0.72),
+            NSColor(calibratedRed: 0.74, green: 0.86, blue: 0.78, alpha: 0.90),
+            NSColor(calibratedRed: 0.92, green: 0.84, blue: 0.74, alpha: 0.86),
+            NSColor(calibratedRed: 0.75, green: 0.78, blue: 0.95, alpha: 0.90),
         ])?.draw(in: panel, angle: 315)
         NSColor.white.withAlphaComponent(0.38).setStroke()
         panel.lineWidth = 1.2
@@ -1221,7 +1259,7 @@ final class MainDashboardRootView: NSView {
                     at: CGPoint(x: col, y: row),
                     withAttributes: [
                         .font: NSFont.monospacedSystemFont(ofSize: 14, weight: .heavy),
-                        .foregroundColor: NSColor.white.withAlphaComponent(0.12),
+                        .foregroundColor: NSColor.white.withAlphaComponent(0.08),
                     ]
                 )
             }
@@ -1268,7 +1306,7 @@ class GlassPanelView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         let path = NSBezierPath(roundedRect: bounds, xRadius: cornerRadius, yRadius: cornerRadius)
-        NSColor.white.withAlphaComponent(0.34).setFill()
+        NSColor.white.withAlphaComponent(0.52).setFill()
         path.fill()
     }
 }
@@ -1700,6 +1738,721 @@ final class RankingRowView: NSView {
     }
 }
 
+final class DashboardTabBarView: GlassPanelView {
+    init(selectedTab: DashboardSectionTab, width: CGFloat, selectAction: @escaping (DashboardSectionTab) -> Void) {
+        super.init(width: width, height: 52, cornerRadius: 18)
+
+        let row = NSStackView()
+        row.orientation = .horizontal
+        row.spacing = 6
+        row.distribution = .fillEqually
+        row.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(row)
+        NSLayoutConstraint.activate([
+            row.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
+            row.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            row.topAnchor.constraint(equalTo: topAnchor, constant: 8),
+            row.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8),
+        ])
+
+        for tab in DashboardSectionTab.allCases {
+            row.addArrangedSubview(
+                DashboardTabButtonView(
+                    tab: tab,
+                    isSelected: tab == selectedTab,
+                    action: { selectAction(tab) }
+                )
+            )
+        }
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+}
+
+final class DashboardTabButtonView: NSView {
+    private let tab: DashboardSectionTab
+    private let isSelected: Bool
+    private let action: () -> Void
+    private var hovering = false
+
+    init(tab: DashboardSectionTab, isSelected: Bool, action: @escaping () -> Void) {
+        self.tab = tab
+        self.isSelected = isSelected
+        self.action = action
+        super.init(frame: .zero)
+        wantsLayer = true
+
+        let row = NSStackView()
+        row.orientation = .horizontal
+        row.spacing = 7
+        row.alignment = .centerY
+        row.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(row)
+        NSLayoutConstraint.activate([
+            row.centerXAnchor.constraint(equalTo: centerXAnchor),
+            row.centerYAnchor.constraint(equalTo: centerYAnchor),
+        ])
+
+        let icon = NSImageView(image: NSImage(systemSymbolName: tab.symbol, accessibilityDescription: tab.title) ?? NSImage())
+        icon.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 12, weight: .semibold)
+        icon.contentTintColor = isSelected ? NSColor.white : NSColor.black.withAlphaComponent(0.58)
+        icon.translatesAutoresizingMaskIntoConstraints = false
+        icon.widthAnchor.constraint(equalToConstant: 16).isActive = true
+        icon.heightAnchor.constraint(equalToConstant: 16).isActive = true
+        row.addArrangedSubview(icon)
+
+        let title = DashboardText.label(tab.title, size: 12, weight: .semibold, alpha: isSelected ? 1 : 0.58)
+        title.textColor = isSelected ? NSColor.white : NSColor.black.withAlphaComponent(0.58)
+        row.addArrangedSubview(title)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach { removeTrackingArea($0) }
+        addTrackingArea(NSTrackingArea(rect: bounds, options: [.activeAlways, .mouseEnteredAndExited, .inVisibleRect], owner: self))
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        hovering = true
+        needsDisplay = true
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        hovering = false
+        needsDisplay = true
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        action()
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let path = NSBezierPath(roundedRect: bounds, xRadius: 13, yRadius: 13)
+        if isSelected {
+            NSColor(calibratedRed: 0.16, green: 0.33, blue: 0.62, alpha: 0.86).setFill()
+        } else {
+            NSColor.white.withAlphaComponent(hovering ? 0.34 : 0.16).setFill()
+        }
+        path.fill()
+    }
+}
+
+final class UsageTrendAnalyticsPanelView: GlassPanelView {
+    init(payload: DashboardPayload, width: CGFloat) {
+        super.init(width: width, height: 346, cornerRadius: 22)
+        let active = Self.activeProfile(payload)
+        let buckets = Self.displayBuckets(payload: payload, profile: active)
+
+        let row = NSStackView()
+        row.orientation = .horizontal
+        row.spacing = 16
+        row.alignment = .top
+        row.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(row)
+        NSLayoutConstraint.activate([
+            row.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 18),
+            row.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -18),
+            row.topAnchor.constraint(equalTo: topAnchor, constant: 18),
+            row.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -18),
+        ])
+
+        let trend = AnalyticsCardView(title: "最近 14 日用量", subtitle: "当前账号优先，缺失时使用本地共享记录", width: 590, height: 310)
+        let chart = DailyUsageChartView(buckets: buckets)
+        trend.contentStack.addArrangedSubview(chart)
+        chart.translatesAutoresizingMaskIntoConstraints = false
+        chart.widthAnchor.constraint(equalToConstant: 552).isActive = true
+        chart.heightAnchor.constraint(equalToConstant: 172).isActive = true
+        trend.contentStack.addArrangedSubview(Self.accuracyLine(active))
+        row.addArrangedSubview(trend)
+
+        let summary = AnalyticsCardView(title: "Token 构成", subtitle: "输入 / 缓存 / 输出", width: 318, height: 310)
+        if let snapshot = payload.localSnapshot {
+            let split = TokenSplitBarView(total: Self.displayTotal(snapshot))
+            split.translatesAutoresizingMaskIntoConstraints = false
+            split.widthAnchor.constraint(equalToConstant: 280).isActive = true
+            split.heightAnchor.constraint(equalToConstant: 24).isActive = true
+            summary.contentStack.addArrangedSubview(Self.bigMetric("今日", value: Self.todayTokenValue(active), caption: Self.todayTokenCaption(active)))
+            summary.contentStack.addArrangedSubview(split)
+            summary.contentStack.addArrangedSubview(Self.breakdown(snapshot))
+            summary.contentStack.addArrangedSubview(Self.modelRows(snapshot))
+        } else {
+            summary.contentStack.addArrangedSubview(RankingStackBuilder.empty("暂无本地 token 记录", width: 280))
+        }
+        row.addArrangedSubview(summary)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    private static func activeProfile(_ payload: DashboardPayload) -> ProfileStatus? {
+        guard let active = payload.activeProfile else {
+            return payload.profiles.first
+        }
+        return payload.profiles.first { $0.name == active } ?? payload.profiles.first
+    }
+
+    private static func displayBuckets(payload: DashboardPayload, profile: ProfileStatus?) -> [DailyUsageBucket] {
+        let accountBuckets = profile?.usage?.dailyUsageBuckets ?? []
+        if !accountBuckets.isEmpty {
+            return Array(accountBuckets.suffix(14))
+        }
+        return Array((payload.localSnapshot?.daily ?? []).suffix(14)).map {
+            DailyUsageBucket(startDate: $0.date, tokens: $0.totalTokens)
+        }
+    }
+
+    private static func displayTotal(_ snapshot: LocalTokenSnapshot) -> TokenUsageTotals {
+        guard let daily = snapshot.daily, !daily.isEmpty else {
+            return snapshot.total
+        }
+        return daily.reduce(TokenUsageTotals(inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, reasoningOutputTokens: 0, totalTokens: 0)) { partial, item in
+            TokenUsageTotals(
+                inputTokens: partial.inputTokens + item.inputTokens,
+                cachedInputTokens: partial.cachedInputTokens + item.cachedInputTokens,
+                outputTokens: partial.outputTokens + item.outputTokens,
+                reasoningOutputTokens: partial.reasoningOutputTokens + item.reasoningOutputTokens,
+                totalTokens: partial.totalTokens + item.totalTokens
+            )
+        }
+    }
+
+    private static func todayTokenValue(_ profile: ProfileStatus?) -> String {
+        if let value = profile?.tokenAttribution?.todayDisplayTokens {
+            return TokenText.compact(value)
+        }
+        return TokenText.compact(profile?.usageMetrics?.todayTokens)
+    }
+
+    private static func todayTokenCaption(_ profile: ProfileStatus?) -> String {
+        switch profile?.tokenAttribution?.todaySource {
+        case "official":
+            return "官方账号值"
+        case "attribution_estimate":
+            return "管家归因估算"
+        default:
+            return "账号统计"
+        }
+    }
+
+    private static func bigMetric(_ title: String, value: String, caption: String) -> NSView {
+        let stack = NSStackView()
+        stack.orientation = .vertical
+        stack.spacing = 3
+        stack.alignment = .leading
+        stack.addArrangedSubview(DashboardText.label(title, size: 11, weight: .semibold, alpha: 0.48))
+        stack.addArrangedSubview(DashboardText.mono(value, size: 26, weight: .heavy, alpha: 0.82))
+        stack.addArrangedSubview(DashboardText.label(caption, size: 11, weight: .medium, alpha: 0.48))
+        return stack
+    }
+
+    private static func breakdown(_ snapshot: LocalTokenSnapshot) -> NSView {
+        let total = displayTotal(snapshot)
+        let label = DashboardText.label(
+            [
+                "输入 \(TokenText.compact(total.inputTokens))",
+                "缓存 \(TokenText.compact(total.cachedInputTokens))",
+                "输出 \(TokenText.compact(total.outputTokens))",
+                "推理 \(TokenText.compact(total.reasoningOutputTokens))",
+            ].joined(separator: " · "),
+            size: 11,
+            weight: .medium,
+            alpha: 0.58
+        )
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.widthAnchor.constraint(equalToConstant: 280).isActive = true
+        return label
+    }
+
+    private static func modelRows(_ snapshot: LocalTokenSnapshot) -> NSView {
+        let stack = NSStackView()
+        stack.orientation = .vertical
+        stack.spacing = 6
+        stack.alignment = .leading
+        for (index, model) in Array((snapshot.byModel ?? []).sorted { $0.totalTokens > $1.totalTokens }.prefix(3)).enumerated() {
+            stack.addArrangedSubview(
+                RankingRowView(index: index + 1, title: model.model, subtitle: "模型", value: TokenText.compact(model.totalTokens), width: 280)
+            )
+        }
+        return stack
+    }
+
+    private static func accuracyLine(_ profile: ProfileStatus?) -> NSView {
+        let text: String
+        if let accuracy = profile?.tokenAttribution?.previousDayAccuracy {
+            text = "昨日校准：估算 \(TokenText.compact(accuracy.estimatedTokens)) · 官方 \(TokenText.compact(accuracy.officialTokens)) · 差值 \(TokenText.compact(abs(accuracy.deltaTokens)))"
+        } else {
+            text = "当天为管家归因估算；次日用官方账号数据自动校准。"
+        }
+        let label = DashboardText.label(text, size: 12, weight: .semibold, alpha: 0.58)
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.widthAnchor.constraint(equalToConstant: 552).isActive = true
+        return label
+    }
+}
+
+final class QuotaOperationsPanelView: GlassPanelView {
+    init(payload: DashboardPayload, width: CGFloat, switchAction: @escaping (String) -> Void) {
+        super.init(width: width, height: 346, cornerRadius: 22)
+
+        let row = NSStackView()
+        row.orientation = .horizontal
+        row.spacing = 16
+        row.alignment = .top
+        row.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(row)
+        NSLayoutConstraint.activate([
+            row.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 18),
+            row.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -18),
+            row.topAnchor.constraint(equalTo: topAnchor, constant: 18),
+            row.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -18),
+        ])
+
+        let accounts = AnalyticsCardView(title: "账号额度", subtitle: "切换账号与当前窗口", width: 590, height: 310)
+        for profile in payload.profiles {
+            accounts.contentStack.addArrangedSubview(
+                AccountQuotaRowView(profile: profile, isActive: payload.activeProfile == profile.name, width: 552, switchAction: switchAction)
+            )
+        }
+        row.addArrangedSubview(accounts)
+
+        let credits = AnalyticsCardView(title: "重置卡", subtitle: "按到期时间排序", width: 318, height: 310)
+        for profile in payload.profiles {
+            credits.contentStack.addArrangedSubview(ResetCreditCompactStripView(profile: profile, width: 280))
+        }
+        row.addArrangedSubview(credits)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+}
+
+enum DashboardAnalyticsMode {
+    case projects
+    case tools
+}
+
+final class DashboardAnalyticsPanelView: GlassPanelView {
+    init(payload: DashboardPayload, width: CGFloat, mode: DashboardAnalyticsMode) {
+        super.init(width: width, height: 346, cornerRadius: 22)
+
+        let row = NSStackView()
+        row.orientation = .horizontal
+        row.spacing = 16
+        row.alignment = .top
+        row.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(row)
+        NSLayoutConstraint.activate([
+            row.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 18),
+            row.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -18),
+            row.topAnchor.constraint(equalTo: topAnchor, constant: 18),
+            row.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -18),
+        ])
+
+        switch mode {
+        case .projects:
+            row.addArrangedSubview(RankingListPanelView(title: "近活跃项目", subtitle: "按本地 token 排序", width: 452, height: 310, rows: projectRows(payload)))
+            row.addArrangedSubview(ProjectActivityPanelView(payload: payload, width: 456))
+        case .tools:
+            row.addArrangedSubview(RankingListPanelView(title: "工具使用 TOP", subtitle: "调用次数", width: 452, height: 310, rows: toolRows(payload)))
+            row.addArrangedSubview(RankingListPanelView(title: "Skill 使用 TOP", subtitle: "加载次数与最近使用", width: 456, height: 310, rows: skillRows(payload)))
+        }
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    private func projectRows(_ payload: DashboardPayload) -> [(String, String, String)] {
+        Array((payload.projectRankings?.projects ?? []).prefix(7)).map {
+            ($0.name, "\($0.threadCount) 条线程", TokenText.compact($0.tokensUsed))
+        }
+    }
+
+    private func toolRows(_ payload: DashboardPayload) -> [(String, String, String)] {
+        Array((payload.toolRankings?.tools ?? []).prefix(7)).map {
+            ($0.name, $0.namespace.isEmpty ? "工具" : $0.namespace, "\($0.callCount) 次")
+        }
+    }
+
+    private func skillRows(_ payload: DashboardPayload) -> [(String, String, String)] {
+        Array((payload.skillRankings?.skills ?? []).prefix(7)).map {
+            ($0.name, TimeText.beijingFull($0.latestTimestamp), "\($0.useCount) 次")
+        }
+    }
+}
+
+class AnalyticsCardView: GlassPanelView {
+    let contentStack = NSStackView()
+
+    init(title: String, subtitle: String, width: CGFloat, height: CGFloat) {
+        super.init(width: width, height: height, cornerRadius: 18)
+
+        let stack = NSStackView()
+        stack.orientation = .vertical
+        stack.spacing = 10
+        stack.alignment = .leading
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 18),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -18),
+            stack.topAnchor.constraint(equalTo: topAnchor, constant: 16),
+            stack.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -16),
+        ])
+
+        let header = NSStackView()
+        header.orientation = .horizontal
+        header.alignment = .firstBaseline
+        header.translatesAutoresizingMaskIntoConstraints = false
+        header.widthAnchor.constraint(equalToConstant: width - 36).isActive = true
+        header.addArrangedSubview(DashboardText.label(title, size: 14.5, weight: .heavy, alpha: 0.78))
+        let spacer = NSView()
+        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        header.addArrangedSubview(spacer)
+        header.addArrangedSubview(DashboardText.label(subtitle, size: 10.5, weight: .medium, alpha: 0.42))
+        stack.addArrangedSubview(header)
+
+        contentStack.orientation = .vertical
+        contentStack.spacing = 8
+        contentStack.alignment = .leading
+        stack.addArrangedSubview(contentStack)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+}
+
+final class RankingListPanelView: AnalyticsCardView {
+    init(title: String, subtitle: String, width: CGFloat, height: CGFloat, rows: [(String, String, String)]) {
+        super.init(title: title, subtitle: subtitle, width: width, height: height)
+        if rows.isEmpty {
+            contentStack.addArrangedSubview(RankingStackBuilder.empty("暂无数据", width: width - 36))
+        } else {
+            for (index, row) in rows.enumerated() {
+                contentStack.addArrangedSubview(RankingRowView(index: index + 1, title: row.0, subtitle: row.1, value: row.2, width: width - 36))
+            }
+        }
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+}
+
+final class ProjectActivityPanelView: AnalyticsCardView {
+    init(payload: DashboardPayload, width: CGFloat) {
+        super.init(title: "项目活动概览", subtitle: "本地线程口径", width: width, height: 310)
+        let projects = payload.projectRankings?.projects ?? []
+        let totalTokens = projects.reduce(0) { $0 + $1.tokensUsed }
+        let totalThreads = projects.reduce(0) { $0 + $1.threadCount }
+        contentStack.addArrangedSubview(metricRow(title: "项目数", value: "\(projects.count)", caption: "已记录工作区"))
+        contentStack.addArrangedSubview(metricRow(title: "线程数", value: "\(totalThreads)", caption: "本地历史线程"))
+        contentStack.addArrangedSubview(metricRow(title: "累计", value: TokenText.compact(totalTokens), caption: "排行内 token"))
+        if let first = projects.first {
+            contentStack.addArrangedSubview(metricRow(title: "最高", value: first.name, caption: TokenText.compact(first.tokensUsed)))
+        }
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    private func metricRow(title: String, value: String, caption: String) -> NSView {
+        let row = NSStackView()
+        row.orientation = .horizontal
+        row.spacing = 12
+        row.alignment = .firstBaseline
+        row.translatesAutoresizingMaskIntoConstraints = false
+        row.widthAnchor.constraint(equalToConstant: 420).isActive = true
+        row.addArrangedSubview(DashboardText.label(title, size: 12, weight: .semibold, alpha: 0.48))
+        let valueLabel = DashboardText.mono(value, size: 17, weight: .heavy, alpha: 0.78)
+        valueLabel.translatesAutoresizingMaskIntoConstraints = false
+        valueLabel.widthAnchor.constraint(equalToConstant: 190).isActive = true
+        row.addArrangedSubview(valueLabel)
+        row.addArrangedSubview(DashboardText.label(caption, size: 11, weight: .medium, alpha: 0.44))
+        return row
+    }
+}
+
+final class AccountQuotaRowView: NSView {
+    private let profile: ProfileStatus
+    private let isActive: Bool
+    private let switchAction: (String) -> Void
+
+    init(profile: ProfileStatus, isActive: Bool, width: CGFloat, switchAction: @escaping (String) -> Void) {
+        self.profile = profile
+        self.isActive = isActive
+        self.switchAction = switchAction
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+        widthAnchor.constraint(equalToConstant: width).isActive = true
+        heightAnchor.constraint(equalToConstant: 82).isActive = true
+        wantsLayer = true
+        layer?.cornerRadius = 14
+        layer?.backgroundColor = NSColor.white.withAlphaComponent(isActive ? 0.42 : 0.28).cgColor
+        layer?.borderColor = (isActive ? NSColor.systemGreen : NSColor.white).withAlphaComponent(0.42).cgColor
+        layer?.borderWidth = 1
+        build(width: width)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    private func build(width: CGFloat) {
+        let row = NSStackView()
+        row.orientation = .horizontal
+        row.spacing = 12
+        row.alignment = .centerY
+        row.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(row)
+        NSLayoutConstraint.activate([
+            row.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            row.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+            row.centerYAnchor.constraint(equalTo: centerYAnchor),
+        ])
+
+        let badge = ProfileBadgeView(name: profile.name, index: isActive ? 0 : 1)
+        badge.translatesAutoresizingMaskIntoConstraints = false
+        badge.widthAnchor.constraint(equalToConstant: 44).isActive = true
+        badge.heightAnchor.constraint(equalToConstant: 44).isActive = true
+        row.addArrangedSubview(badge)
+
+        let nameStack = NSStackView()
+        nameStack.orientation = .vertical
+        nameStack.spacing = 3
+        nameStack.alignment = .leading
+        let name = DashboardText.label(profile.name, size: 14.5, weight: .heavy, alpha: 0.84)
+        name.translatesAutoresizingMaskIntoConstraints = false
+        name.widthAnchor.constraint(equalToConstant: 160).isActive = true
+        nameStack.addArrangedSubview(name)
+        nameStack.addArrangedSubview(DashboardText.mono("PLUS · \(isActive ? "当前" : "可切换")", size: 10.5, weight: .bold, alpha: 0.48))
+        row.addArrangedSubview(nameStack)
+
+        let bars = NSStackView()
+        bars.orientation = .vertical
+        bars.spacing = 7
+        bars.alignment = .leading
+        bars.addArrangedSubview(barLine(title: "5h", window: profile.rateLimits.primary, width: 210))
+        bars.addArrangedSubview(barLine(title: "7d", window: profile.rateLimits.secondary, width: 210))
+        row.addArrangedSubview(bars)
+
+        let spacer = NSView()
+        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        row.addArrangedSubview(spacer)
+
+        if isActive {
+            row.addArrangedSubview(DashboardText.label("当前", size: 12, weight: .bold, alpha: 0.58))
+        } else {
+            let button = NSButton(title: "切换", target: self, action: #selector(switchTapped))
+            button.bezelStyle = .rounded
+            button.font = NSFont.systemFont(ofSize: 11.5, weight: .bold)
+            row.addArrangedSubview(button)
+        }
+    }
+
+    private func barLine(title: String, window: RateLimitWindow?, width: CGFloat) -> NSView {
+        let row = NSStackView()
+        row.orientation = .horizontal
+        row.spacing = 8
+        row.alignment = .centerY
+        let label = DashboardText.mono(title, size: 11, weight: .bold, alpha: 0.56)
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.widthAnchor.constraint(equalToConstant: 24).isActive = true
+        row.addArrangedSubview(label)
+        let remaining = window?.remainingPercent
+        let bar = PixelBarView(percent: remaining ?? 0, color: AccountHealth(remaining: remaining).color)
+        bar.translatesAutoresizingMaskIntoConstraints = false
+        bar.widthAnchor.constraint(equalToConstant: width).isActive = true
+        bar.heightAnchor.constraint(equalToConstant: 14).isActive = true
+        row.addArrangedSubview(bar)
+        let value = DashboardText.mono("\(remaining.map { "\($0)%" } ?? "--")", size: 11, weight: .bold, alpha: 0.62)
+        value.translatesAutoresizingMaskIntoConstraints = false
+        value.widthAnchor.constraint(equalToConstant: 40).isActive = true
+        row.addArrangedSubview(value)
+        return row
+    }
+
+    @objc private func switchTapped() {
+        switchAction(profile.name)
+    }
+}
+
+final class ResetCreditCompactStripView: NSView {
+    init(profile: ProfileStatus, width: CGFloat) {
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+        widthAnchor.constraint(equalToConstant: width).isActive = true
+        heightAnchor.constraint(equalToConstant: 78).isActive = true
+        wantsLayer = true
+        layer?.cornerRadius = 14
+        layer?.backgroundColor = NSColor.white.withAlphaComponent(0.28).cgColor
+
+        let stack = NSStackView()
+        stack.orientation = .vertical
+        stack.spacing = 7
+        stack.alignment = .leading
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+            stack.centerYAnchor.constraint(equalTo: centerYAnchor),
+        ])
+
+        let header = NSStackView()
+        header.orientation = .horizontal
+        header.alignment = .firstBaseline
+        header.widthAnchor.constraint(equalToConstant: width - 24).isActive = true
+        header.addArrangedSubview(DashboardText.label(profile.name, size: 12, weight: .heavy, alpha: 0.76))
+        let spacer = NSView()
+        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        header.addArrangedSubview(spacer)
+        header.addArrangedSubview(DashboardText.mono("\(count(profile)) 张", size: 11, weight: .bold, alpha: 0.58))
+        stack.addArrangedSubview(header)
+
+        let line = DashboardText.label(expiryText(profile), size: 11.5, weight: .semibold, alpha: 0.60)
+        line.translatesAutoresizingMaskIntoConstraints = false
+        line.widthAnchor.constraint(equalToConstant: width - 24).isActive = true
+        stack.addArrangedSubview(line)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    private func count(_ profile: ProfileStatus) -> Int {
+        profile.resetCreditDetails?.availableCount ?? profile.rateLimits.resetCredits?.availableCount ?? 0
+    }
+
+    private func expiryText(_ profile: ProfileStatus) -> String {
+        let cards = (profile.resetCreditDetails?.credits ?? [])
+            .filter { $0.used != true }
+            .compactMap(\.expiresAt)
+            .sorted()
+        guard !cards.isEmpty else {
+            return profile.resetCreditError ?? "暂无可用重置卡"
+        }
+        return cards.prefix(3).map { TimeText.beijingMonthDayMinute($0) }.joined(separator: " · ")
+    }
+}
+
+final class PopoverRuntimeSummaryView: NSView {
+    private let payload: DashboardPayload?
+    private let message: String?
+
+    init(payload: DashboardPayload?, message: String?) {
+        self.payload = payload
+        self.message = message
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+        widthAnchor.constraint(equalToConstant: MenuLayout.contentWidth).isActive = true
+        heightAnchor.constraint(equalToConstant: 136).isActive = true
+        wantsLayer = true
+        layer?.cornerRadius = 16
+        layer?.borderColor = NSColor.white.withAlphaComponent(0.46).cgColor
+        layer?.borderWidth = 1
+        build()
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor.white.withAlphaComponent(0.34).setFill()
+        NSBezierPath(roundedRect: bounds, xRadius: 16, yRadius: 16).fill()
+    }
+
+    private func build() {
+        guard let payload else {
+            let label = DashboardText.label(message ?? "正在读取 Codex 状态", size: 13, weight: .semibold, alpha: 0.58)
+            label.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(label)
+            NSLayoutConstraint.activate([
+                label.centerXAnchor.constraint(equalTo: centerXAnchor),
+                label.centerYAnchor.constraint(equalTo: centerYAnchor),
+            ])
+            return
+        }
+
+        let active = activeProfile(payload)
+        let row = NSStackView()
+        row.orientation = .horizontal
+        row.spacing = 14
+        row.alignment = .centerY
+        row.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(row)
+        NSLayoutConstraint.activate([
+            row.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
+            row.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
+            row.centerYAnchor.constraint(equalTo: centerYAnchor),
+        ])
+
+        let dial = QuotaDialView(profile: active)
+        dial.translatesAutoresizingMaskIntoConstraints = false
+        dial.widthAnchor.constraint(equalToConstant: 104).isActive = true
+        dial.heightAnchor.constraint(equalToConstant: 112).isActive = true
+        row.addArrangedSubview(dial)
+
+        let stack = NSStackView()
+        stack.orientation = .vertical
+        stack.spacing = 7
+        stack.alignment = .leading
+        row.addArrangedSubview(stack)
+
+        stack.addArrangedSubview(DashboardText.label(active?.name ?? "--", size: 15, weight: .heavy, alpha: 0.82))
+        stack.addArrangedSubview(DashboardText.label(runtimeLine(payload), size: 11.5, weight: .semibold, alpha: 0.58))
+        stack.addArrangedSubview(DashboardText.mono("今日 \(todayToken(active)) · 重置卡 \(resetCount(active)) 张", size: 11.5, weight: .bold, alpha: 0.62))
+        stack.addArrangedSubview(DashboardText.label(desktopLine(payload), size: 11.5, weight: .semibold, alpha: 0.54))
+    }
+
+    private func activeProfile(_ payload: DashboardPayload) -> ProfileStatus? {
+        guard let active = payload.activeProfile else {
+            return payload.profiles.first
+        }
+        return payload.profiles.first { $0.name == active } ?? payload.profiles.first
+    }
+
+    private func runtimeLine(_ payload: DashboardPayload) -> String {
+        let runtime = RuntimeLight(status: payload.runtimeStatus)
+        return "\(runtime.label) · 刷新 \(TimeText.beijingFull(payload.generatedAt))"
+    }
+
+    private func desktopLine(_ payload: DashboardPayload) -> String {
+        guard let status = payload.desktopStatus else {
+            return "Codex 路径未读取"
+        }
+        if status.state == "managed_default_home" {
+            return "Codex 已接管 · \(status.activeProfile ?? payload.activeProfile ?? "当前账号")"
+        }
+        if status.running {
+            return "Codex 未接管 · 建议重启接管"
+        }
+        return "Codex 已准备"
+    }
+
+    private func todayToken(_ profile: ProfileStatus?) -> String {
+        if let value = profile?.tokenAttribution?.todayDisplayTokens {
+            return TokenText.compact(value)
+        }
+        return TokenText.compact(profile?.usageMetrics?.todayTokens)
+    }
+
+    private func resetCount(_ profile: ProfileStatus?) -> Int {
+        profile?.resetCreditDetails?.availableCount ?? profile?.rateLimits.resetCredits?.availableCount ?? 0
+    }
+}
+
 final class AccountManagerViewController: NSViewController {
     private let payload: DashboardPayload?
     private let message: String?
@@ -1759,18 +2512,9 @@ final class AccountManagerViewController: NSViewController {
     }
 
     private static func estimatedContentHeight(payload: DashboardPayload?, page: ManagerPage, hasMessage: Bool) -> CGFloat {
-        var itemHeights: [CGFloat] = [72, 174, 34]
+        var itemHeights: [CGFloat] = [56, 136]
         if hasMessage {
-            itemHeights.append(18)
-        }
-        if let payload {
-            switch page {
-            case .quota:
-                itemHeights.append(CGFloat(payload.profiles.count) * AccountCardView.cardHeight)
-                itemHeights.append(ResetCreditsPanelView.panelHeight(for: payload.profiles))
-            case .token:
-                itemHeights.append(560)
-            }
+            itemHeights.append(22)
         }
         itemHeights.append(actionRowHeight(payload: payload))
         let spacing = CGFloat(max(0, itemHeights.count - 1)) * MenuLayout.verticalSpacing
@@ -1835,34 +2579,10 @@ final class AccountManagerViewController: NSViewController {
         ])
 
         content.addArrangedSubview(headerView())
-        if let payload {
-            content.addArrangedSubview(OverviewDashboardView(payload: payload))
-        } else {
-            content.addArrangedSubview(LoadingOverviewView(message: message ?? "正在读取 Codex 状态"))
-        }
-        content.addArrangedSubview(pageToggle())
+        content.addArrangedSubview(PopoverRuntimeSummaryView(payload: payload, message: message))
 
         if let message {
             content.addArrangedSubview(messageView(message))
-        }
-
-        if let payload {
-            switch page {
-            case .quota:
-                for (index, profile) in payload.profiles.enumerated() {
-                    content.addArrangedSubview(
-                        AccountCardView(
-                            profile: profile,
-                            index: index,
-                            isActive: payload.activeProfile == profile.name,
-                            switchAction: switchAction
-                        )
-                    )
-                }
-                content.addArrangedSubview(ResetCreditsPanelView(profiles: payload.profiles))
-            case .token:
-                content.addArrangedSubview(TokenDashboardView(payload: payload))
-            }
         }
 
     }
@@ -2040,8 +2760,8 @@ final class AccountManagerViewController: NSViewController {
         stack.widthAnchor.constraint(equalToConstant: MenuLayout.contentWidth).isActive = true
         stack.addArrangedSubview(
             ActionRowView(
-                icon: "💨",
-                title: isRefreshing ? "刷新中..." : "刷新",
+                icon: "↻",
+                title: isRefreshing ? "刷新中" : "刷新",
                 isEnabled: !isRefreshing,
                 action: refreshAction
             )
@@ -2049,7 +2769,7 @@ final class AccountManagerViewController: NSViewController {
         stack.addArrangedSubview(
             ActionRowView(
                 icon: "▣",
-                title: "打开面板",
+                title: "面板",
                 isEnabled: payload != nil,
                 action: openDashboardAction
             )
@@ -2066,8 +2786,8 @@ final class AccountManagerViewController: NSViewController {
         }
         stack.addArrangedSubview(
             ActionRowView(
-                icon: "🚪",
-                title: "退出账号管家",
+                icon: "⏻",
+                title: "退出",
                 isEnabled: true,
                 action: quitAction
             )
@@ -2081,15 +2801,15 @@ final class AccountManagerViewController: NSViewController {
 
     private func launchTitle() -> String {
         guard let status = payload?.desktopStatus else {
-            return "打开 Codex"
+            return "打开"
         }
         if status.state == "managed_default_home" {
-            return "重启 Codex"
+            return "重启"
         }
         if status.running {
-            return "接管 Codex"
+            return "接管"
         }
-        return "打开 Codex"
+        return "打开"
     }
 
     @objc private func refreshTapped() {
@@ -3684,18 +4404,18 @@ final class ActionRowView: NSView {
         addSubview(row)
 
         NSLayoutConstraint.activate([
-            row.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
-            row.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
+            row.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
+            row.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
             row.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
 
         let iconLabel = NSTextField(labelWithString: icon)
-        iconLabel.font = NSFont.systemFont(ofSize: 17)
+        iconLabel.font = NSFont.systemFont(ofSize: 15)
         iconLabel.translatesAutoresizingMaskIntoConstraints = false
-        iconLabel.widthAnchor.constraint(equalToConstant: 22).isActive = true
+        iconLabel.widthAnchor.constraint(equalToConstant: 18).isActive = true
 
         let titleLabel = NSTextField(labelWithString: title)
-        titleLabel.font = NSFont.systemFont(ofSize: 12, weight: .semibold)
+        titleLabel.font = NSFont.systemFont(ofSize: 11.5, weight: .semibold)
         titleLabel.textColor = isEnabled ? NSColor.black.withAlphaComponent(0.78) : NSColor.black.withAlphaComponent(0.36)
         titleLabel.lineBreakMode = .byTruncatingTail
 
