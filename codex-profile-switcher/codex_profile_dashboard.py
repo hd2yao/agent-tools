@@ -17,7 +17,7 @@ import urllib.error
 import urllib.request
 import webbrowser
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -58,6 +58,7 @@ RESET_CREDIT_USED_KEYS = (
     "isConsumed",
     "redeemed",
 )
+ATTRIBUTION_LEDGER_VERSION = 1
 
 
 def normalize_window(value: dict | None) -> dict | None:
@@ -274,6 +275,223 @@ def _date_key(timestamp: str | None) -> str | None:
     if isinstance(timestamp, str) and len(timestamp) >= 10:
         return timestamp[:10]
     return None
+
+
+def _beijing_day(value: datetime) -> str:
+    return value.astimezone(ZoneInfo("Asia/Shanghai")).date().isoformat()
+
+
+def _local_total_tokens(local_snapshot: dict | None) -> int | None:
+    total = (local_snapshot or {}).get("total") or {}
+    if not isinstance(total, dict):
+        return None
+    value = total.get("total_tokens")
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _attribution_ledger_path(shared_home: Path) -> Path:
+    return shared_home / "cache" / "codex-profile-switcher" / "token-attribution" / "ledger.json"
+
+
+def _empty_attribution_ledger() -> dict:
+    return {
+        "version": ATTRIBUTION_LEDGER_VERSION,
+        "active_profile": None,
+        "managed": False,
+        "baseline": None,
+        "daily_estimates": {},
+    }
+
+
+def read_attribution_ledger(shared_home: Path) -> dict:
+    path = _attribution_ledger_path(shared_home)
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return _empty_attribution_ledger()
+    if not isinstance(value, dict):
+        return _empty_attribution_ledger()
+    ledger = _empty_attribution_ledger()
+    ledger.update(value)
+    if not isinstance(ledger.get("daily_estimates"), dict):
+        ledger["daily_estimates"] = {}
+    return ledger
+
+
+def _write_attribution_ledger(shared_home: Path, ledger: dict) -> None:
+    path = _attribution_ledger_path(shared_home)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        tmp.write_text(
+            json.dumps(ledger, ensure_ascii=False, separators=(",", ":")) + "\n",
+            encoding="utf-8",
+        )
+        tmp.replace(path)
+    except OSError:
+        return
+
+
+def _add_daily_profile_estimate(ledger: dict, day: str, profile_name: str, tokens: int) -> None:
+    if tokens <= 0:
+        return
+    daily = ledger.setdefault("daily_estimates", {})
+    day_bucket = daily.setdefault(day, {})
+    current = day_bucket.get(profile_name)
+    current_tokens = 0
+    if isinstance(current, dict):
+        current_tokens = int(current.get("estimated_tokens") or 0)
+    elif isinstance(current, int):
+        current_tokens = current
+    day_bucket[profile_name] = {"estimated_tokens": current_tokens + tokens}
+
+
+def _close_active_attribution_segment(
+    ledger: dict,
+    *,
+    current_total_tokens: int | None,
+    day: str,
+) -> None:
+    baseline = ledger.get("baseline")
+    active = ledger.get("active_profile")
+    if not ledger.get("managed") or not isinstance(baseline, dict) or not isinstance(active, str):
+        return
+    baseline_total = baseline.get("total_tokens")
+    if current_total_tokens is None or not isinstance(baseline_total, int):
+        return
+    _add_daily_profile_estimate(
+        ledger,
+        day,
+        active,
+        max(0, current_total_tokens - baseline_total),
+    )
+
+
+def record_attribution_baseline(
+    shared_home: Path,
+    profile_name: str,
+    local_snapshot: dict | None,
+    *,
+    managed: bool,
+    now_seconds: float | None = None,
+) -> None:
+    now_value = datetime.fromtimestamp(
+        time.time() if now_seconds is None else now_seconds,
+        timezone.utc,
+    )
+    day = _beijing_day(now_value)
+    current_total = _local_total_tokens(local_snapshot)
+    ledger = read_attribution_ledger(shared_home)
+    _close_active_attribution_segment(
+        ledger,
+        current_total_tokens=current_total,
+        day=day,
+    )
+    ledger.update(
+        {
+            "version": ATTRIBUTION_LEDGER_VERSION,
+            "active_profile": profile_name,
+            "managed": bool(managed),
+            "baseline": {
+                "profile": profile_name,
+                "recorded_at": int(now_value.timestamp()),
+                "day": day,
+                "total_tokens": current_total,
+                "latest_timestamp": (local_snapshot or {}).get("latest_timestamp"),
+            },
+        }
+    )
+    _write_attribution_ledger(shared_home, ledger)
+
+
+def _official_bucket_tokens(usage: dict | None, day: str) -> int | None:
+    for item in (usage or {}).get("dailyUsageBuckets") or []:
+        if not isinstance(item, dict):
+            continue
+        if item.get("startDate") == day:
+            try:
+                return int(item.get("tokens") or 0)
+            except (TypeError, ValueError):
+                return None
+    return None
+
+
+def _stored_estimate_tokens(ledger: dict, day: str, profile_name: str) -> int | None:
+    profile_estimate = ((ledger.get("daily_estimates") or {}).get(day) or {}).get(profile_name)
+    if isinstance(profile_estimate, dict):
+        try:
+            return int(profile_estimate.get("estimated_tokens") or 0)
+        except (TypeError, ValueError):
+            return None
+    if isinstance(profile_estimate, int):
+        return profile_estimate
+    return None
+
+
+def summarize_profile_attribution(
+    shared_home: Path,
+    profile_name: str,
+    local_snapshot: dict | None,
+    account_usage: dict | None,
+    *,
+    now: datetime | None = None,
+) -> dict:
+    now_value = now or datetime.now(timezone.utc)
+    today = _beijing_day(now_value)
+    previous_day_key = (
+        now_value.astimezone(ZoneInfo("Asia/Shanghai")).date() - timedelta(days=1)
+    ).isoformat()
+    ledger = read_attribution_ledger(shared_home)
+    active_profile = ledger.get("active_profile")
+    current_total = _local_total_tokens(local_snapshot)
+
+    stored_today = _stored_estimate_tokens(ledger, today, profile_name) or 0
+    active_delta = None
+    if active_profile == profile_name and ledger.get("managed"):
+        baseline = ledger.get("baseline")
+        baseline_total = baseline.get("total_tokens") if isinstance(baseline, dict) else None
+        if current_total is not None and isinstance(baseline_total, int):
+            active_delta = max(0, current_total - baseline_total)
+
+    estimated_today = stored_today + (active_delta or 0)
+    estimate_available = estimated_today > 0 or active_delta is not None
+    official_today = _official_bucket_tokens(account_usage, today)
+    if official_today is not None:
+        display_tokens = official_today
+        source = "official"
+    elif estimate_available:
+        display_tokens = estimated_today
+        source = "attribution_estimate"
+    else:
+        display_tokens = None
+        source = "unavailable"
+
+    official_previous = _official_bucket_tokens(account_usage, previous_day_key)
+    estimated_previous = _stored_estimate_tokens(ledger, previous_day_key, profile_name)
+    accuracy = None
+    if estimated_previous is not None and official_previous is not None:
+        delta = estimated_previous - official_previous
+        accuracy = {
+            "date": previous_day_key,
+            "estimated_tokens": estimated_previous,
+            "official_tokens": official_previous,
+            "delta_tokens": delta,
+            "delta_percent": (delta / official_previous * 100) if official_previous else None,
+        }
+
+    return {
+        "active_profile": active_profile,
+        "managed": bool(ledger.get("managed")),
+        "estimate_available": estimate_available,
+        "today_estimated_tokens": estimated_today if estimate_available else None,
+        "today_official_tokens": official_today,
+        "today_display_tokens": display_tokens,
+        "today_source": source,
+        "previous_day_accuracy": accuracy,
+    }
 
 
 def summarize_account_usage(usage: dict | None, now: datetime | None = None) -> dict:
@@ -945,9 +1163,11 @@ def build_profiles_payload(
                 reset_details_by_name[profile.name] = future.result()
 
     profiles = []
+    attribution_ledger = read_attribution_ledger(shared_home)
     for profile in profile_paths:
         remote = remote_by_name.get(profile.name)
         reset_details = reset_details_by_name.get(profile.name) or {}
+        usage = (remote or {}).get("usage")
         profiles.append(
             {
                 "name": profile.name,
@@ -957,9 +1177,16 @@ def build_profiles_payload(
                 "rate_limits": normalize_rate_limits(
                     (remote or {}).get("rate_limits") or {}
                 ),
-                "usage": (remote or {}).get("usage"),
+                "usage": usage,
                 "usage_metrics": summarize_account_usage(
-                    (remote or {}).get("usage"),
+                    usage,
+                    now=datetime.fromtimestamp(now, timezone.utc),
+                ),
+                "token_attribution": summarize_profile_attribution(
+                    shared_home,
+                    profile.name,
+                    local_snapshot,
+                    usage,
                     now=datetime.fromtimestamp(now, timezone.utc),
                 ),
                 "reset_credit_details": reset_details.get("details"),
@@ -977,6 +1204,10 @@ def build_profiles_payload(
         "shared_home": str(shared_home),
         "local_snapshot": local_snapshot,
         "history": read_sqlite_history_summary(shared_home),
+        "attribution_summary": {
+            "active_profile": attribution_ledger.get("active_profile"),
+            "managed": bool(attribution_ledger.get("managed")),
+        },
         "profiles": profiles,
     }
 

@@ -299,6 +299,167 @@ class LocalTokenSnapshotTests(unittest.TestCase):
             self.assertEqual(result["bad_line_count"], 0)
 
 
+class TokenAttributionTests(unittest.TestCase):
+    def test_record_attribution_baseline_writes_active_profile_snapshot(self):
+        from codex_profile_dashboard import (
+            read_attribution_ledger,
+            record_attribution_baseline,
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            shared = Path(tmp)
+            record_attribution_baseline(
+                shared,
+                "account-a",
+                {"total": {"total_tokens": 100}, "latest_timestamp": "2026-07-09T01:00:00Z"},
+                managed=True,
+                now_seconds=1000,
+            )
+
+            ledger = read_attribution_ledger(shared)
+
+            self.assertEqual(ledger["active_profile"], "account-a")
+            self.assertEqual(ledger["baseline"]["total_tokens"], 100)
+            self.assertEqual(ledger["baseline"]["latest_timestamp"], "2026-07-09T01:00:00Z")
+            self.assertTrue(ledger["managed"])
+
+    def test_summarize_profile_attribution_estimates_today_from_switch_delta(self):
+        from datetime import datetime, timezone
+
+        from codex_profile_dashboard import (
+            record_attribution_baseline,
+            summarize_profile_attribution,
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            shared = Path(tmp)
+            record_attribution_baseline(
+                shared,
+                "account-a",
+                {"total": {"total_tokens": 100}},
+                managed=True,
+                now_seconds=1783584000,
+            )
+
+            result = summarize_profile_attribution(
+                shared,
+                "account-a",
+                {"total": {"total_tokens": 165}},
+                {"dailyUsageBuckets": [{"startDate": "2026-07-08", "tokens": 40}]},
+                now=datetime(2026, 7, 9, 4, 0, tzinfo=timezone.utc),
+            )
+
+            self.assertEqual(result["today_estimated_tokens"], 65)
+            self.assertEqual(result["today_display_tokens"], 65)
+            self.assertEqual(result["today_source"], "attribution_estimate")
+            self.assertTrue(result["estimate_available"])
+            self.assertEqual(result["active_profile"], "account-a")
+
+    def test_summarize_profile_attribution_uses_official_today_when_available(self):
+        from datetime import datetime, timezone
+
+        from codex_profile_dashboard import (
+            record_attribution_baseline,
+            summarize_profile_attribution,
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            shared = Path(tmp)
+            record_attribution_baseline(
+                shared,
+                "account-a",
+                {"total": {"total_tokens": 100}},
+                managed=True,
+                now_seconds=1783584000,
+            )
+
+            result = summarize_profile_attribution(
+                shared,
+                "account-a",
+                {"total": {"total_tokens": 165}},
+                {"dailyUsageBuckets": [{"startDate": "2026-07-09", "tokens": 72}]},
+                now=datetime(2026, 7, 9, 4, 0, tzinfo=timezone.utc),
+            )
+
+            self.assertEqual(result["today_display_tokens"], 72)
+            self.assertEqual(result["today_source"], "official")
+            self.assertEqual(result["today_estimated_tokens"], 65)
+
+    def test_summarize_profile_attribution_compares_previous_official_day(self):
+        from datetime import datetime, timezone
+
+        from codex_profile_dashboard import (
+            record_attribution_baseline,
+            summarize_profile_attribution,
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            shared = Path(tmp)
+            record_attribution_baseline(
+                shared,
+                "account-a",
+                {"total": {"total_tokens": 100}},
+                managed=True,
+                now_seconds=1783497600,
+            )
+            record_attribution_baseline(
+                shared,
+                "account-b",
+                {"total": {"total_tokens": 165}},
+                managed=True,
+                now_seconds=1783501200,
+            )
+
+            result = summarize_profile_attribution(
+                shared,
+                "account-a",
+                {"total": {"total_tokens": 165}},
+                {
+                    "dailyUsageBuckets": [
+                        {"startDate": "2026-07-08", "tokens": 60},
+                    ]
+                },
+                now=datetime(2026, 7, 9, 4, 0, tzinfo=timezone.utc),
+            )
+
+            accuracy = result["previous_day_accuracy"]
+            self.assertEqual(accuracy["date"], "2026-07-08")
+            self.assertEqual(accuracy["estimated_tokens"], 65)
+            self.assertEqual(accuracy["official_tokens"], 60)
+            self.assertEqual(accuracy["delta_tokens"], 5)
+            self.assertAlmostEqual(accuracy["delta_percent"], 8.333333333333332)
+
+    def test_summarize_profile_attribution_does_not_attribute_unmanaged_usage(self):
+        from datetime import datetime, timezone
+
+        from codex_profile_dashboard import (
+            record_attribution_baseline,
+            summarize_profile_attribution,
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            shared = Path(tmp)
+            record_attribution_baseline(
+                shared,
+                "account-a",
+                {"total": {"total_tokens": 100}},
+                managed=False,
+                now_seconds=1000,
+            )
+
+            result = summarize_profile_attribution(
+                shared,
+                "account-a",
+                {"total": {"total_tokens": 165}},
+                None,
+                now=datetime(2026, 7, 9, 4, 0, tzinfo=timezone.utc),
+            )
+
+            self.assertIsNone(result["today_estimated_tokens"])
+            self.assertFalse(result["estimate_available"])
+            self.assertEqual(result["today_source"], "unavailable")
+
+
 class AppServerClientTests(unittest.TestCase):
     def test_build_rpc_request(self):
         from codex_profile_dashboard import build_rpc_request
@@ -454,6 +615,53 @@ class ProfileApiTests(unittest.TestCase):
             self.assertEqual(details["available_count"], 1)
             self.assertEqual(details["earliest_expires_at"], 1784344611)
             self.assertEqual(details["credits"][0]["status"], "available")
+
+    def test_build_profiles_payload_includes_token_attribution(self):
+        from codex_profile_dashboard import build_profiles_payload, record_attribution_baseline
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "profiles"
+            shared = Path(tmp) / "shared"
+            profile = root / "account-a"
+            profile.mkdir(parents=True)
+            shared.mkdir()
+            record_attribution_baseline(
+                shared,
+                "account-a",
+                {"total": {"total_tokens": 100}},
+                managed=True,
+                now_seconds=1783584000,
+            )
+            rollout = shared / "sessions" / "2026" / "07" / "09" / "rollout-test.jsonl"
+            rollout.parent.mkdir(parents=True)
+            rollout.write_text(
+                json.dumps(
+                    {
+                        "timestamp": "2026-07-09T04:10:00Z",
+                        "payload": {
+                            "type": "token_count",
+                            "info": {
+                                "total_token_usage": {
+                                    "input_tokens": 120,
+                                    "cached_input_tokens": 50,
+                                    "output_tokens": 20,
+                                    "reasoning_output_tokens": 10,
+                                    "total_tokens": 165,
+                                }
+                            },
+                        },
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            result = build_profiles_payload(root, shared, read_remote=False, now_seconds=1783587600)
+
+            attribution = result["profiles"][0]["token_attribution"]
+            self.assertEqual(attribution["today_display_tokens"], 65)
+            self.assertEqual(attribution["today_source"], "attribution_estimate")
+            self.assertEqual(result["attribution_summary"]["active_profile"], "account-a")
 
     def test_read_sqlite_history_summary(self):
         import sqlite3

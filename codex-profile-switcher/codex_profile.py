@@ -664,6 +664,21 @@ def record_active_profile(
         encoding="utf-8",
     )
     target.chmod(0o600)
+    try:
+        from codex_profile_dashboard import (
+            read_local_token_snapshot,
+            record_attribution_baseline,
+        )
+
+        shared_home = get_shared_home()
+        record_attribution_baseline(
+            shared_home,
+            name,
+            read_local_token_snapshot(shared_home),
+            managed=codex_pid is not None,
+        )
+    except Exception:
+        pass
 
 
 def read_active_profile_record() -> dict:

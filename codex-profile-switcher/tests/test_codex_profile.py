@@ -70,6 +70,36 @@ class ProfileHelperTests(unittest.TestCase):
             {"exists": True, "has_auth": True, "has_config": False},
         )
 
+    def test_record_active_profile_records_token_attribution_baseline(self):
+        import codex_profile
+        import codex_profile_dashboard
+
+        profile = self.root / "account-a"
+        profile.mkdir()
+        calls = []
+        old_snapshot = codex_profile_dashboard.read_local_token_snapshot
+        old_record = codex_profile_dashboard.record_attribution_baseline
+        try:
+            codex_profile_dashboard.read_local_token_snapshot = lambda shared_home: {
+                "total": {"total_tokens": 123}
+            }
+            codex_profile_dashboard.record_attribution_baseline = (
+                lambda shared_home, profile_name, local_snapshot, **kwargs: calls.append(
+                    (shared_home, profile_name, local_snapshot, kwargs)
+                )
+            )
+
+            codex_profile.record_active_profile("account-a", profile_home=profile, codex_pid=24680)
+        finally:
+            codex_profile_dashboard.read_local_token_snapshot = old_snapshot
+            codex_profile_dashboard.record_attribution_baseline = old_record
+
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0][0], self.root / "shared-codex")
+        self.assertEqual(calls[0][1], "account-a")
+        self.assertEqual(calls[0][2]["total"]["total_tokens"], 123)
+        self.assertTrue(calls[0][3]["managed"])
+
     def test_build_codex_env_sets_codex_home(self):
         from codex_profile import build_codex_env
 
