@@ -33,13 +33,13 @@ class MenuBarUISourceTests(unittest.TestCase):
         root_start = source.index("final class MainDashboardRootView")
         root_end = source.index("enum DashboardText", root_start)
         root_source = source[root_start:root_end]
-        self.assertIn("alpha: 0.90", root_source)
-        self.assertIn("alpha: 0.86", root_source)
+        self.assertIn("alpha: 0.97", root_source)
+        self.assertIn("alpha: 0.94", root_source)
 
         glass_start = source.index("class GlassPanelView")
-        glass_end = source.index("final class MainHeroPanelView", glass_start)
+        glass_end = source.index("final class DashboardHeroGridView", glass_start)
         glass_source = source[glass_start:glass_end]
-        self.assertIn("withAlphaComponent(0.52)", glass_source)
+        self.assertIn("withAlphaComponent(0.68)", glass_source)
 
     def test_popover_actions_use_short_labels(self):
         source = SWIFT_SOURCE.read_text()
@@ -73,8 +73,37 @@ class MenuBarUISourceTests(unittest.TestCase):
         build_end = source.index("    private func selectedAnalyticsPanel", build_start)
         build_source = source[build_start:build_end]
 
-        self.assertIn("MainHeroPanelView(payload: payload, width: contentWidth, switchAction: switchAction)", build_source)
+        self.assertIn("DashboardHeroGridView(payload: payload, width: contentWidth, switchAction: switchAction)", build_source)
         self.assertIn("AccountSwitcherStripView(", source)
+
+    def test_popover_no_longer_has_secondary_pages(self):
+        source = SWIFT_SOURCE.read_text()
+        for legacy_symbol in [
+            "enum ManagerPage",
+            "currentPage",
+            "setPageAction",
+            "PageToggleView",
+            "PageToggleButtonView",
+        ]:
+            self.assertNotIn(legacy_symbol, source)
+
+    def test_main_dashboard_uses_horizontal_glass_shell(self):
+        source = SWIFT_SOURCE.read_text()
+        self.assertIn("width: 1160, height: 720", source)
+        self.assertIn("private let contentWidth: CGFloat = 1080", source)
+        self.assertIn("DashboardHeroGridView(payload: payload, width: contentWidth, switchAction: switchAction)", source)
+        self.assertIn("DashboardMetricGridView(payload: payload, width:", source)
+
+    def test_legacy_vertical_dashboard_components_are_removed(self):
+        source = SWIFT_SOURCE.read_text()
+        for legacy_class in [
+            "final class OverviewDashboardView",
+            "final class ResetCreditsPanelView",
+            "final class AccountCardView",
+            "final class TokenDashboardView",
+            "final class AccountTokenCardView",
+        ]:
+            self.assertNotIn(legacy_class, source)
 
 
 if __name__ == "__main__":

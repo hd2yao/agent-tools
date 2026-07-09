@@ -525,11 +525,6 @@ enum RuntimeLight {
     }
 }
 
-enum ManagerPage {
-    case quota
-    case token
-}
-
 enum DashboardSectionTab: CaseIterable {
     case usage
     case quota
@@ -692,7 +687,6 @@ final class CodexProfileMenuBarApp: NSObject, NSApplicationDelegate, NSPopoverDe
     private var refreshTimer: Timer?
     private var globalEventMonitor: Any?
     private var localEventMonitor: Any?
-    private var currentPage: ManagerPage = .quota
     private var dashboardWindowController: DashboardWindowController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -924,11 +918,6 @@ final class CodexProfileMenuBarApp: NSObject, NSApplicationDelegate, NSPopoverDe
             payload: latestPayload,
             message: message ?? latestError,
             isRefreshing: isRefreshing,
-            page: currentPage,
-            setPageAction: { [weak self] page in
-                self?.currentPage = page
-                self?.updatePopover()
-            },
             refreshAction: { [weak self] in self?.refreshStatus(nil) },
             openDashboardAction: { [weak self] in self?.openDashboardWindow() },
             launchAction: { [weak self] in self?.launchActiveProfile() },
@@ -1053,7 +1042,7 @@ final class DashboardWindowController: NSWindowController {
             switchAction: switchAction
         )
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 1040, height: 700),
+            contentRect: NSRect(x: 0, y: 0, width: 1160, height: 720),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -1080,7 +1069,7 @@ final class MainDashboardViewController: NSViewController {
     private var payload: DashboardPayload
     private let refreshAction: () -> Void
     private let switchAction: (String) -> Void
-    private let contentWidth: CGFloat = 960
+    private let contentWidth: CGFloat = 1080
     private var selectedTab: DashboardSectionTab = .usage
 
     init(
@@ -1099,7 +1088,7 @@ final class MainDashboardViewController: NSViewController {
     }
 
     override func loadView() {
-        view = MainDashboardRootView(frame: NSRect(x: 0, y: 0, width: 1040, height: 700))
+        view = MainDashboardRootView(frame: NSRect(x: 0, y: 0, width: 1160, height: 720))
     }
 
     override func viewDidLoad() {
@@ -1152,7 +1141,7 @@ final class MainDashboardViewController: NSViewController {
         ])
 
         stack.addArrangedSubview(mainHeader())
-        stack.addArrangedSubview(MainHeroPanelView(payload: payload, width: contentWidth, switchAction: switchAction))
+        stack.addArrangedSubview(DashboardHeroGridView(payload: payload, width: contentWidth, switchAction: switchAction))
         stack.addArrangedSubview(
             DashboardTabBarView(
                 selectedTab: selectedTab,
@@ -1240,11 +1229,11 @@ final class MainDashboardRootView: NSView {
         bounds.fill()
         let panel = NSBezierPath(roundedRect: bounds.insetBy(dx: 10, dy: 10), xRadius: 28, yRadius: 28)
         NSGradient(colors: [
-            NSColor(calibratedRed: 0.74, green: 0.86, blue: 0.78, alpha: 0.90),
-            NSColor(calibratedRed: 0.92, green: 0.84, blue: 0.74, alpha: 0.86),
-            NSColor(calibratedRed: 0.75, green: 0.78, blue: 0.95, alpha: 0.90),
+            NSColor(calibratedRed: 0.74, green: 0.86, blue: 0.78, alpha: 0.97),
+            NSColor(calibratedRed: 0.92, green: 0.84, blue: 0.74, alpha: 0.94),
+            NSColor(calibratedRed: 0.75, green: 0.78, blue: 0.95, alpha: 0.97),
         ])?.draw(in: panel, angle: 315)
-        NSColor.white.withAlphaComponent(0.38).setStroke()
+        NSColor.white.withAlphaComponent(0.50).setStroke()
         panel.lineWidth = 1.2
         panel.stroke()
         drawPattern()
@@ -1259,7 +1248,7 @@ final class MainDashboardRootView: NSView {
                     at: CGPoint(x: col, y: row),
                     withAttributes: [
                         .font: NSFont.monospacedSystemFont(ofSize: 14, weight: .heavy),
-                        .foregroundColor: NSColor.white.withAlphaComponent(0.08),
+                        .foregroundColor: NSColor.white.withAlphaComponent(0.04),
                     ]
                 )
             }
@@ -1306,21 +1295,75 @@ class GlassPanelView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         let path = NSBezierPath(roundedRect: bounds, xRadius: cornerRadius, yRadius: cornerRadius)
-        NSColor.white.withAlphaComponent(0.52).setFill()
+        NSColor.white.withAlphaComponent(0.68).setFill()
         path.fill()
     }
 }
 
-final class MainHeroPanelView: GlassPanelView {
+final class DashboardHeroGridView: NSView {
     private let payload: DashboardPayload
-    private let panelWidth: CGFloat
     private let switchAction: (String) -> Void
+    private let panelWidth: CGFloat
 
     init(payload: DashboardPayload, width: CGFloat, switchAction: @escaping (String) -> Void) {
         self.payload = payload
-        self.panelWidth = width
         self.switchAction = switchAction
-        super.init(width: width, height: 232, cornerRadius: 22)
+        self.panelWidth = width
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+        widthAnchor.constraint(equalToConstant: width).isActive = true
+        heightAnchor.constraint(equalToConstant: 248).isActive = true
+        build()
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    private func build() {
+        let row = NSStackView()
+        row.orientation = .horizontal
+        row.spacing = 16
+        row.alignment = .top
+        row.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(row)
+        NSLayoutConstraint.activate([
+            row.leadingAnchor.constraint(equalTo: leadingAnchor),
+            row.trailingAnchor.constraint(equalTo: trailingAnchor),
+            row.topAnchor.constraint(equalTo: topAnchor),
+            row.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
+
+        row.addArrangedSubview(DashboardQuotaFocusPanelView(payload: payload, width: 316))
+
+        let right = NSStackView()
+        right.orientation = .vertical
+        right.spacing = 12
+        right.alignment = .leading
+        row.addArrangedSubview(right)
+
+        let rightWidth = panelWidth - 332
+        right.addArrangedSubview(DashboardMetricGridView(payload: payload, width: rightWidth))
+
+        right.addArrangedSubview(
+            AccountSwitcherStripView(
+                profiles: payload.profiles,
+                activeProfileName: payload.activeProfile,
+                width: rightWidth,
+                switchAction: switchAction
+            )
+        )
+    }
+}
+
+final class DashboardQuotaFocusPanelView: GlassPanelView {
+    private let payload: DashboardPayload
+    private let panelWidth: CGFloat
+
+    init(payload: DashboardPayload, width: CGFloat) {
+        self.payload = payload
+        self.panelWidth = width
+        super.init(width: width, height: 248, cornerRadius: 22)
         build()
     }
 
@@ -1330,51 +1373,68 @@ final class MainHeroPanelView: GlassPanelView {
 
     private func build() {
         let active = activeProfile()
-        let row = NSStackView()
-        row.orientation = .horizontal
-        row.spacing = 20
-        row.alignment = .centerY
-        row.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(row)
+        let stack = NSStackView()
+        stack.orientation = .vertical
+        stack.spacing = 12
+        stack.alignment = .leading
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(stack)
         NSLayoutConstraint.activate([
-            row.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 22),
-            row.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -22),
-            row.centerYAnchor.constraint(equalTo: centerYAnchor),
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 18),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -18),
+            stack.topAnchor.constraint(equalTo: topAnchor, constant: 16),
         ])
+
+        let header = NSStackView()
+        header.orientation = .horizontal
+        header.alignment = .centerY
+        header.widthAnchor.constraint(equalToConstant: panelWidth - 36).isActive = true
+
+        let badge = ProfileBadgeView(name: active?.name ?? "Codex", index: 0)
+        badge.translatesAutoresizingMaskIntoConstraints = false
+        badge.widthAnchor.constraint(equalToConstant: 42).isActive = true
+        badge.heightAnchor.constraint(equalToConstant: 42).isActive = true
+        header.addArrangedSubview(badge)
+
+        let titleStack = NSStackView()
+        titleStack.orientation = .vertical
+        titleStack.spacing = 2
+        titleStack.alignment = .leading
+        let name = DashboardText.label(active?.name ?? "--", size: 15.5, weight: .heavy, alpha: 0.84)
+        name.translatesAutoresizingMaskIntoConstraints = false
+        name.widthAnchor.constraint(equalToConstant: 170).isActive = true
+        titleStack.addArrangedSubview(name)
+        titleStack.addArrangedSubview(DashboardText.mono(planText(active), size: 10.5, weight: .bold, alpha: 0.48))
+        header.addArrangedSubview(titleStack)
+
+        let spacer = NSView()
+        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        header.addArrangedSubview(spacer)
+        header.addArrangedSubview(DashboardText.label("当前", size: 11.5, weight: .bold, alpha: 0.58))
+        stack.addArrangedSubview(header)
+
+        let center = NSStackView()
+        center.orientation = .horizontal
+        center.spacing = 16
+        center.alignment = .centerY
+        center.widthAnchor.constraint(equalToConstant: panelWidth - 36).isActive = true
 
         let dial = QuotaDialView(profile: active)
         dial.translatesAutoresizingMaskIntoConstraints = false
-        dial.widthAnchor.constraint(equalToConstant: 160).isActive = true
-        dial.heightAnchor.constraint(equalToConstant: 150).isActive = true
-        row.addArrangedSubview(dial)
+        dial.widthAnchor.constraint(equalToConstant: 144).isActive = true
+        dial.heightAnchor.constraint(equalToConstant: 142).isActive = true
+        center.addArrangedSubview(dial)
 
-        let right = NSStackView()
-        right.orientation = .vertical
-        right.spacing = 14
-        right.alignment = .leading
-        row.addArrangedSubview(right)
+        let resets = NSStackView()
+        resets.orientation = .vertical
+        resets.spacing = 9
+        resets.alignment = .leading
+        resets.addArrangedSubview(resetLine(title: "5h 重置", value: TimeText.beijingHourMinute(active?.rateLimits.primary?.resetsAt), tint: AccountHealth(remaining: active?.rateLimits.primary?.remainingPercent).color))
+        resets.addArrangedSubview(resetLine(title: "7d 重置", value: TimeText.beijingMonthDay(active?.rateLimits.secondary?.resetsAt), tint: NSColor(calibratedRed: 0.55, green: 0.42, blue: 0.96, alpha: 1)))
+        resets.addArrangedSubview(resetLine(title: "健康", value: AccountHealth(remaining: active?.rateLimits.primary?.remainingPercent).label, tint: AccountHealth(remaining: active?.rateLimits.primary?.remainingPercent).color))
+        center.addArrangedSubview(resets)
 
-        let metrics = NSStackView()
-        metrics.orientation = .horizontal
-        metrics.spacing = 12
-        metrics.addArrangedSubview(MainMetricCardView(title: "当前账号", value: initials(active), caption: active?.name ?? "--", tint: NSColor.systemTeal, width: 132))
-        metrics.addArrangedSubview(MainMetricCardView(title: "今日 token", value: todayTokenValue(active), caption: todayTokenCaption(active), tint: NSColor.systemBlue, width: 132))
-        metrics.addArrangedSubview(MainMetricCardView(title: "重置卡", value: "\(resetCardCount(active)) 张", caption: nearestCreditExpiry(active), tint: NSColor.systemOrange, width: 132))
-        right.addArrangedSubview(metrics)
-
-        let status = OverviewStatusRowView(text: desktopStatusText(), runtime: RuntimeLight(status: payload.runtimeStatus))
-        status.translatesAutoresizingMaskIntoConstraints = false
-        status.widthAnchor.constraint(equalToConstant: panelWidth - 230).isActive = true
-        right.addArrangedSubview(status)
-
-        right.addArrangedSubview(
-            AccountSwitcherStripView(
-                profiles: payload.profiles,
-                activeProfileName: payload.activeProfile,
-                width: panelWidth - 230,
-                switchAction: switchAction
-            )
-        )
+        stack.addArrangedSubview(center)
     }
 
     private func activeProfile() -> ProfileStatus? {
@@ -1384,19 +1444,88 @@ final class MainHeroPanelView: GlassPanelView {
         return payload.profiles.first { $0.name == active } ?? payload.profiles.first
     }
 
-    private func initials(_ profile: ProfileStatus?) -> String {
-        guard let name = profile?.name else {
-            return "--"
-        }
-        let parts = name.split(separator: "-").filter { !$0.isEmpty && $0.lowercased() != "hd" }
-        return parts.prefix(2).compactMap(\.first).map { String($0).uppercased() }.joined()
+    private func planText(_ profile: ProfileStatus?) -> String {
+        let plan = profile?.rateLimits.planType?.uppercased() ?? "UNKNOWN"
+        let stale = profile?.remoteStale == true ? " · 暂存" : ""
+        return "\(plan)\(stale)"
     }
 
-    private func todayTokenValue(_ profile: ProfileStatus?) -> String {
-        if let value = profile?.tokenAttribution?.todayDisplayTokens {
-            return TokenText.compact(value)
+    private func resetLine(title: String, value: String, tint: NSColor) -> NSView {
+        let row = NSStackView()
+        row.orientation = .horizontal
+        row.spacing = 8
+        row.alignment = .firstBaseline
+        let dot = ColorDotView(color: tint)
+        dot.translatesAutoresizingMaskIntoConstraints = false
+        dot.widthAnchor.constraint(equalToConstant: 7).isActive = true
+        dot.heightAnchor.constraint(equalToConstant: 7).isActive = true
+        row.addArrangedSubview(dot)
+        let label = DashboardText.label(title, size: 11.5, weight: .semibold, alpha: 0.50)
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.widthAnchor.constraint(equalToConstant: 58).isActive = true
+        row.addArrangedSubview(label)
+        row.addArrangedSubview(DashboardText.mono(value, size: 12, weight: .bold, alpha: 0.66))
+        return row
+    }
+}
+
+final class DashboardMetricGridView: NSView {
+    private let payload: DashboardPayload
+    private let gridWidth: CGFloat
+
+    init(payload: DashboardPayload, width: CGFloat) {
+        self.payload = payload
+        self.gridWidth = width
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+        widthAnchor.constraint(equalToConstant: width).isActive = true
+        heightAnchor.constraint(equalToConstant: 194).isActive = true
+        build()
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    private func build() {
+        let stack = NSStackView()
+        stack.orientation = .vertical
+        stack.spacing = 12
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor),
+            stack.topAnchor.constraint(equalTo: topAnchor),
+        ])
+
+        let cardWidth = (gridWidth - 12) / 2
+        let rows = [
+            [
+                MainMetricCardView(title: "今日 token", value: todayTokenValue(activeProfile()), caption: todayTokenCaption(activeProfile()), tint: NSColor.systemBlue, width: cardWidth, height: 88),
+                MainMetricCardView(title: "近 7 日 token", value: TokenText.compact(activeProfile()?.usageMetrics?.last7Tokens), caption: "当前账号", tint: NSColor(calibratedRed: 0.55, green: 0.42, blue: 0.96, alpha: 1), width: cardWidth, height: 88),
+            ],
+            [
+                MainMetricCardView(title: "重置卡", value: "\(resetCardCount(activeProfile())) 张", caption: nearestCreditExpiry(activeProfile()), tint: NSColor.systemOrange, width: cardWidth, height: 88),
+                MainMetricCardView(title: "托管状态", value: runtimeShortValue(), caption: desktopStatusText(), tint: RuntimeLight(status: payload.runtimeStatus).color, width: cardWidth, height: 88),
+            ],
+        ]
+
+        for metricRow in rows {
+            let row = NSStackView()
+            row.orientation = .horizontal
+            row.spacing = 12
+            row.alignment = .top
+            stack.addArrangedSubview(row)
+            metricRow.forEach { row.addArrangedSubview($0) }
         }
-        return TokenText.compact(profile?.usageMetrics?.todayTokens)
+    }
+
+    private func activeProfile() -> ProfileStatus? {
+        guard let active = payload.activeProfile else {
+            return payload.profiles.first
+        }
+        return payload.profiles.first { $0.name == active } ?? payload.profiles.first
     }
 
     private func todayTokenCaption(_ profile: ProfileStatus?) -> String {
@@ -1421,23 +1550,38 @@ final class MainHeroPanelView: GlassPanelView {
         return "\(TimeText.beijingMonthDay(expiry)) 到期"
     }
 
+    private func todayTokenValue(_ profile: ProfileStatus?) -> String {
+        if let value = profile?.tokenAttribution?.todayDisplayTokens {
+            return TokenText.compact(value)
+        }
+        return TokenText.compact(profile?.usageMetrics?.todayTokens)
+    }
+
+    private func runtimeShortValue() -> String {
+        let runtime = RuntimeLight(status: payload.runtimeStatus)
+        if runtime == .green, let count = payload.runtimeStatus?.activeProcessCount, count > 0 {
+            return "\(count) 个运行"
+        }
+        return runtime.label
+    }
+
     private func desktopStatusText() -> String {
         guard let status = payload.desktopStatus else {
-            return "Codex 路径未读取"
+            return "路径未读取"
         }
         if status.state == "managed_default_home" {
-            return "Codex 已接管 · \(status.activeProfile ?? payload.activeProfile ?? "当前账号")"
+            return "已接管 · \(status.activeProfile ?? payload.activeProfile ?? "当前账号")"
         }
         if status.running {
-            return "Codex 未接管 · 建议用管家重启"
+            return "未接管 · 建议重启"
         }
-        return "Codex 已准备 · 可直接打开"
+        return "已准备 · 可打开"
     }
 }
 
 final class MainMetricCardView: GlassPanelView {
-    init(title: String, value: String, caption: String, tint: NSColor, width: CGFloat) {
-        super.init(width: width, height: 88, cornerRadius: 16)
+    init(title: String, value: String, caption: String, tint: NSColor, width: CGFloat, height: CGFloat = 88) {
+        super.init(width: width, height: height, cornerRadius: 16)
         layer?.borderColor = tint.withAlphaComponent(0.24).cgColor
 
         let stack = NSStackView()
@@ -2709,8 +2853,6 @@ final class AccountManagerViewController: NSViewController {
     private let payload: DashboardPayload?
     private let message: String?
     private let isRefreshing: Bool
-    private let page: ManagerPage
-    private let setPageAction: (ManagerPage) -> Void
     private let refreshAction: () -> Void
     private let openDashboardAction: () -> Void
     private let launchAction: () -> Void
@@ -2721,8 +2863,6 @@ final class AccountManagerViewController: NSViewController {
         payload: DashboardPayload?,
         message: String?,
         isRefreshing: Bool,
-        page: ManagerPage,
-        setPageAction: @escaping (ManagerPage) -> Void,
         refreshAction: @escaping () -> Void,
         openDashboardAction: @escaping () -> Void,
         launchAction: @escaping () -> Void,
@@ -2732,8 +2872,6 @@ final class AccountManagerViewController: NSViewController {
         self.payload = payload
         self.message = message
         self.isRefreshing = isRefreshing
-        self.page = page
-        self.setPageAction = setPageAction
         self.refreshAction = refreshAction
         self.openDashboardAction = openDashboardAction
         self.launchAction = launchAction
@@ -2747,13 +2885,13 @@ final class AccountManagerViewController: NSViewController {
     }
 
     override func loadView() {
-        let size = Self.preferredSize(payload: payload, page: page, hasMessage: message != nil)
+        let size = Self.preferredSize(payload: payload, hasMessage: message != nil)
         preferredContentSize = size
         view = AccountManagerView(frame: NSRect(origin: .zero, size: size))
     }
 
-    private static func preferredSize(payload: DashboardPayload?, page: ManagerPage, hasMessage: Bool) -> NSSize {
-        let contentHeight = estimatedContentHeight(payload: payload, page: page, hasMessage: hasMessage)
+    private static func preferredSize(payload: DashboardPayload?, hasMessage: Bool) -> NSSize {
+        let contentHeight = estimatedContentHeight(payload: payload, hasMessage: hasMessage)
         let screenLimit = max(
             MenuLayout.minVisibleHeight,
             (NSScreen.main?.visibleFrame.height ?? MenuLayout.maxVisibleHeight) - 64
@@ -2763,7 +2901,7 @@ final class AccountManagerViewController: NSViewController {
         return NSSize(width: MenuLayout.popoverWidth, height: height)
     }
 
-    private static func estimatedContentHeight(payload: DashboardPayload?, page: ManagerPage, hasMessage: Bool) -> CGFloat {
+    private static func estimatedContentHeight(payload: DashboardPayload?, hasMessage: Bool) -> CGFloat {
         var itemHeights: [CGFloat] = [56, 136]
         if (payload?.profiles.isEmpty == false) {
             itemHeights.append(100)
@@ -2849,14 +2987,6 @@ final class AccountManagerViewController: NSViewController {
             content.addArrangedSubview(messageView(message))
         }
 
-    }
-
-    private func pageToggle() -> NSView {
-        PageToggleView(
-            activePage: page,
-            quotaAction: { self.setPageAction(.quota) },
-            tokenAction: { self.setPageAction(.token) }
-        )
     }
 
     private func headerView() -> NSView {
@@ -3178,283 +3308,6 @@ final class HeaderStatusPillView: NSView {
     }
 }
 
-final class LoadingOverviewView: NSView {
-    private let message: String
-
-    init(message: String) {
-        self.message = message
-        super.init(frame: .zero)
-        translatesAutoresizingMaskIntoConstraints = false
-        widthAnchor.constraint(equalToConstant: MenuLayout.contentWidth).isActive = true
-        heightAnchor.constraint(equalToConstant: 174).isActive = true
-        wantsLayer = true
-        layer?.cornerRadius = 18
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    override func draw(_ dirtyRect: NSRect) {
-        let path = NSBezierPath(roundedRect: bounds, xRadius: 18, yRadius: 18)
-        NSColor.white.withAlphaComponent(0.44).setFill()
-        path.fill()
-        (message as NSString).draw(
-            at: CGPoint(x: 18, y: bounds.midY - 8),
-            withAttributes: [
-                .font: NSFont.systemFont(ofSize: 13, weight: .semibold),
-                .foregroundColor: NSColor.black.withAlphaComponent(0.58),
-            ]
-        )
-    }
-}
-
-final class OverviewDashboardView: NSView {
-    private let payload: DashboardPayload
-
-    init(payload: DashboardPayload) {
-        self.payload = payload
-        super.init(frame: .zero)
-        translatesAutoresizingMaskIntoConstraints = false
-        widthAnchor.constraint(equalToConstant: MenuLayout.contentWidth).isActive = true
-        heightAnchor.constraint(equalToConstant: 174).isActive = true
-        wantsLayer = true
-        layer?.cornerRadius = 18
-        layer?.borderColor = NSColor.white.withAlphaComponent(0.55).cgColor
-        layer?.borderWidth = 1
-        build()
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    override func draw(_ dirtyRect: NSRect) {
-        let path = NSBezierPath(roundedRect: bounds, xRadius: 18, yRadius: 18)
-        NSColor.white.withAlphaComponent(0.38).setFill()
-        path.fill()
-    }
-
-    private func build() {
-        let row = NSStackView()
-        row.orientation = .horizontal
-        row.spacing = 14
-        row.alignment = .centerY
-        row.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(row)
-
-        NSLayoutConstraint.activate([
-            row.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
-            row.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
-            row.centerYAnchor.constraint(equalTo: centerYAnchor),
-        ])
-
-        let active = activeProfile()
-        let dial = QuotaDialView(profile: active)
-        dial.translatesAutoresizingMaskIntoConstraints = false
-        dial.widthAnchor.constraint(equalToConstant: 128).isActive = true
-        dial.heightAnchor.constraint(equalToConstant: 142).isActive = true
-        row.addArrangedSubview(dial)
-
-        let right = NSStackView()
-        right.orientation = .vertical
-        right.spacing = 9
-        right.alignment = .leading
-        row.addArrangedSubview(right)
-
-        let metrics = NSStackView()
-        metrics.orientation = .horizontal
-        metrics.spacing = 8
-        metrics.translatesAutoresizingMaskIntoConstraints = false
-        metrics.widthAnchor.constraint(equalToConstant: 294).isActive = true
-
-        metrics.addArrangedSubview(
-            MetricTileView(
-                title: "今日 token",
-                value: todayTokenValue(active),
-                caption: todayTokenCaption(active),
-                tint: NSColor(calibratedRed: 0.32, green: 0.58, blue: 0.96, alpha: 1)
-            )
-        )
-        metrics.addArrangedSubview(
-            MetricTileView(
-                title: "近7日 token",
-                value: TokenText.compact(active?.usageMetrics?.last7Tokens),
-                caption: "当前账号",
-                tint: NSColor(calibratedRed: 0.56, green: 0.42, blue: 0.92, alpha: 1)
-            )
-        )
-        metrics.addArrangedSubview(
-            MetricTileView(
-                title: "重置卡",
-                value: "\(activeResetCreditCount(active))张",
-                caption: activeNearestCreditExpiry(active),
-                tint: NSColor(calibratedRed: 0.96, green: 0.64, blue: 0.18, alpha: 1)
-            )
-        )
-        right.addArrangedSubview(metrics)
-        right.addArrangedSubview(OverviewStatusRowView(text: desktopStatusText(), runtime: RuntimeLight(status: payload.runtimeStatus)))
-    }
-
-    private func activeProfile() -> ProfileStatus? {
-        guard let active = payload.activeProfile else {
-            return payload.profiles.first
-        }
-        return payload.profiles.first { $0.name == active } ?? payload.profiles.first
-    }
-
-    private func todayTokenValue(_ profile: ProfileStatus?) -> String {
-        if let attributed = profile?.tokenAttribution?.todayDisplayTokens {
-            return TokenText.compact(attributed)
-        }
-        guard profile?.usageMetrics?.todayAvailable == true else {
-            return "--"
-        }
-        return TokenText.compact(profile?.usageMetrics?.todayTokens)
-    }
-
-    private func todayTokenCaption(_ profile: ProfileStatus?) -> String {
-        if let source = profile?.tokenAttribution?.todaySource {
-            switch source {
-            case "official":
-                return "官方账号值"
-            case "attribution_estimate":
-                return "管家归因估算"
-            default:
-                break
-            }
-        }
-        guard let metrics = profile?.usageMetrics else {
-            return "账号统计"
-        }
-        if metrics.todayAvailable {
-            return "账号统计"
-        }
-        return "至\(TimeText.monthDayChinese(metrics.latestDate))"
-    }
-
-    private func activeResetCreditCount(_ profile: ProfileStatus?) -> Int {
-        guard let profile else {
-            return 0
-        }
-        return profile.resetCreditDetails?.availableCount ?? profile.rateLimits.resetCredits?.availableCount ?? 0
-    }
-
-    private func activeNearestCreditExpiry(_ profile: ProfileStatus?) -> String {
-        let expiry = profile?.resetCreditDetails?.earliestExpiresAt ?? profile?.rateLimits.resetCredits?.expiresAt
-        guard let expiry else {
-            return "暂无到期"
-        }
-        return "\(TimeText.beijingMonthDay(expiry)) 到期"
-    }
-
-    private func desktopStatusText() -> String {
-        guard let status = payload.desktopStatus else {
-            return "路径未读取"
-        }
-        if status.state == "managed_default_home" {
-            return "Codex 已接管 · \(status.activeProfile ?? payload.activeProfile ?? "当前账号")"
-        }
-        if status.running {
-            return "Codex 未接管 · 建议重启接管"
-        }
-        return "Codex 已准备 · 可直接启动"
-    }
-}
-
-final class MetricTileView: NSView {
-    init(title: String, value: String, caption: String, tint: NSColor) {
-        super.init(frame: .zero)
-        translatesAutoresizingMaskIntoConstraints = false
-        widthAnchor.constraint(equalToConstant: 92.5).isActive = true
-        heightAnchor.constraint(equalToConstant: 72).isActive = true
-        wantsLayer = true
-        layer?.cornerRadius = 12
-        layer?.backgroundColor = NSColor.white.withAlphaComponent(0.45).cgColor
-        layer?.borderColor = tint.withAlphaComponent(0.28).cgColor
-        layer?.borderWidth = 1
-
-        let stack = NSStackView()
-        stack.orientation = .vertical
-        stack.spacing = 3
-        stack.alignment = .leading
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(stack)
-
-        NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
-            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
-            stack.centerYAnchor.constraint(equalTo: centerYAnchor),
-        ])
-
-        let titleLabel = NSTextField(labelWithString: title)
-        titleLabel.font = NSFont.systemFont(ofSize: 10, weight: .semibold)
-        titleLabel.textColor = NSColor.black.withAlphaComponent(0.50)
-        titleLabel.lineBreakMode = .byTruncatingTail
-
-        let valueLabel = NSTextField(labelWithString: value)
-        valueLabel.font = NSFont.monospacedSystemFont(ofSize: 15, weight: .heavy)
-        valueLabel.textColor = NSColor.black.withAlphaComponent(0.82)
-        valueLabel.lineBreakMode = .byTruncatingTail
-        valueLabel.translatesAutoresizingMaskIntoConstraints = false
-        valueLabel.widthAnchor.constraint(equalToConstant: 72).isActive = true
-
-        let captionLabel = NSTextField(labelWithString: caption)
-        captionLabel.font = NSFont.systemFont(ofSize: 9, weight: .medium)
-        captionLabel.textColor = NSColor.black.withAlphaComponent(0.46)
-        captionLabel.lineBreakMode = .byTruncatingTail
-        captionLabel.translatesAutoresizingMaskIntoConstraints = false
-        captionLabel.widthAnchor.constraint(equalToConstant: 72).isActive = true
-
-        stack.addArrangedSubview(titleLabel)
-        stack.addArrangedSubview(valueLabel)
-        stack.addArrangedSubview(captionLabel)
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-}
-
-final class OverviewStatusRowView: NSView {
-    private let text: String
-    private let runtime: RuntimeLight
-
-    init(text: String, runtime: RuntimeLight) {
-        self.text = text
-        self.runtime = runtime
-        super.init(frame: .zero)
-        translatesAutoresizingMaskIntoConstraints = false
-        widthAnchor.constraint(equalToConstant: 294).isActive = true
-        heightAnchor.constraint(equalToConstant: 46).isActive = true
-        wantsLayer = true
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    override func draw(_ dirtyRect: NSRect) {
-        let path = NSBezierPath(roundedRect: bounds, xRadius: 12, yRadius: 12)
-        NSColor.white.withAlphaComponent(0.42).setFill()
-        path.fill()
-        NSColor.white.withAlphaComponent(0.52).setStroke()
-        path.lineWidth = 1
-        path.stroke()
-
-        runtime.color.setFill()
-        NSBezierPath(ovalIn: NSRect(x: 12, y: bounds.midY - 5, width: 10, height: 10)).fill()
-
-        (text as NSString).draw(
-            at: CGPoint(x: 30, y: bounds.midY - 7),
-            withAttributes: [
-                .font: NSFont.systemFont(ofSize: 11.5, weight: .semibold),
-                .foregroundColor: NSColor.black.withAlphaComponent(0.66),
-            ]
-        )
-    }
-}
-
 final class QuotaDialView: NSView {
     private let profile: ProfileStatus?
 
@@ -3529,757 +3382,6 @@ final class QuotaDialView: NSView {
                 .foregroundColor: NSColor.black.withAlphaComponent(0.58),
             ]
         )
-    }
-}
-
-final class PageToggleView: NSView {
-    init(activePage: ManagerPage, quotaAction: @escaping () -> Void, tokenAction: @escaping () -> Void) {
-        super.init(frame: .zero)
-        translatesAutoresizingMaskIntoConstraints = false
-        widthAnchor.constraint(equalToConstant: MenuLayout.contentWidth).isActive = true
-        heightAnchor.constraint(equalToConstant: 34).isActive = true
-        wantsLayer = true
-
-        let row = NSStackView()
-        row.orientation = .horizontal
-        row.spacing = 4
-        row.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(row)
-
-        NSLayoutConstraint.activate([
-            row.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 3),
-            row.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -3),
-            row.topAnchor.constraint(equalTo: topAnchor, constant: 3),
-            row.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -3),
-        ])
-
-        row.addArrangedSubview(
-            PageToggleButtonView(title: "额度总览", isActive: activePage == .quota, action: quotaAction)
-        )
-        row.addArrangedSubview(
-            PageToggleButtonView(title: "Token 分析", isActive: activePage == .token, action: tokenAction)
-        )
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    override func draw(_ dirtyRect: NSRect) {
-        NSColor.white.withAlphaComponent(0.36).setFill()
-        NSBezierPath(roundedRect: bounds, xRadius: 12, yRadius: 12).fill()
-    }
-}
-
-final class PageToggleButtonView: NSView {
-    private let title: String
-    private let isActive: Bool
-    private let action: () -> Void
-
-    init(title: String, isActive: Bool, action: @escaping () -> Void) {
-        self.title = title
-        self.isActive = isActive
-        self.action = action
-        super.init(frame: .zero)
-        translatesAutoresizingMaskIntoConstraints = false
-        widthAnchor.constraint(equalToConstant: 227).isActive = true
-        wantsLayer = true
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    override func mouseDown(with event: NSEvent) {
-        action()
-    }
-
-    override func draw(_ dirtyRect: NSRect) {
-        if isActive {
-            NSColor(calibratedRed: 0.10, green: 0.28, blue: 0.25, alpha: 0.88).setFill()
-        } else {
-            NSColor.white.withAlphaComponent(0.18).setFill()
-        }
-        NSBezierPath(roundedRect: bounds, xRadius: 10, yRadius: 10).fill()
-
-        let text = title as NSString
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 13, weight: .bold),
-            .foregroundColor: isActive ? NSColor.white : NSColor.black.withAlphaComponent(0.66),
-        ]
-        let size = text.size(withAttributes: attributes)
-        text.draw(
-            at: CGPoint(x: bounds.midX - size.width / 2, y: bounds.midY - size.height / 2),
-            withAttributes: attributes
-        )
-    }
-}
-
-final class ResetCreditsPanelView: NSView {
-    private let profiles: [ProfileStatus]
-    private static let innerWidth: CGFloat = MenuLayout.contentWidth - 28
-    private static let gridWidth: CGFloat = innerWidth
-    private static let pillSpacing: CGFloat = 8
-    private static let pillHeight: CGFloat = 24
-    private static let pillWidth: CGFloat = (gridWidth - pillSpacing * 2) / 3
-
-    init(profiles: [ProfileStatus]) {
-        self.profiles = profiles
-        super.init(frame: .zero)
-        translatesAutoresizingMaskIntoConstraints = false
-        widthAnchor.constraint(equalToConstant: MenuLayout.contentWidth).isActive = true
-        heightAnchor.constraint(equalToConstant: Self.panelHeight(for: profiles)).isActive = true
-        wantsLayer = true
-        layer?.cornerRadius = 16
-        layer?.borderColor = NSColor.white.withAlphaComponent(0.62).cgColor
-        layer?.borderWidth = 1
-        build()
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    static func panelHeight(for profiles: [ProfileStatus]) -> CGFloat {
-        if profiles.isEmpty {
-            return 88
-        }
-        let rowsHeight = profiles.reduce(CGFloat(0)) { total, profile in
-            total + profileSectionHeight(for: profile)
-        }
-        let sectionSpacing = CGFloat(max(0, profiles.count - 1)) * 12
-        return 50 + rowsHeight + sectionSpacing
-    }
-
-    private static func profileSectionHeight(for profile: ProfileStatus) -> CGFloat {
-        let count = availableCards(for: profile).count
-        let rowCount = max(1, Int(ceil(Double(min(max(count, 1), 6)) / 3.0)))
-        let pillsHeight = CGFloat(rowCount) * pillHeight + CGFloat(rowCount - 1) * 6
-        return 28 + pillsHeight
-    }
-
-    override func draw(_ dirtyRect: NSRect) {
-        let path = NSBezierPath(roundedRect: bounds, xRadius: 16, yRadius: 16)
-        NSColor.white.withAlphaComponent(0.38).setFill()
-        path.fill()
-    }
-
-    private func build() {
-        let stack = NSStackView()
-        stack.orientation = .vertical
-        stack.spacing = 12
-        stack.alignment = .leading
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(stack)
-
-        NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
-            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
-            stack.topAnchor.constraint(equalTo: topAnchor, constant: 10),
-            stack.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -10),
-        ])
-
-        stack.addArrangedSubview(titleRow())
-
-        if profiles.isEmpty {
-            stack.addArrangedSubview(emptyRow("暂无账号"))
-            return
-        }
-        for profile in profiles {
-            stack.addArrangedSubview(profileSection(profile))
-        }
-    }
-
-    private func titleRow() -> NSView {
-        let row = NSStackView()
-        row.orientation = .horizontal
-        row.spacing = 8
-        row.alignment = .firstBaseline
-        row.translatesAutoresizingMaskIntoConstraints = false
-        row.widthAnchor.constraint(equalToConstant: Self.innerWidth).isActive = true
-
-        let title = NSTextField(labelWithString: "重置卡")
-        title.font = NSFont.systemFont(ofSize: 13.5, weight: .heavy)
-        title.textColor = NSColor.black.withAlphaComponent(0.80)
-        row.addArrangedSubview(title)
-
-        let subtitle = NSTextField(labelWithString: "按账号分组显示到期时间")
-        subtitle.font = NSFont.systemFont(ofSize: 10.5, weight: .medium)
-        subtitle.textColor = NSColor.black.withAlphaComponent(0.46)
-        row.addArrangedSubview(subtitle)
-
-        let spacer = NSView()
-        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        row.addArrangedSubview(spacer)
-        return row
-    }
-
-    private func emptyRow(_ text: String) -> NSView {
-        let label = NSTextField(labelWithString: text)
-        label.font = NSFont.systemFont(ofSize: 12, weight: .medium)
-        label.textColor = NSColor.black.withAlphaComponent(0.48)
-        return label
-    }
-
-    private func profileSection(_ profile: ProfileStatus) -> NSView {
-        let section = NSStackView()
-        section.orientation = .vertical
-        section.spacing = 7
-        section.alignment = .leading
-        section.translatesAutoresizingMaskIntoConstraints = false
-        section.widthAnchor.constraint(equalToConstant: Self.innerWidth).isActive = true
-
-        section.addArrangedSubview(profileHeader(profile))
-        section.addArrangedSubview(cardGrid(profile))
-        return section
-    }
-
-    private func profileHeader(_ profile: ProfileStatus) -> NSView {
-        let row = NSStackView()
-        row.orientation = .horizontal
-        row.spacing = 8
-        row.alignment = .firstBaseline
-        row.translatesAutoresizingMaskIntoConstraints = false
-        row.widthAnchor.constraint(equalToConstant: Self.innerWidth).isActive = true
-
-        let name = NSTextField(labelWithString: profile.name)
-        name.font = NSFont.systemFont(ofSize: 12, weight: .heavy)
-        name.textColor = NSColor.black.withAlphaComponent(0.78)
-        name.lineBreakMode = .byTruncatingTail
-        name.translatesAutoresizingMaskIntoConstraints = false
-        name.widthAnchor.constraint(equalToConstant: 190).isActive = true
-        row.addArrangedSubview(name)
-
-        let detail = NSTextField(labelWithString: "\(headerText(profile)) · \(nearestText(profile))")
-        detail.font = NSFont.systemFont(ofSize: 11, weight: .semibold)
-        detail.textColor = NSColor.black.withAlphaComponent(0.62)
-        detail.alignment = .left
-        detail.lineBreakMode = .byTruncatingTail
-        detail.translatesAutoresizingMaskIntoConstraints = false
-        detail.widthAnchor.constraint(equalToConstant: Self.innerWidth - 198).isActive = true
-        row.addArrangedSubview(detail)
-
-        return row
-    }
-
-    private func headerText(_ profile: ProfileStatus) -> String {
-        guard let details = profile.resetCreditDetails else {
-            return profile.resetCreditError ?? "未读取"
-        }
-        let count = details.availableCount ?? profile.rateLimits.resetCredits?.availableCount ?? 0
-        return "\(count) 张可用"
-    }
-
-    private func nearestText(_ profile: ProfileStatus) -> String {
-        guard let cards = profile.resetCreditDetails?.credits else {
-            return "到期时间未读取"
-        }
-        let expiry = cards
-            .filter { $0.used != true }
-            .compactMap(\.expiresAt)
-            .min()
-        guard let expiry else {
-            return "暂无可用卡"
-        }
-        return "最近 \(TimeText.beijingMonthDay(expiry)) 到期"
-    }
-
-    private func cardGrid(_ profile: ProfileStatus) -> NSView {
-        let cards = Self.availableCards(for: profile)
-        if cards.isEmpty {
-            return emptyPill(profile.resetCreditError ?? "暂无可用到期明细")
-        }
-
-        let grid = NSStackView()
-        grid.orientation = .vertical
-        grid.spacing = 6
-        grid.alignment = .leading
-        grid.translatesAutoresizingMaskIntoConstraints = false
-        grid.widthAnchor.constraint(equalToConstant: Self.gridWidth).isActive = true
-
-        let visibleCards = Array(cards.prefix(5))
-        var pills = visibleCards.enumerated().map { index, card in
-            resetCreditPill(card: card)
-        }
-        if cards.count > visibleCards.count {
-            pills.append(summaryPill("还有 \(cards.count - visibleCards.count) 张"))
-        }
-
-        var index = 0
-        while index < pills.count {
-            let row = NSStackView()
-            row.orientation = .horizontal
-            row.spacing = Self.pillSpacing
-            row.translatesAutoresizingMaskIntoConstraints = false
-            row.widthAnchor.constraint(equalToConstant: Self.gridWidth).isActive = true
-            row.addArrangedSubview(pills[index])
-            if index + 1 < pills.count {
-                row.addArrangedSubview(pills[index + 1])
-            } else {
-                row.addArrangedSubview(spacerPill())
-            }
-            if index + 2 < pills.count {
-                row.addArrangedSubview(pills[index + 2])
-            } else {
-                row.addArrangedSubview(spacerPill())
-            }
-            grid.addArrangedSubview(row)
-            index += 3
-        }
-        return grid
-    }
-
-    private func resetCreditPill(card: ResetCreditCard) -> NSView {
-        let text = TimeText.beijingMonthDayMinute(card.expiresAt)
-        return pillView(text: text, color: NSColor.white.withAlphaComponent(0.46), textColor: NSColor.black.withAlphaComponent(0.70))
-    }
-
-    private func summaryPill(_ text: String) -> NSView {
-        pillView(text: text, color: NSColor.white.withAlphaComponent(0.30), textColor: NSColor.black.withAlphaComponent(0.52))
-    }
-
-    private func emptyPill(_ text: String) -> NSView {
-        pillView(text: text, color: NSColor.white.withAlphaComponent(0.28), textColor: NSColor.black.withAlphaComponent(0.42), fullWidth: true)
-    }
-
-    private func spacerPill() -> NSView {
-        let view = NSView()
-        view.translatesAutoresizingMaskIntoConstraints = false
-        view.widthAnchor.constraint(equalToConstant: Self.pillWidth).isActive = true
-        view.heightAnchor.constraint(equalToConstant: Self.pillHeight).isActive = true
-        return view
-    }
-
-    private func pillView(text: String, color: NSColor, textColor: NSColor, fullWidth: Bool = false) -> NSView {
-        let view = NSView()
-        view.translatesAutoresizingMaskIntoConstraints = false
-        view.widthAnchor.constraint(equalToConstant: fullWidth ? Self.gridWidth : Self.pillWidth).isActive = true
-        view.heightAnchor.constraint(equalToConstant: Self.pillHeight).isActive = true
-        view.wantsLayer = true
-        view.layer?.cornerRadius = 9
-        view.layer?.backgroundColor = color.cgColor
-
-        let label = NSTextField(labelWithString: text)
-        label.font = NSFont.monospacedSystemFont(ofSize: 10.5, weight: .semibold)
-        label.textColor = textColor
-        label.alignment = .center
-        label.lineBreakMode = .byTruncatingTail
-        label.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(label)
-
-        NSLayoutConstraint.activate([
-            label.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 8),
-            label.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -8),
-            label.centerYAnchor.constraint(equalTo: view.centerYAnchor),
-        ])
-        return view
-    }
-
-    private static func availableCards(for profile: ProfileStatus) -> [ResetCreditCard] {
-        guard let details = profile.resetCreditDetails else {
-            return []
-        }
-        return details.credits
-            .filter { $0.used != true }
-            .sorted { ($0.expiresAt ?? .greatestFiniteMagnitude) < ($1.expiresAt ?? .greatestFiniteMagnitude) }
-    }
-}
-
-final class AccountCardView: NSView {
-    static let cardHeight: CGFloat = 160
-    private static let rowWidth: CGFloat = MenuLayout.contentWidth - 28
-    private static let labelWidth: CGFloat = 88
-    private static let barWidth: CGFloat = 232
-    private static let valueWidth: CGFloat = 82
-
-    private let profile: ProfileStatus
-    private let index: Int
-    private let isActive: Bool
-    private let switchAction: (String) -> Void
-
-    init(profile: ProfileStatus, index: Int, isActive: Bool, switchAction: @escaping (String) -> Void) {
-        self.profile = profile
-        self.index = index
-        self.isActive = isActive
-        self.switchAction = switchAction
-        super.init(frame: .zero)
-        translatesAutoresizingMaskIntoConstraints = false
-        widthAnchor.constraint(equalToConstant: MenuLayout.contentWidth).isActive = true
-        heightAnchor.constraint(equalToConstant: Self.cardHeight).isActive = true
-        wantsLayer = true
-        layer?.cornerRadius = 18
-        layer?.borderColor = NSColor.white.withAlphaComponent(0.75).cgColor
-        layer?.borderWidth = 1
-        build()
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    override func draw(_ dirtyRect: NSRect) {
-        let path = NSBezierPath(roundedRect: bounds, xRadius: 18, yRadius: 18)
-        let top = index % 2 == 0
-            ? NSColor(calibratedRed: 0.92, green: 0.98, blue: 0.94, alpha: 0.82)
-            : NSColor(calibratedRed: 0.98, green: 0.94, blue: 0.98, alpha: 0.82)
-        top.setFill()
-        path.fill()
-    }
-
-    private func build() {
-        let stack = NSStackView()
-        stack.orientation = .vertical
-        stack.spacing = 6
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(stack)
-
-        NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
-            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
-            stack.topAnchor.constraint(equalTo: topAnchor, constant: 10),
-            stack.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -10),
-        ])
-
-        stack.addArrangedSubview(titleRow())
-        stack.addArrangedSubview(barRow(label: "5小时额度", window: profile.rateLimits.primary))
-        stack.addArrangedSubview(barRow(label: "7天额度", window: profile.rateLimits.secondary))
-        stack.addArrangedSubview(footerRow())
-    }
-
-    private func titleRow() -> NSView {
-        let row = NSStackView()
-        row.orientation = .horizontal
-        row.spacing = 10
-        row.alignment = .centerY
-
-        let avatar = ProfileBadgeView(name: profile.name, index: index)
-        avatar.translatesAutoresizingMaskIntoConstraints = false
-        avatar.widthAnchor.constraint(equalToConstant: 46).isActive = true
-        avatar.heightAnchor.constraint(equalToConstant: 42).isActive = true
-        row.addArrangedSubview(avatar)
-
-        let text = NSStackView()
-        text.orientation = .vertical
-        text.spacing = 2
-        text.alignment = .leading
-
-        let name = NSTextField(labelWithString: profile.name)
-        name.font = NSFont.systemFont(ofSize: 17, weight: .heavy)
-        name.textColor = NSColor.black
-        name.alignment = .left
-        name.lineBreakMode = .byTruncatingTail
-
-        let staleSuffix = profile.remoteStale == true ? " · 暂存" : ""
-        let plan = NSTextField(labelWithString: "套餐：\(profile.rateLimits.planType?.uppercased() ?? "UNKNOWN")\(staleSuffix)")
-        plan.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .bold)
-        plan.textColor = NSColor(calibratedRed: 0.14, green: 0.28, blue: 0.46, alpha: 1)
-        plan.alignment = .left
-
-        text.addArrangedSubview(name)
-        text.addArrangedSubview(plan)
-        row.addArrangedSubview(text)
-
-        let spacer = NSView()
-        row.addArrangedSubview(spacer)
-        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
-
-        if isActive {
-            let badge = NSTextField(labelWithString: "当前")
-            badge.font = NSFont.systemFont(ofSize: 12, weight: .bold)
-            badge.textColor = NSColor(calibratedRed: 0.1, green: 0.33, blue: 0.28, alpha: 1)
-            badge.alignment = .center
-            badge.wantsLayer = true
-            badge.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.55).cgColor
-            badge.layer?.cornerRadius = 8
-            badge.translatesAutoresizingMaskIntoConstraints = false
-            badge.widthAnchor.constraint(equalToConstant: 42).isActive = true
-            badge.heightAnchor.constraint(equalToConstant: 22).isActive = true
-            row.addArrangedSubview(badge)
-        } else {
-            let button = NSButton(title: "切换", target: self, action: #selector(switchTapped))
-            button.bezelStyle = .rounded
-            button.font = NSFont.systemFont(ofSize: 12, weight: .bold)
-            button.translatesAutoresizingMaskIntoConstraints = false
-            button.widthAnchor.constraint(equalToConstant: 54).isActive = true
-            row.addArrangedSubview(button)
-        }
-        return row
-    }
-
-    private func barRow(label: String, window: RateLimitWindow?) -> NSView {
-        let row = NSStackView()
-        row.orientation = .horizontal
-        row.spacing = 10
-        row.alignment = .centerY
-        row.translatesAutoresizingMaskIntoConstraints = false
-        row.widthAnchor.constraint(equalToConstant: Self.rowWidth).isActive = true
-
-        let title = NSTextField(labelWithString: label)
-        title.font = NSFont.systemFont(ofSize: 12.5, weight: .semibold)
-        title.textColor = NSColor.black
-        title.translatesAutoresizingMaskIntoConstraints = false
-        title.widthAnchor.constraint(equalToConstant: Self.labelWidth).isActive = true
-
-        let remaining = window?.remainingPercent
-        let bar = PixelBarView(percent: remaining ?? 0, color: AccountHealth(remaining: remaining).color)
-        bar.translatesAutoresizingMaskIntoConstraints = false
-        bar.widthAnchor.constraint(equalToConstant: Self.barWidth).isActive = true
-        bar.heightAnchor.constraint(equalToConstant: 16).isActive = true
-
-        let value = NSTextField(labelWithString: "\(remaining.map { "\($0)%" } ?? "--") 剩余")
-        value.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .bold)
-        value.textColor = NSColor.black
-        value.alignment = .right
-        value.translatesAutoresizingMaskIntoConstraints = false
-        value.widthAnchor.constraint(equalToConstant: Self.valueWidth).isActive = true
-
-        row.addArrangedSubview(title)
-        row.addArrangedSubview(bar)
-        row.addArrangedSubview(value)
-        return row
-    }
-
-    private func footerRow() -> NSView {
-        let row = NSStackView()
-        row.orientation = .horizontal
-        row.spacing = 8
-        row.alignment = .centerY
-
-        let primary = profile.rateLimits.primary?.remainingPercent
-        let usage = usageLabel(remaining: primary)
-        let primaryReset = TimeText.beijingHourMinute(profile.rateLimits.primary?.resetsAt)
-        let secondaryReset = TimeText.beijingMonthDay(profile.rateLimits.secondary?.resetsAt)
-
-        let details = NSStackView()
-        details.orientation = .vertical
-        details.spacing = 2
-        details.alignment = .leading
-        details.translatesAutoresizingMaskIntoConstraints = false
-        details.widthAnchor.constraint(equalToConstant: Self.rowWidth).isActive = true
-
-        details.addArrangedSubview(infoLine(label: "使用", value: usage, valueWeight: .semibold))
-        details.addArrangedSubview(
-            infoLine(
-                label: "重置",
-                value: "5小时 \(primaryReset) · 7天 \(secondaryReset)",
-                valueWeight: .medium,
-                valueAlpha: 0.72
-            )
-        )
-        row.addArrangedSubview(details)
-
-        return row
-    }
-
-    private func infoLine(
-        label: String,
-        value: String,
-        valueWeight: NSFont.Weight,
-        valueAlpha: CGFloat = 1
-    ) -> NSView {
-        let row = NSStackView()
-        row.orientation = .horizontal
-        row.spacing = 8
-        row.alignment = .firstBaseline
-        row.translatesAutoresizingMaskIntoConstraints = false
-        row.widthAnchor.constraint(equalToConstant: Self.rowWidth).isActive = true
-
-        let title = NSTextField(labelWithString: label)
-        title.font = NSFont.systemFont(ofSize: 12.5, weight: .semibold)
-        title.textColor = NSColor.black
-        title.alignment = .left
-        title.translatesAutoresizingMaskIntoConstraints = false
-        title.widthAnchor.constraint(equalToConstant: Self.labelWidth).isActive = true
-
-        let detail = NSTextField(labelWithString: value)
-        detail.font = NSFont.systemFont(ofSize: 12.5, weight: valueWeight)
-        detail.textColor = NSColor.black.withAlphaComponent(valueAlpha)
-        detail.alignment = .left
-        detail.lineBreakMode = .byTruncatingTail
-        detail.translatesAutoresizingMaskIntoConstraints = false
-        detail.widthAnchor.constraint(equalToConstant: Self.rowWidth - Self.labelWidth - 8).isActive = true
-
-        row.addArrangedSubview(title)
-        row.addArrangedSubview(detail)
-        return row
-    }
-
-    @objc private func switchTapped() {
-        switchAction(profile.name)
-    }
-
-    private func usageLabel(remaining: Int?) -> String {
-        guard let remaining else {
-            return "未知"
-        }
-        if remaining < 35 {
-            return "偏高"
-        }
-        if remaining < 70 {
-            return "中等"
-        }
-        return "充足"
-    }
-}
-
-final class TokenDashboardView: NSView {
-    private let payload: DashboardPayload
-
-    init(payload: DashboardPayload) {
-        self.payload = payload
-        super.init(frame: .zero)
-        translatesAutoresizingMaskIntoConstraints = false
-        widthAnchor.constraint(equalToConstant: MenuLayout.contentWidth).isActive = true
-        heightAnchor.constraint(equalToConstant: 560).isActive = true
-        build()
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    private func build() {
-        let stack = NSStackView()
-        stack.orientation = .vertical
-        stack.spacing = 10
-        stack.alignment = .leading
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(stack)
-
-        NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: trailingAnchor),
-            stack.topAnchor.constraint(equalTo: topAnchor),
-            stack.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor),
-        ])
-
-        let title = NSTextField(labelWithString: "Token 分析")
-        title.font = NSFont.systemFont(ofSize: 16, weight: .heavy)
-        title.textColor = NSColor.black.withAlphaComponent(0.82)
-        title.alignment = .left
-        stack.addArrangedSubview(title)
-
-        for (index, profile) in payload.profiles.enumerated() {
-            stack.addArrangedSubview(AccountTokenCardView(profile: profile, index: index))
-        }
-
-        if let snapshot = payload.localSnapshot {
-            stack.addArrangedSubview(TokenSummaryView(snapshot: snapshot))
-        }
-    }
-}
-
-final class AccountTokenCardView: NSView {
-    private let profile: ProfileStatus
-    private let index: Int
-
-    init(profile: ProfileStatus, index: Int) {
-        self.profile = profile
-        self.index = index
-        super.init(frame: .zero)
-        translatesAutoresizingMaskIntoConstraints = false
-        widthAnchor.constraint(equalToConstant: MenuLayout.contentWidth).isActive = true
-        heightAnchor.constraint(equalToConstant: 164).isActive = true
-        wantsLayer = true
-        layer?.cornerRadius = 16
-        layer?.borderColor = NSColor.white.withAlphaComponent(0.70).cgColor
-        layer?.borderWidth = 1
-        build()
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    override func draw(_ dirtyRect: NSRect) {
-        let path = NSBezierPath(roundedRect: bounds, xRadius: 16, yRadius: 16)
-        let color = index % 2 == 0
-            ? NSColor(calibratedRed: 0.92, green: 1.0, blue: 0.97, alpha: 0.94)
-            : NSColor(calibratedRed: 1.0, green: 0.95, blue: 1.0, alpha: 0.94)
-        color.setFill()
-        path.fill()
-    }
-
-    private func build() {
-        let stack = NSStackView()
-        stack.orientation = .vertical
-        stack.spacing = 8
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(stack)
-
-        NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
-            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
-            stack.topAnchor.constraint(equalTo: topAnchor, constant: 12),
-            stack.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -12),
-        ])
-
-        stack.addArrangedSubview(headerRow())
-
-        let buckets = Array((profile.usage?.dailyUsageBuckets ?? []).suffix(14))
-        let chart = DailyUsageChartView(buckets: buckets)
-        chart.translatesAutoresizingMaskIntoConstraints = false
-        chart.widthAnchor.constraint(equalToConstant: MenuLayout.contentWidth - 28).isActive = true
-        chart.heightAnchor.constraint(equalToConstant: 82).isActive = true
-        stack.addArrangedSubview(chart)
-
-        stack.addArrangedSubview(metricsRow(buckets: buckets))
-    }
-
-    private func headerRow() -> NSView {
-        let row = NSStackView()
-        row.orientation = .horizontal
-        row.alignment = .centerY
-        row.spacing = 8
-        row.translatesAutoresizingMaskIntoConstraints = false
-        row.widthAnchor.constraint(equalToConstant: MenuLayout.contentWidth - 28).isActive = true
-
-        let name = NSTextField(labelWithString: profile.name)
-        name.font = NSFont.systemFont(ofSize: 14, weight: .heavy)
-        name.textColor = NSColor.black.withAlphaComponent(0.86)
-        name.lineBreakMode = .byTruncatingTail
-        row.addArrangedSubview(name)
-
-        let spacer = NSView()
-        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        row.addArrangedSubview(spacer)
-
-        let total = tokenTotal(Array((profile.usage?.dailyUsageBuckets ?? []).suffix(14)))
-        let value = NSTextField(labelWithString: "近14日 \(TokenText.compact(total))")
-        value.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .bold)
-        value.textColor = NSColor.black.withAlphaComponent(0.72)
-        row.addArrangedSubview(value)
-        return row
-    }
-
-    private func metricsRow(buckets: [DailyUsageBucket]) -> NSView {
-        let row = NSStackView()
-        row.orientation = .horizontal
-        row.spacing = 14
-        row.alignment = .centerY
-        row.translatesAutoresizingMaskIntoConstraints = false
-        row.widthAnchor.constraint(equalToConstant: MenuLayout.contentWidth - 28).isActive = true
-
-        let today = profile.tokenAttribution?.todayDisplayTokens ?? (profile.usageMetrics?.todayAvailable == true ? profile.usageMetrics?.todayTokens : buckets.last?.tokens)
-        let peak = buckets.map(\.tokens).max()
-        let streak = profile.usage?.summary?.currentStreakDays
-        let lifetime = profile.usage?.summary?.lifetimeTokens
-        for text in [
-            "今日 \(TokenText.compact(today))",
-            "峰值 \(TokenText.compact(peak))",
-            "连续 \(streak.map { "\($0)天" } ?? "--")",
-            "累计 \(TokenText.compact(lifetime))",
-        ] {
-            let label = NSTextField(labelWithString: text)
-            label.font = NSFont.monospacedSystemFont(ofSize: 10.5, weight: .medium)
-            label.textColor = NSColor.black.withAlphaComponent(0.60)
-            row.addArrangedSubview(label)
-        }
-        return row
-    }
-
-    private func tokenTotal(_ buckets: [DailyUsageBucket]) -> Int {
-        buckets.reduce(0) { $0 + $1.tokens }
     }
 }
 
@@ -4420,100 +3522,6 @@ final class DailyUsageChartView: NSView {
         NSColor(calibratedWhite: 0.10, alpha: 0.90).setFill()
         NSBezierPath(roundedRect: bubble, xRadius: 7, yRadius: 7).fill()
         text.draw(at: CGPoint(x: bubble.minX + 8, y: bubble.minY + 5), withAttributes: attributes)
-    }
-}
-
-final class TokenSummaryView: NSView {
-    private let snapshot: LocalTokenSnapshot
-
-    init(snapshot: LocalTokenSnapshot) {
-        self.snapshot = snapshot
-        super.init(frame: .zero)
-        translatesAutoresizingMaskIntoConstraints = false
-        widthAnchor.constraint(equalToConstant: MenuLayout.contentWidth).isActive = true
-        heightAnchor.constraint(equalToConstant: 104).isActive = true
-        wantsLayer = true
-        layer?.cornerRadius = 16
-        layer?.borderColor = NSColor.white.withAlphaComponent(0.65).cgColor
-        layer?.borderWidth = 1
-        build()
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    override func draw(_ dirtyRect: NSRect) {
-        let path = NSBezierPath(roundedRect: bounds, xRadius: 16, yRadius: 16)
-        NSColor.white.withAlphaComponent(0.42).setFill()
-        path.fill()
-    }
-
-    private func build() {
-        let stack = NSStackView()
-        stack.orientation = .vertical
-        stack.spacing = 7
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(stack)
-
-        NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
-            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
-            stack.centerYAnchor.constraint(equalTo: centerYAnchor),
-        ])
-
-        let total = displayTotal()
-        let title = NSTextField(labelWithString: "本地14日拆分（共享） · \(TokenText.compact(total.totalTokens))")
-        title.font = NSFont.systemFont(ofSize: 13, weight: .heavy)
-        title.textColor = NSColor.black.withAlphaComponent(0.78)
-        stack.addArrangedSubview(title)
-
-        let chart = TokenSplitBarView(total: total)
-        chart.translatesAutoresizingMaskIntoConstraints = false
-        chart.widthAnchor.constraint(equalToConstant: MenuLayout.contentWidth - 28).isActive = true
-        chart.heightAnchor.constraint(equalToConstant: 22).isActive = true
-        stack.addArrangedSubview(chart)
-
-        let detail = NSTextField(labelWithString: tokenBreakdownText())
-        detail.font = NSFont.monospacedSystemFont(ofSize: 10.5, weight: .medium)
-        detail.textColor = NSColor.black.withAlphaComponent(0.62)
-        detail.lineBreakMode = .byTruncatingTail
-        detail.translatesAutoresizingMaskIntoConstraints = false
-        detail.widthAnchor.constraint(equalToConstant: MenuLayout.contentWidth - 28).isActive = true
-        stack.addArrangedSubview(detail)
-    }
-
-    private func tokenBreakdownText() -> String {
-        let total = displayTotal()
-        return [
-            "输入 \(TokenText.compact(total.inputTokens))",
-            "缓存 \(TokenText.compact(total.cachedInputTokens))",
-            "输出 \(TokenText.compact(total.outputTokens))",
-            "推理 \(TokenText.compact(total.reasoningOutputTokens))",
-        ].joined(separator: " · ")
-    }
-
-    private func displayTotal() -> TokenUsageTotals {
-        guard let daily = snapshot.daily, !daily.isEmpty else {
-            return snapshot.total
-        }
-        return daily.reduce(
-            TokenUsageTotals(
-                inputTokens: 0,
-                cachedInputTokens: 0,
-                outputTokens: 0,
-                reasoningOutputTokens: 0,
-                totalTokens: 0
-            )
-        ) { partial, item in
-            TokenUsageTotals(
-                inputTokens: partial.inputTokens + item.inputTokens,
-                cachedInputTokens: partial.cachedInputTokens + item.cachedInputTokens,
-                outputTokens: partial.outputTokens + item.outputTokens,
-                reasoningOutputTokens: partial.reasoningOutputTokens + item.reasoningOutputTokens,
-                totalTokens: partial.totalTokens + item.totalTokens
-            )
-        }
     }
 }
 
