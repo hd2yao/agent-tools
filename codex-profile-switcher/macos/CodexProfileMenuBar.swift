@@ -6,7 +6,7 @@ private enum MenuLayout {
     static let contentWidth: CGFloat = 354
     static let contentInset: CGFloat = 18
     static let verticalSpacing: CGFloat = 12
-    static let maxVisibleHeight: CGFloat = 420
+    static let maxVisibleHeight: CGFloat = 520
     static let minVisibleHeight: CGFloat = 300
 }
 
@@ -1152,7 +1152,7 @@ final class MainDashboardViewController: NSViewController {
         ])
 
         stack.addArrangedSubview(mainHeader())
-        stack.addArrangedSubview(MainHeroPanelView(payload: payload, width: contentWidth))
+        stack.addArrangedSubview(MainHeroPanelView(payload: payload, width: contentWidth, switchAction: switchAction))
         stack.addArrangedSubview(
             DashboardTabBarView(
                 selectedTab: selectedTab,
@@ -1314,11 +1314,13 @@ class GlassPanelView: NSView {
 final class MainHeroPanelView: GlassPanelView {
     private let payload: DashboardPayload
     private let panelWidth: CGFloat
+    private let switchAction: (String) -> Void
 
-    init(payload: DashboardPayload, width: CGFloat) {
+    init(payload: DashboardPayload, width: CGFloat, switchAction: @escaping (String) -> Void) {
         self.payload = payload
         self.panelWidth = width
-        super.init(width: width, height: 190, cornerRadius: 22)
+        self.switchAction = switchAction
+        super.init(width: width, height: 232, cornerRadius: 22)
         build()
     }
 
@@ -1364,6 +1366,15 @@ final class MainHeroPanelView: GlassPanelView {
         status.translatesAutoresizingMaskIntoConstraints = false
         status.widthAnchor.constraint(equalToConstant: panelWidth - 230).isActive = true
         right.addArrangedSubview(status)
+
+        right.addArrangedSubview(
+            AccountSwitcherStripView(
+                profiles: payload.profiles,
+                activeProfileName: payload.activeProfile,
+                width: panelWidth - 230,
+                switchAction: switchAction
+            )
+        )
     }
 
     private func activeProfile() -> ProfileStatus? {
@@ -1840,6 +1851,182 @@ final class DashboardTabButtonView: NSView {
             NSColor.white.withAlphaComponent(hovering ? 0.34 : 0.16).setFill()
         }
         path.fill()
+    }
+}
+
+final class AccountSwitcherStripView: NSView {
+    private let profiles: [ProfileStatus]
+    private let activeProfileName: String?
+    private let switchAction: (String) -> Void
+    private let stripWidth: CGFloat
+
+    init(
+        profiles: [ProfileStatus],
+        activeProfileName: String?,
+        width: CGFloat,
+        switchAction: @escaping (String) -> Void
+    ) {
+        self.profiles = profiles
+        self.activeProfileName = activeProfileName
+        self.stripWidth = width
+        self.switchAction = switchAction
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+        widthAnchor.constraint(equalToConstant: width).isActive = true
+        heightAnchor.constraint(equalToConstant: 42).isActive = true
+        wantsLayer = true
+        build()
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let path = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 14, yRadius: 14)
+        NSColor.white.withAlphaComponent(0.36).setFill()
+        path.fill()
+        NSColor.white.withAlphaComponent(0.50).setStroke()
+        path.lineWidth = 1
+        path.stroke()
+    }
+
+    private func build() {
+        let row = NSStackView()
+        row.orientation = .horizontal
+        row.spacing = 8
+        row.alignment = .centerY
+        row.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(row)
+        NSLayoutConstraint.activate([
+            row.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
+            row.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
+            row.centerYAnchor.constraint(equalTo: centerYAnchor),
+        ])
+
+        let title = DashboardText.label("快速切换", size: 11.5, weight: .bold, alpha: 0.52)
+        title.translatesAutoresizingMaskIntoConstraints = false
+        title.widthAnchor.constraint(equalToConstant: 62).isActive = true
+        row.addArrangedSubview(title)
+
+        guard !profiles.isEmpty else {
+            row.addArrangedSubview(DashboardText.label("暂无账号", size: 12, weight: .semibold, alpha: 0.48))
+            return
+        }
+
+        let visibleProfiles = Array(profiles.prefix(4))
+        let availableWidth = max(92, stripWidth - 20 - 62 - CGFloat(visibleProfiles.count) * 8)
+        let buttonWidth = min(152, max(104, availableWidth / CGFloat(visibleProfiles.count)))
+        for profile in visibleProfiles {
+            row.addArrangedSubview(
+                AccountSwitchPillView(
+                    profile: profile,
+                    isActive: profile.name == activeProfileName,
+                    width: buttonWidth,
+                    switchAction: switchAction
+                )
+            )
+        }
+    }
+}
+
+final class AccountSwitchPillView: NSView {
+    private let profile: ProfileStatus
+    private let isActive: Bool
+    private let switchAction: (String) -> Void
+    private var isHovering = false
+
+    init(profile: ProfileStatus, isActive: Bool, width: CGFloat, switchAction: @escaping (String) -> Void) {
+        self.profile = profile
+        self.isActive = isActive
+        self.switchAction = switchAction
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+        widthAnchor.constraint(equalToConstant: width).isActive = true
+        heightAnchor.constraint(equalToConstant: 30).isActive = true
+        wantsLayer = true
+        build()
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach { removeTrackingArea($0) }
+        addTrackingArea(
+            NSTrackingArea(
+                rect: bounds,
+                options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+                owner: self,
+                userInfo: nil
+            )
+        )
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        guard !isActive else {
+            return
+        }
+        isHovering = true
+        needsDisplay = true
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        isHovering = false
+        needsDisplay = true
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        guard !isActive else {
+            return
+        }
+        switchAction(profile.name)
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let path = NSBezierPath(roundedRect: bounds, xRadius: 10, yRadius: 10)
+        let fill = isActive
+            ? NSColor.systemGreen.withAlphaComponent(0.20)
+            : NSColor.white.withAlphaComponent(isHovering ? 0.66 : 0.44)
+        fill.setFill()
+        path.fill()
+        (isActive ? NSColor.systemGreen : NSColor.white).withAlphaComponent(0.56).setStroke()
+        path.lineWidth = 1
+        path.stroke()
+    }
+
+    private func build() {
+        let row = NSStackView()
+        row.orientation = .horizontal
+        row.spacing = 6
+        row.alignment = .centerY
+        row.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(row)
+        NSLayoutConstraint.activate([
+            row.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 9),
+            row.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -9),
+            row.centerYAnchor.constraint(equalTo: centerYAnchor),
+        ])
+
+        let name = DashboardText.label(shortName(profile.name), size: 11.5, weight: .bold, alpha: 0.76)
+        name.lineBreakMode = .byTruncatingMiddle
+        row.addArrangedSubview(name)
+
+        let spacer = NSView()
+        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        row.addArrangedSubview(spacer)
+
+        let state = DashboardText.label(isActive ? "当前" : "切换", size: 10.5, weight: .bold, alpha: isActive ? 0.60 : 0.50)
+        row.addArrangedSubview(state)
+    }
+
+    private func shortName(_ name: String) -> String {
+        if name.hasPrefix("hd-") {
+            return String(name.dropFirst(3))
+        }
+        return name
     }
 }
 
@@ -2453,6 +2640,71 @@ final class PopoverRuntimeSummaryView: NSView {
     }
 }
 
+final class PopoverProfileSwitcherView: NSView {
+    private let payload: DashboardPayload
+    private let switchAction: (String) -> Void
+    private let panelWidth: CGFloat
+
+    init(payload: DashboardPayload, width: CGFloat, switchAction: @escaping (String) -> Void) {
+        self.payload = payload
+        self.panelWidth = width
+        self.switchAction = switchAction
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+        widthAnchor.constraint(equalToConstant: width).isActive = true
+        heightAnchor.constraint(equalToConstant: 100).isActive = true
+        wantsLayer = true
+        layer?.cornerRadius = 16
+        layer?.borderColor = NSColor.white.withAlphaComponent(0.46).cgColor
+        layer?.borderWidth = 1
+        build()
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor.white.withAlphaComponent(0.32).setFill()
+        NSBezierPath(roundedRect: bounds, xRadius: 16, yRadius: 16).fill()
+    }
+
+    private func build() {
+        let stack = NSStackView()
+        stack.orientation = .vertical
+        stack.spacing = 9
+        stack.alignment = .leading
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+            stack.centerYAnchor.constraint(equalTo: centerYAnchor),
+        ])
+
+        let header = NSStackView()
+        header.orientation = .horizontal
+        header.alignment = .firstBaseline
+        header.translatesAutoresizingMaskIntoConstraints = false
+        header.widthAnchor.constraint(equalToConstant: panelWidth - 24).isActive = true
+        header.addArrangedSubview(DashboardText.label("账号切换", size: 12.5, weight: .heavy, alpha: 0.72))
+        let spacer = NSView()
+        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        header.addArrangedSubview(spacer)
+        header.addArrangedSubview(DashboardText.label("直接切换并接管 Codex", size: 10.5, weight: .semibold, alpha: 0.42))
+        stack.addArrangedSubview(header)
+
+        stack.addArrangedSubview(
+            AccountSwitcherStripView(
+                profiles: payload.profiles,
+                activeProfileName: payload.activeProfile,
+                width: panelWidth - 24,
+                switchAction: switchAction
+            )
+        )
+    }
+}
+
 final class AccountManagerViewController: NSViewController {
     private let payload: DashboardPayload?
     private let message: String?
@@ -2513,6 +2765,9 @@ final class AccountManagerViewController: NSViewController {
 
     private static func estimatedContentHeight(payload: DashboardPayload?, page: ManagerPage, hasMessage: Bool) -> CGFloat {
         var itemHeights: [CGFloat] = [56, 136]
+        if (payload?.profiles.isEmpty == false) {
+            itemHeights.append(100)
+        }
         if hasMessage {
             itemHeights.append(22)
         }
@@ -2580,6 +2835,15 @@ final class AccountManagerViewController: NSViewController {
 
         content.addArrangedSubview(headerView())
         content.addArrangedSubview(PopoverRuntimeSummaryView(payload: payload, message: message))
+        if let payload, !payload.profiles.isEmpty {
+            content.addArrangedSubview(
+                PopoverProfileSwitcherView(
+                    payload: payload,
+                    width: MenuLayout.contentWidth,
+                    switchAction: switchAction
+                )
+            )
+        }
 
         if let message {
             content.addArrangedSubview(messageView(message))

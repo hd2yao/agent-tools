@@ -56,6 +56,26 @@ class MenuBarUISourceTests(unittest.TestCase):
         source = SWIFT_SOURCE.read_text()
         self.assertNotIn("RankingRowView(index: 0", source)
 
+    def test_popover_exposes_direct_profile_switching(self):
+        source = SWIFT_SOURCE.read_text()
+        controller_start = source.index("final class AccountManagerViewController")
+        controller_end = source.index("\nfinal class AccountManagerView", controller_start + 1)
+        controller_source = source[controller_start:controller_end]
+
+        self.assertIn("PopoverProfileSwitcherView(", controller_source)
+        self.assertIn("switchAction: switchAction", controller_source)
+        self.assertIn("final class PopoverProfileSwitcherView", source)
+
+    def test_main_dashboard_hero_exposes_profile_switching(self):
+        source = SWIFT_SOURCE.read_text()
+        controller_start = source.index("final class MainDashboardViewController")
+        build_start = source.index("    private func build()", controller_start)
+        build_end = source.index("    private func selectedAnalyticsPanel", build_start)
+        build_source = source[build_start:build_end]
+
+        self.assertIn("MainHeroPanelView(payload: payload, width: contentWidth, switchAction: switchAction)", build_source)
+        self.assertIn("AccountSwitcherStripView(", source)
+
 
 if __name__ == "__main__":
     unittest.main()
