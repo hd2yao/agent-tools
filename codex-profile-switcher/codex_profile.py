@@ -71,6 +71,7 @@ PROFILE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 ACTIVE_PROFILE_FILE = ".codex-profile-switcher-active.json"
 PROFILE_ACCOUNT_FILES = ("auth.json",)
 BRIDGE_BACKUP_DIR = ".codex-profile-switcher-backups"
+CODEX_DESKTOP_BUNDLE_ID = "com.openai.codex"
 
 
 def validate_profile_name(name: str) -> str:
@@ -448,9 +449,11 @@ def strip_separator(args: Sequence[str]) -> list[str]:
 
 
 def require_codex() -> str:
-    codex = shutil.which("codex")
+    from codex_profile_dashboard import resolve_codex_binary
+
+    codex = resolve_codex_binary()
     if not codex:
-        raise RuntimeError("codex command not found in PATH")
+        raise RuntimeError("codex command not found in ChatGPT/Codex app or PATH")
     return codex
 
 
@@ -702,7 +705,11 @@ def read_active_profile() -> str | None:
 
 def quit_codex_desktop() -> None:
     subprocess.run(
-        ["osascript", "-e", 'tell application "Codex" to quit'],
+        [
+            "osascript",
+            "-e",
+            f'tell application id "{CODEX_DESKTOP_BUNDLE_ID}" to quit',
+        ],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         check=False,
@@ -711,7 +718,13 @@ def quit_codex_desktop() -> None:
 
 def codex_desktop_pid() -> int | None:
     result = subprocess.run(
-        ["osascript", "-e", 'tell application "System Events" to get unix id of process "Codex"'],
+        [
+            "osascript",
+            "-e",
+            "tell application \"System Events\" to get unix id of first "
+            "application process whose bundle identifier is "
+            f'\"{CODEX_DESKTOP_BUNDLE_ID}\"',
+        ],
         stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL,
         text=True,

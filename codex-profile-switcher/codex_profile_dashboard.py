@@ -38,7 +38,9 @@ RUNTIME_GREEN_ROLLOUT_MS = 90_000
 RUNTIME_RECENT_ACTIVITY_MS = 15 * 60_000
 REMOTE_STATUS_CACHE_SECONDS = 10 * 60
 RESET_CREDIT_DETAILS_CACHE_SECONDS = 6 * 60 * 60
-CODEX_APP_BINARY = Path("/Applications/Codex.app/Contents/Resources/codex")
+CHATGPT_APP_BINARY = Path("/Applications/ChatGPT.app/Contents/Resources/codex")
+LEGACY_CODEX_APP_BINARY = Path("/Applications/Codex.app/Contents/Resources/codex")
+CODEX_APP_BINARY = CHATGPT_APP_BINARY
 RESET_CREDITS_ENDPOINT = "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits"
 RESET_CREDIT_GRANTED_KEYS = ("granted_at", "grantedAt", "created_at", "createdAt", "issued_at", "issuedAt")
 RESET_CREDIT_EXPIRES_KEYS = (
@@ -935,13 +937,15 @@ def build_rpc_request(request_id: int, method: str, params: dict | None = None) 
 def resolve_codex_binary(
     *,
     app_binary: Path = CODEX_APP_BINARY,
+    legacy_app_binary: Path = LEGACY_CODEX_APP_BINARY,
     path_lookup: Callable[[str], str | None] = shutil.which,
 ) -> str | None:
     override = os.environ.get("CODEX_PROFILE_SWITCHER_CODEX")
     if override:
         return override
-    if app_binary.is_file():
-        return str(app_binary)
+    for candidate in (app_binary, legacy_app_binary):
+        if candidate.is_file():
+            return str(candidate)
     return path_lookup("codex")
 
 

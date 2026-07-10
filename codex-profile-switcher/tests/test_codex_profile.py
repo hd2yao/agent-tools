@@ -1,10 +1,12 @@
 import io
 import json
 import os
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 from contextlib import redirect_stderr, redirect_stdout
+from unittest.mock import patch
 
 
 class ImportTests(unittest.TestCase):
@@ -107,6 +109,44 @@ class ProfileHelperTests(unittest.TestCase):
 
         self.assertEqual(env["PATH"], "/bin")
         self.assertEqual(env["CODEX_HOME"], str(self.root))
+
+    def test_require_codex_uses_desktop_compatible_resolver(self):
+        from codex_profile import require_codex
+
+        bundled = "/Applications/ChatGPT.app/Contents/Resources/codex"
+        with patch(
+            "codex_profile_dashboard.resolve_codex_binary",
+            return_value=bundled,
+        ) as resolve:
+            result = require_codex()
+
+        self.assertEqual(result, bundled)
+        resolve.assert_called_once_with()
+
+    def test_desktop_pid_uses_stable_bundle_identifier(self):
+        from codex_profile import CODEX_DESKTOP_BUNDLE_ID, codex_desktop_pid
+
+        completed = subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout="24680\n",
+        )
+        with patch("codex_profile.subprocess.run", return_value=completed) as run:
+            result = codex_desktop_pid()
+
+        self.assertEqual(result, 24680)
+        command = run.call_args.args[0]
+        self.assertIn(CODEX_DESKTOP_BUNDLE_ID, command[-1])
+        self.assertNotIn('process "Codex"', command[-1])
+
+    def test_quit_desktop_uses_stable_bundle_identifier(self):
+        from codex_profile import CODEX_DESKTOP_BUNDLE_ID, quit_codex_desktop
+
+        with patch("codex_profile.subprocess.run") as run:
+            quit_codex_desktop()
+
+        command = run.call_args.args[0]
+        self.assertIn(f'application id "{CODEX_DESKTOP_BUNDLE_ID}"', command[-1])
 
     def test_prepare_profile_links_history_to_shared_home(self):
         from codex_profile import prepare_profile_home

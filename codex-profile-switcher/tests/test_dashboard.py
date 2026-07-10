@@ -484,6 +484,42 @@ class AppServerClientTests(unittest.TestCase):
 
             self.assertEqual(result, str(bundled))
 
+    def test_resolve_codex_binary_prefers_chatgpt_bundle_over_legacy_codex(self):
+        from codex_profile_dashboard import resolve_codex_binary
+
+        with tempfile.TemporaryDirectory() as tmp:
+            chatgpt = Path(tmp) / "ChatGPT.app" / "Contents" / "Resources" / "codex"
+            legacy = Path(tmp) / "Codex.app" / "Contents" / "Resources" / "codex"
+            chatgpt.parent.mkdir(parents=True)
+            legacy.parent.mkdir(parents=True)
+            chatgpt.write_text("#!/bin/sh\n", encoding="utf-8")
+            legacy.write_text("#!/bin/sh\n", encoding="utf-8")
+
+            result = resolve_codex_binary(
+                app_binary=chatgpt,
+                legacy_app_binary=legacy,
+                path_lookup=lambda _: "/opt/homebrew/bin/codex",
+            )
+
+            self.assertEqual(result, str(chatgpt))
+
+    def test_resolve_codex_binary_falls_back_to_legacy_codex_bundle(self):
+        from codex_profile_dashboard import resolve_codex_binary
+
+        with tempfile.TemporaryDirectory() as tmp:
+            chatgpt = Path(tmp) / "ChatGPT.app" / "Contents" / "Resources" / "codex"
+            legacy = Path(tmp) / "Codex.app" / "Contents" / "Resources" / "codex"
+            legacy.parent.mkdir(parents=True)
+            legacy.write_text("#!/bin/sh\n", encoding="utf-8")
+
+            result = resolve_codex_binary(
+                app_binary=chatgpt,
+                legacy_app_binary=legacy,
+                path_lookup=lambda _: "/opt/homebrew/bin/codex",
+            )
+
+            self.assertEqual(result, str(legacy))
+
 
 class ProfileApiTests(unittest.TestCase):
     def test_build_profiles_payload_does_not_include_secret_contents(self):
