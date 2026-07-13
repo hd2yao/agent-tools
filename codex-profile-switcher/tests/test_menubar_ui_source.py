@@ -6,6 +6,22 @@ SWIFT_SOURCE = Path(__file__).resolve().parents[1] / "macos" / "CodexProfileMenu
 
 
 class MenuBarUISourceTests(unittest.TestCase):
+    def test_python_runtime_prefers_compatible_paths_before_inherited_gui_path(self):
+        source = SWIFT_SOURCE.read_text()
+
+        self.assertIn(
+            'let defaultPath = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"',
+            source,
+        )
+        self.assertIn(
+            'environment["PATH"] = [defaultPath, environment["PATH"]]',
+            source,
+        )
+        self.assertNotIn(
+            'environment["PATH"] = [environment["PATH"], defaultPath]',
+            source,
+        )
+
     def test_main_dashboard_uses_tabbed_analytics_layout(self):
         source = SWIFT_SOURCE.read_text()
 

@@ -6,6 +6,8 @@ APP_NAME="Codex Profile Switcher"
 APP_DIR="${1:-$HOME/Applications/$APP_NAME.app}"
 SOURCE="$ROOT_DIR/macos/CodexProfileMenuBar.swift"
 BINARY="$APP_DIR/Contents/MacOS/$APP_NAME"
+HELPER="$APP_DIR/Contents/Resources/codex-profile-switcher/codex_profile.py"
+RUNTIME_PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
 if [[ ! -x "$BINARY" ]]; then
   echo "missing installed executable: $BINARY" >&2
@@ -16,6 +18,13 @@ if [[ "$SOURCE" -nt "$BINARY" ]]; then
   echo "installed executable is older than CodexProfileMenuBar.swift" >&2
   exit 1
 fi
+
+if [[ ! -f "$HELPER" ]]; then
+  echo "missing installed helper: $HELPER" >&2
+  exit 1
+fi
+
+env PATH="$RUNTIME_PATH" /usr/bin/env python3 "$HELPER" --help >/dev/null
 
 for copy in "5小时剩余" "7日剩余" "今日 token"; do
   if ! LC_ALL=C grep -aFq "$copy" "$BINARY"; then

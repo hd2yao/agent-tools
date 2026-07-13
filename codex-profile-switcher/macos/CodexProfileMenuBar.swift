@@ -1297,7 +1297,7 @@ final class CodexProfileMenuBarApp: NSObject, NSApplicationDelegate, NSPopoverDe
         process.arguments = ["python3", scriptPath()] + arguments
         var environment = ProcessInfo.processInfo.environment
         let defaultPath = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
-        environment["PATH"] = [environment["PATH"], defaultPath].compactMap { $0 }.joined(separator: ":")
+        environment["PATH"] = [defaultPath, environment["PATH"]].compactMap { $0 }.joined(separator: ":")
         process.environment = environment
 
         let stdout = Pipe()
