@@ -885,6 +885,113 @@ class AppServerClientTests(unittest.TestCase):
             {"jsonrpc": "2.0", "id": 3, "method": "account/rateLimits/read"},
         )
 
+    def test_select_reset_credit_prefers_earliest_available_expiry(self):
+        from codex_profile_dashboard import select_reset_credit_for_consumption
+
+        selected = select_reset_credit_for_consumption(
+            {
+                "rateLimitResetCredits": {
+                    "availableCount": 3,
+                    "credits": [
+                        {
+                            "id": "credit-later",
+                            "status": "available",
+                            "expiresAt": 1785110610,
+                        },
+                        {
+                            "id": "credit-used",
+                            "status": "used",
+                            "expiresAt": 1784000000,
+                        },
+                        {
+                            "id": "credit-earlier",
+                            "status": "available",
+                            "expiresAt": 1784335011,
+                        },
+                    ],
+                }
+            },
+            now_seconds=1783000000,
+        )
+
+        self.assertEqual(selected["credit_id"], "credit-earlier")
+        self.assertEqual(selected["expires_at"], 1784335011)
+
+    def test_consume_next_expiring_credit_keeps_opaque_id_inside_adapter(self):
+        from codex_profile_dashboard import consume_next_expiring_reset_credit
+
+        calls = []
+
+        def snapshot_reader(_profile, timeout_seconds):
+            self.assertEqual(timeout_seconds, 4.0)
+            return {
+                "ok": True,
+                "rate_limits": {
+                    "rateLimitResetCredits": {
+                        "availableCount": 2,
+                        "credits": [
+                            {
+                                "id": "private-later-id",
+                                "status": "available",
+                                "expiresAt": 1785110610,
+                            },
+                            {
+                                "id": "private-earlier-id",
+                                "status": "available",
+                                "expiresAt": 1784335011,
+                            },
+                        ],
+                    }
+                },
+            }
+
+        def consumer(profile, idempotency_key, credit_id, timeout_seconds):
+            calls.append((profile, idempotency_key, credit_id, timeout_seconds))
+            return {"ok": True, "outcome": "reset", "error": None}
+
+        result = consume_next_expiring_reset_credit(
+            Path("/tmp/profile-a"),
+            "stable-idempotency-key",
+            timeout_seconds=4.0,
+            snapshot_reader=snapshot_reader,
+            consumer=consumer,
+            now_seconds=1783000000,
+        )
+
+        self.assertEqual(
+            calls,
+            [
+                (
+                    Path("/tmp/profile-a"),
+                    "stable-idempotency-key",
+                    "private-earlier-id",
+                    4.0,
+                )
+            ],
+        )
+        self.assertEqual(
+            result,
+            {
+                "ok": True,
+                "outcome": "reset",
+                "expires_at": 1784335011,
+                "error": None,
+            },
+        )
+        self.assertNotIn("private-earlier-id", json.dumps(result))
+
+    def test_normalize_consume_outcome_preserves_official_states(self):
+        from codex_profile_dashboard import normalize_reset_credit_consume_response
+
+        for outcome in ["reset", "alreadyRedeemed", "nothingToReset", "noCredit"]:
+            with self.subTest(outcome=outcome):
+                self.assertEqual(
+                    normalize_reset_credit_consume_response(
+                        {"result": {"outcome": outcome}}
+                    ),
+                    {"ok": True, "outcome": outcome, "error": None},
+                )
+
     def test_resolve_codex_binary_prefers_app_bundle_binary(self):
         from codex_profile_dashboard import resolve_codex_binary
 

@@ -1123,6 +1123,68 @@ def build_rpc_request(request_id: int, method: str, params: dict | None = None) 
     return request
 
 
+def select_reset_credit_for_consumption(
+    rate_limits: dict | None,
+    *,
+    now_seconds: float | None = None,
+) -> dict | None:
+    value = rate_limits or {}
+    reset_credits = value.get("rateLimitResetCredits")
+    if not isinstance(reset_credits, dict):
+        return None
+    now = time.time() if now_seconds is None else now_seconds
+    credits = reset_credits.get("credits")
+    available = []
+    if isinstance(credits, list):
+        for item in credits:
+            if not isinstance(item, dict):
+                continue
+            status = str(item.get("status") or "available").lower()
+            if status not in {"available", "active", "unused"}:
+                continue
+            credit_id = item.get("id")
+            if credit_id is not None and (not isinstance(credit_id, str) or not credit_id):
+                continue
+            expires_at = _optional_timestamp(item.get("expiresAt"))
+            if expires_at is not None and expires_at <= now:
+                continue
+            available.append(
+                {
+                    "credit_id": credit_id,
+                    "expires_at": expires_at,
+                }
+            )
+    if available:
+        return min(
+            available,
+            key=lambda item: item["expires_at"]
+            if item["expires_at"] is not None
+            else float("inf"),
+        )
+    if (_optional_int(reset_credits.get("availableCount")) or 0) > 0:
+        return {"credit_id": None, "expires_at": None}
+    return None
+
+
+def normalize_reset_credit_consume_response(response: dict | None) -> dict:
+    value = response or {}
+    if "error" in value:
+        return {
+            "ok": False,
+            "outcome": None,
+            "error": "reset credit consume failed",
+        }
+    result = value.get("result")
+    outcome = result.get("outcome") if isinstance(result, dict) else None
+    if not isinstance(outcome, str) or not outcome:
+        return {
+            "ok": False,
+            "outcome": None,
+            "error": "reset credit consume unavailable",
+        }
+    return {"ok": True, "outcome": outcome, "error": None}
+
+
 def resolve_codex_binary(
     *,
     app_binary: Path = CODEX_APP_BINARY,
@@ -1149,6 +1211,130 @@ def _stop_process(process: subprocess.Popen) -> None:
         process.wait(timeout=2)
 
 
+def _consume_reset_credit_rpc(
+    profile_home: Path,
+    idempotency_key: str,
+    credit_id: str | None,
+    timeout_seconds: float,
+) -> dict:
+    if not idempotency_key.strip():
+        raise ValueError("idempotency key must not be empty")
+    codex = resolve_codex_binary()
+    if not codex:
+        return {"ok": False, "outcome": None, "error": "codex not found"}
+
+    env = dict(os.environ)
+    env["CODEX_HOME"] = str(profile_home)
+    try:
+        process = subprocess.Popen(
+            [codex, "app-server"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            env=env,
+        )
+    except OSError:
+        return {"ok": False, "outcome": None, "error": "spawn failed"}
+
+    response = None
+    try:
+        if process.stdin is None or process.stdout is None:
+            return {
+                "ok": False,
+                "outcome": None,
+                "error": "app-server pipe unavailable",
+            }
+        params = {"idempotencyKey": idempotency_key}
+        if credit_id is not None:
+            params["creditId"] = credit_id
+        requests = [
+            build_rpc_request(
+                1,
+                "initialize",
+                {
+                    "clientInfo": {"name": "codex-profile-switcher", "version": "0"},
+                    "capabilities": {"experimentalApi": True},
+                },
+            ),
+            {"jsonrpc": "2.0", "method": "initialized", "params": {}},
+            build_rpc_request(2, "account/rateLimitResetCredit/consume", params),
+        ]
+        for request in requests:
+            process.stdin.write(json.dumps(request, separators=(",", ":")) + "\n")
+        process.stdin.flush()
+
+        selector = selectors.DefaultSelector()
+        selector.register(process.stdout, selectors.EVENT_READ)
+        deadline = time.monotonic() + timeout_seconds
+        while time.monotonic() < deadline:
+            wait = max(0.0, deadline - time.monotonic())
+            events = selector.select(timeout=min(0.25, wait))
+            if not events:
+                if process.poll() is not None:
+                    break
+                continue
+            line = process.stdout.readline()
+            if not line:
+                break
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if row.get("id") == 2:
+                response = row
+                break
+        selector.close()
+    finally:
+        _stop_process(process)
+        for stream in (process.stdin, process.stdout):
+            if stream is not None:
+                stream.close()
+    return normalize_reset_credit_consume_response(response)
+
+
+def consume_next_expiring_reset_credit(
+    profile_home: Path,
+    idempotency_key: str,
+    *,
+    timeout_seconds: float = 8.0,
+    snapshot_reader: Callable[..., dict] | None = None,
+    consumer: Callable[..., dict] | None = None,
+    now_seconds: float | None = None,
+) -> dict:
+    reader = snapshot_reader or read_app_server_account_snapshot
+    snapshot = reader(profile_home, timeout_seconds=timeout_seconds)
+    if not snapshot.get("ok"):
+        return {
+            "ok": False,
+            "outcome": None,
+            "expires_at": None,
+            "error": snapshot.get("error") or "rate limits unavailable",
+        }
+    selected = select_reset_credit_for_consumption(
+        snapshot.get("rate_limits"),
+        now_seconds=now_seconds,
+    )
+    if selected is None:
+        return {
+            "ok": True,
+            "outcome": "noCredit",
+            "expires_at": None,
+            "error": None,
+        }
+    consume = consumer or _consume_reset_credit_rpc
+    result = consume(
+        profile_home,
+        idempotency_key,
+        selected["credit_id"],
+        timeout_seconds,
+    )
+    return {
+        "ok": bool(result.get("ok")),
+        "outcome": result.get("outcome"),
+        "expires_at": selected["expires_at"],
+        "error": result.get("error"),
+    }
 def read_app_server_account_snapshot(
     profile_home: Path,
     timeout_seconds: float = 8.0,

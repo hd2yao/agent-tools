@@ -44,6 +44,46 @@ class ProfileHelperTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     validate_profile_name(name)
 
+    def test_consume_reset_credit_command_outputs_sanitized_result(self):
+        import codex_profile
+
+        profile = self.root / "profiles" / "account-a"
+        profile.mkdir(parents=True)
+        output = io.StringIO()
+        with (
+            patch("codex_profile.get_profile_root", return_value=profile.parent),
+            patch(
+                "codex_profile_dashboard.consume_next_expiring_reset_credit",
+                return_value={
+                    "ok": True,
+                    "outcome": "alreadyRedeemed",
+                    "expires_at": 1784335011,
+                    "error": None,
+                },
+            ) as consume,
+            redirect_stdout(output),
+        ):
+            result = codex_profile.main(
+                [
+                    "consume-reset-credit",
+                    "account-a",
+                    "--idempotency-key",
+                    "stable-key",
+                ]
+            )
+
+        self.assertEqual(result, 0)
+        self.assertEqual(
+            json.loads(output.getvalue()),
+            {
+                "ok": True,
+                "outcome": "alreadyRedeemed",
+                "expires_at": 1784335011,
+                "error": None,
+            },
+        )
+        consume.assert_called_once_with(profile, "stable-key")
+
     def test_profile_path_stays_under_root(self):
         from codex_profile import profile_path
 

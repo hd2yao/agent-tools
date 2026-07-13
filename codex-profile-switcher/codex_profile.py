@@ -939,6 +939,17 @@ def cmd_status(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_consume_reset_credit(args: argparse.Namespace) -> int:
+    from codex_profile_dashboard import consume_next_expiring_reset_credit
+
+    profile = profile_path(get_profile_root(), args.name)
+    if not profile.is_dir():
+        raise FileNotFoundError(f"profile does not exist: {args.name}")
+    result = consume_next_expiring_reset_credit(profile, args.idempotency_key)
+    print(json.dumps(result, ensure_ascii=False, separators=(",", ":")))
+    return 0 if result.get("ok") else 2
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="codex-profile",
@@ -1018,6 +1029,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="force a fresh read of reset credit card details",
     )
     status_parser.set_defaults(func=cmd_status)
+
+    consume_parser = subparsers.add_parser(
+        "consume-reset-credit",
+        help="consume the earliest expiring reset credit for an exhausted profile",
+    )
+    consume_parser.add_argument("name")
+    consume_parser.add_argument("--idempotency-key", required=True)
+    consume_parser.set_defaults(func=cmd_consume_reset_credit)
 
     return parser
 
