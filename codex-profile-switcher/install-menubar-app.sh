@@ -11,5 +11,6 @@ TARGET_APP="$INSTALL_DIR/$APP_NAME.app"
 mkdir -p "$INSTALL_DIR"
 rm -rf "$TARGET_APP"
 ditto "$BUILD_APP" "$TARGET_APP"
+"$ROOT_DIR/verify-menubar-install.sh" "$TARGET_APP" >/dev/null
 
 echo "$TARGET_APP"

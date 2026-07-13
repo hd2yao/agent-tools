@@ -13,8 +13,6 @@ import shutil
 import sqlite3
 import subprocess
 import time
-import urllib.error
-import urllib.request
 import webbrowser
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
@@ -38,10 +36,11 @@ RUNTIME_GREEN_ROLLOUT_MS = 90_000
 RUNTIME_RECENT_ACTIVITY_MS = 15 * 60_000
 REMOTE_STATUS_CACHE_SECONDS = 10 * 60
 RESET_CREDIT_DETAILS_CACHE_SECONDS = 6 * 60 * 60
+TASK_RATE_LIMIT_MAX_AGE_SECONDS = 30 * 60
+TASK_RESET_TIME_TOLERANCE_SECONDS = 5
 CHATGPT_APP_BINARY = Path("/Applications/ChatGPT.app/Contents/Resources/codex")
 LEGACY_CODEX_APP_BINARY = Path("/Applications/Codex.app/Contents/Resources/codex")
 CODEX_APP_BINARY = CHATGPT_APP_BINARY
-RESET_CREDITS_ENDPOINT = "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits"
 RESET_CREDIT_GRANTED_KEYS = ("granted_at", "grantedAt", "created_at", "createdAt", "issued_at", "issuedAt")
 RESET_CREDIT_EXPIRES_KEYS = (
     "expires_at",
@@ -138,23 +137,6 @@ def _mask_identifier(value: object | None) -> str | None:
     return f"{text[:4]}...{text[-4:]} hash:{digest}"
 
 
-def _find_access_token(value: object) -> str | None:
-    if isinstance(value, dict):
-        for key, child in value.items():
-            key_text = str(key).lower()
-            if key_text == "access_token" and isinstance(child, str) and child.strip():
-                return child.strip()
-            found = _find_access_token(child)
-            if found:
-                return found
-    if isinstance(value, list):
-        for child in value:
-            found = _find_access_token(child)
-            if found:
-                return found
-    return None
-
-
 def normalize_reset_credits(payload: dict, limits: dict) -> dict:
     candidates = [
         payload.get("rateLimitResetCredits"),
@@ -212,6 +194,9 @@ def normalize_reset_credit_details(payload: dict | None) -> dict:
             ),
             "status": status,
             "used": bool(used),
+            "reset_type": _first_present(item, "reset_type", "resetType"),
+            "title": _first_present(item, "title"),
+            "description": _first_present(item, "description"),
             "granted_at": granted_at,
             "expires_at": expires_at,
         }
@@ -243,10 +228,43 @@ def normalize_reset_credit_details(payload: dict | None) -> dict:
     }
 
 
+def normalize_individual_limit(value: dict | None) -> dict | None:
+    if not value:
+        return None
+    return {
+        "used": value.get("used"),
+        "limit": value.get("limit"),
+        "remaining_percent": _optional_int(value.get("remainingPercent")),
+        "resets_at": _optional_timestamp(value.get("resetsAt")),
+    }
+
+
+def normalize_account(payload: dict | None) -> dict:
+    value = payload or {}
+    account = value.get("account") if isinstance(value.get("account"), dict) else {}
+    return {
+        "available": bool(account),
+        "type": account.get("type"),
+        "plan_type": account.get("planType"),
+        "email_present": account.get("email") is not None,
+        "requires_openai_auth": bool(value.get("requiresOpenaiAuth")),
+    }
+
+
 def normalize_rate_limits(payload: dict | None) -> dict:
     value = payload or {}
-    limits = value.get("rateLimits") or {}
+    buckets = value.get("rateLimitsByLimitId")
+    limits = (
+        buckets.get("codex")
+        if isinstance(buckets, dict) and isinstance(buckets.get("codex"), dict)
+        else value.get("rateLimits") or {}
+    )
     reset_credits = normalize_reset_credits(value, limits)
+    reset_credit_details = normalize_reset_credit_details(
+        value.get("rateLimitResetCredits")
+        if isinstance(value.get("rateLimitResetCredits"), dict)
+        else None
+    )
     return {
         "available": bool(limits),
         "limit_id": limits.get("limitId"),
@@ -254,8 +272,10 @@ def normalize_rate_limits(payload: dict | None) -> dict:
         "plan_type": limits.get("planType"),
         "credits_available": reset_credits["available_count"],
         "reset_credits": reset_credits,
+        "reset_credit_details": reset_credit_details,
         "primary": normalize_window(limits.get("primary")),
         "secondary": normalize_window(limits.get("secondary")),
+        "individual_limit": normalize_individual_limit(limits.get("individualLimit")),
         "rate_limit_reached_type": limits.get("rateLimitReachedType"),
     }
 
@@ -547,6 +567,173 @@ def _extract_token_count(row: dict) -> tuple[dict, dict | None] | None:
     )
     normalized_usage = {key: _usage_value(usage, key) for key in DEFAULT_USAGE}
     return normalized_usage, rate_limits
+
+
+def _rate_limit_fingerprint(value: dict | None) -> dict | None:
+    if not isinstance(value, dict):
+        return None
+
+    def window(name: str) -> dict | None:
+        raw = value.get(name)
+        if not isinstance(raw, dict):
+            return None
+        minutes = _optional_int(
+            _first_present(raw, "window_minutes", "windowDurationMins", "window_duration_mins")
+        )
+        resets_at = _optional_timestamp(_first_present(raw, "resets_at", "resetsAt"))
+        if minutes is None or resets_at is None:
+            return None
+        return {"window_minutes": minutes, "resets_at": int(resets_at)}
+
+    primary = window("primary")
+    secondary = window("secondary")
+    if primary is None or secondary is None:
+        return None
+    return {"primary": primary, "secondary": secondary}
+
+
+def _latest_visible_thread_rollout(shared_home: Path) -> tuple[str | None, Path] | None:
+    state_path = _sqlite_state_path(shared_home)
+    if state_path is None:
+        return None
+    try:
+        conn = sqlite3.connect(f"file:{state_path}?mode=ro", uri=True, timeout=5)
+        try:
+            columns = {row[1] for row in conn.execute("pragma table_info(threads)")}
+            if "rollout_path" not in columns:
+                return None
+            filters = []
+            if "archived" in columns:
+                filters.append("archived = 0")
+            if "preview" in columns:
+                filters.append("preview != ''")
+            order_column = next(
+                (
+                    name
+                    for name in ("recency_at_ms", "updated_at_ms", "updated_at", "created_at")
+                    if name in columns
+                ),
+                None,
+            )
+            where = f" where {' and '.join(filters)}" if filters else ""
+            order = f" order by {order_column} desc" if order_column else ""
+            selection = "id, rollout_path" if "id" in columns else "null, rollout_path"
+            row = conn.execute(f"select {selection} from threads{where}{order} limit 1").fetchone()
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return None
+    if not row or not isinstance(row[1], str):
+        return None
+    path = Path(row[1]).expanduser()
+    return (str(row[0]) if row[0] is not None else None, path) if path.is_file() else None
+
+
+def _latest_rollout_rate_limit_event(path: Path) -> tuple[dict, float] | None:
+    latest: tuple[dict, float] | None = None
+    try:
+        handle = path.open(encoding="utf-8")
+    except OSError:
+        return None
+    with handle:
+        for line in handle:
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(row, dict):
+                continue
+            payload = row.get("payload")
+            if not isinstance(payload, dict):
+                continue
+            message = payload.get("message")
+            message = message if isinstance(message, dict) else {}
+            event = payload if payload.get("type") == "token_count" else message
+            info = event.get("info")
+            info = info if isinstance(info, dict) else {}
+            raw_limits = (
+                info.get("rate_limits")
+                or info.get("rateLimits")
+                or event.get("rate_limits")
+                or event.get("rateLimits")
+            )
+            fingerprint = _rate_limit_fingerprint(raw_limits)
+            timestamp = _optional_timestamp(row.get("timestamp"))
+            if fingerprint is None or timestamp is None:
+                continue
+            if latest is None or float(timestamp) >= latest[1]:
+                latest = (fingerprint, float(timestamp))
+    return latest
+
+
+def infer_task_profile(
+    shared_home: Path,
+    profile_rate_limits: dict[str, dict],
+    *,
+    now_seconds: float | None = None,
+    max_age_seconds: int = TASK_RATE_LIMIT_MAX_AGE_SECONDS,
+    reset_tolerance_seconds: int = TASK_RESET_TIME_TOLERANCE_SECONDS,
+) -> dict:
+    thread_rollout = _latest_visible_thread_rollout(shared_home)
+    if thread_rollout is None:
+        return {"profile": None, "source": "no_recent_thread", "confidence": "unknown"}
+    thread_id, rollout = thread_rollout
+    event = _latest_rollout_rate_limit_event(rollout)
+    if event is None:
+        return {
+            "profile": None,
+            "source": "missing_thread_rate_limits",
+            "confidence": "unknown",
+            "thread_id": thread_id,
+        }
+    task_fingerprint, observed_at = event
+    now = time.time() if now_seconds is None else now_seconds
+    if now - observed_at > max_age_seconds or observed_at - now > reset_tolerance_seconds:
+        return {
+            "profile": None,
+            "source": "stale_thread_rate_limits",
+            "confidence": "unknown",
+            "observed_at": int(observed_at),
+            "thread_id": thread_id,
+        }
+
+    def matches(candidate: dict | None) -> bool:
+        fingerprint = _rate_limit_fingerprint(candidate)
+        if fingerprint is None:
+            return False
+        for window_name in ("primary", "secondary"):
+            task_window = task_fingerprint[window_name]
+            candidate_window = fingerprint[window_name]
+            if candidate_window["window_minutes"] != task_window["window_minutes"]:
+                return False
+            if abs(candidate_window["resets_at"] - task_window["resets_at"]) > reset_tolerance_seconds:
+                return False
+        return True
+
+    matched = sorted(name for name, limits in profile_rate_limits.items() if matches(limits))
+    if len(matched) == 1:
+        return {
+            "profile": matched[0],
+            "source": "recent_active_thread_rate_limit_match",
+            "confidence": "inferred",
+            "observed_at": int(observed_at),
+            "thread_id": thread_id,
+        }
+    if len(matched) > 1:
+        return {
+            "profile": None,
+            "source": "ambiguous_rate_limit_match",
+            "confidence": "unknown",
+            "observed_at": int(observed_at),
+            "thread_id": thread_id,
+        }
+    return {
+        "profile": None,
+        "source": "no_rate_limit_match",
+        "confidence": "unknown",
+        "observed_at": int(observed_at),
+        "thread_id": thread_id,
+    }
 
 
 def read_local_token_snapshot(shared_home: Path) -> dict:
@@ -966,7 +1153,7 @@ def read_app_server_account_snapshot(
 ) -> dict:
     codex = resolve_codex_binary()
     if not codex:
-        return {"ok": False, "rate_limits": None, "usage": None, "error": "codex not found"}
+        return {"ok": False, "account": None, "rate_limits": None, "usage": None, "error": "codex not found"}
 
     env = dict(os.environ)
     env["CODEX_HOME"] = str(profile_home)
@@ -980,7 +1167,7 @@ def read_app_server_account_snapshot(
             env=env,
         )
     except OSError:
-        return {"ok": False, "rate_limits": None, "usage": None, "error": "spawn failed"}
+        return {"ok": False, "account": None, "rate_limits": None, "usage": None, "error": "spawn failed"}
 
     responses: dict[int, dict] = {}
     try:
@@ -994,12 +1181,14 @@ def read_app_server_account_snapshot(
                 },
             ),
             {"jsonrpc": "2.0", "method": "initialized", "params": {}},
-            build_rpc_request(2, "account/rateLimits/read"),
-            build_rpc_request(3, "account/usage/read"),
+            build_rpc_request(2, "account/read", {"refreshToken": False}),
+            build_rpc_request(3, "account/rateLimits/read"),
+            build_rpc_request(4, "account/usage/read"),
         ]
         if process.stdin is None or process.stdout is None:
             return {
                 "ok": False,
+                "account": None,
                 "rate_limits": None,
                 "usage": None,
                 "error": "app-server pipe unavailable",
@@ -1011,7 +1200,7 @@ def read_app_server_account_snapshot(
         selector = selectors.DefaultSelector()
         selector.register(process.stdout, selectors.EVENT_READ)
         deadline = time.monotonic() + timeout_seconds
-        while time.monotonic() < deadline and (2 not in responses or 3 not in responses):
+        while time.monotonic() < deadline and not {2, 3, 4}.issubset(responses):
             wait = max(0.0, deadline - time.monotonic())
             events = selector.select(timeout=min(0.25, wait))
             if not events:
@@ -1034,8 +1223,9 @@ def read_app_server_account_snapshot(
             if stream is not None:
                 stream.close()
 
-    rate_limits = responses.get(2) or {}
-    usage = responses.get(3) or {}
+    account = responses.get(2) or {}
+    rate_limits = responses.get(3) or {}
+    usage = responses.get(4) or {}
     error = None
     if "error" in rate_limits:
         error = "rate limits unavailable"
@@ -1043,6 +1233,7 @@ def read_app_server_account_snapshot(
         error = "app-server timeout"
     return {
         "ok": error is None,
+        "account": account.get("result"),
         "rate_limits": rate_limits.get("result"),
         "usage": usage.get("result"),
         "error": error,
@@ -1051,45 +1242,16 @@ def read_app_server_account_snapshot(
 
 def read_reset_credit_details(
     profile_home: Path,
-    timeout_seconds: float = 12.0,
+    timeout_seconds: float = 8.0,
 ) -> dict:
-    auth_path = profile_home / "auth.json"
-    try:
-        auth = json.loads(auth_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {"ok": False, "details": None, "error": "auth unavailable"}
-    access_token = _find_access_token(auth)
-    if not access_token:
-        return {"ok": False, "details": None, "error": "access token unavailable"}
-
-    request = urllib.request.Request(
-        RESET_CREDITS_ENDPOINT,
-        headers={
-            "Authorization": f"Bearer {access_token}",
-            "Accept": "application/json",
-            "User-Agent": "codex-profile-switcher/1.0",
-        },
-        method="GET",
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
-            raw = response.read(1_000_000)
-    except urllib.error.HTTPError as error:
-        return {
-            "ok": False,
-            "details": None,
-            "error": f"reset credits http {error.code}",
-        }
-    except OSError:
-        return {"ok": False, "details": None, "error": "reset credits unavailable"}
-    try:
-        payload = json.loads(raw.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError):
-        return {"ok": False, "details": None, "error": "reset credits bad json"}
+    snapshot = read_app_server_account_snapshot(profile_home, timeout_seconds=timeout_seconds)
+    if not snapshot.get("ok"):
+        return {"ok": False, "details": None, "error": snapshot.get("error")}
+    details = normalize_rate_limits(snapshot.get("rate_limits"))["reset_credit_details"]
     return {
-        "ok": True,
-        "details": normalize_reset_credit_details(payload),
-        "error": None,
+        "ok": bool(details.get("available")),
+        "details": details,
+        "error": None if details.get("available") else "reset credit details unavailable",
     }
 
 
@@ -1120,6 +1282,7 @@ def _write_remote_status_cache(
     path = _remote_status_cache_path(shared_home, profile_name)
     payload = {
         "cached_at": now_seconds,
+        "account": remote.get("account"),
         "rate_limits": remote.get("rate_limits"),
         "usage": remote.get("usage"),
     }
@@ -1150,6 +1313,7 @@ def _read_remote_status_cache(
         return None
     return {
         "ok": True,
+        "account": payload.get("account"),
         "rate_limits": payload.get("rate_limits"),
         "usage": payload.get("usage"),
         "error": None,
@@ -1169,6 +1333,7 @@ def _read_remote_status_with_cache(
     except Exception:
         remote = {
             "ok": False,
+            "account": None,
             "rate_limits": None,
             "usage": None,
             "error": "status reader failed",
@@ -1312,11 +1477,27 @@ def build_profiles_payload(
                 remote_by_name[profile.name] = future.result()
 
     reset_details_by_name: dict[str, dict | None] = {}
-    if read_remote and profile_paths:
-        reader = reset_credit_reader or read_reset_credit_details
+    fallback_profiles: list[Path] = []
+    for profile in profile_paths:
+        remote = remote_by_name.get(profile.name) or {}
+        normalized_limits = normalize_rate_limits(remote.get("rate_limits") or {})
+        embedded = normalized_limits["reset_credit_details"]
+        if embedded.get("available"):
+            reset_details_by_name[profile.name] = {
+                "ok": True,
+                "details": embedded,
+                "error": None,
+                "stale": bool(remote.get("stale")),
+                "cached_at": remote.get("cached_at"),
+            }
+        elif reset_credit_reader is not None:
+            fallback_profiles.append(profile)
+
+    if read_remote and fallback_profiles and reset_credit_reader is not None:
+        reader = reset_credit_reader
         with ThreadPoolExecutor(max_workers=min(4, len(profile_paths))) as executor:
             futures = {}
-            for profile in profile_paths:
+            for profile in fallback_profiles:
                 remote = remote_by_name.get(profile.name)
                 expected_count = normalize_rate_limits(
                     (remote or {}).get("rate_limits") or {}
@@ -1355,15 +1536,17 @@ def build_profiles_payload(
         remote = remote_by_name.get(profile.name)
         reset_details = reset_details_by_name.get(profile.name) or {}
         usage = (remote or {}).get("usage")
+        normalized_limits = normalize_rate_limits(
+            (remote or {}).get("rate_limits") or {}
+        )
         profiles.append(
             {
                 "name": profile.name,
                 "path": str(profile),
                 "auth": "present" if (profile / "auth.json").is_file() else "missing",
                 "config": "present" if (profile / "config.toml").is_file() else "missing",
-                "rate_limits": normalize_rate_limits(
-                    (remote or {}).get("rate_limits") or {}
-                ),
+                "account": normalize_account((remote or {}).get("account")),
+                "rate_limits": normalized_limits,
                 "usage": usage,
                 "usage_metrics": summarize_account_usage(
                     usage,
@@ -1385,6 +1568,27 @@ def build_profiles_payload(
                 "remote_cached_at": (remote or {}).get("cached_at") if remote else None,
             }
         )
+    task_role = infer_task_profile(
+        shared_home,
+        {profile["name"]: profile["rate_limits"] for profile in profiles},
+        now_seconds=now,
+    )
+    desktop_role = {
+        "profile": active_profile,
+        "source": "desktop_bridge_record" if active_profile else "unavailable",
+        "confidence": "confirmed" if active_profile else "unknown",
+    }
+    attribution_profile = attribution_ledger.get("active_profile")
+    attribution_role = {
+        "profile": attribution_profile,
+        "source": "attribution_ledger" if attribution_profile else "unavailable",
+        "confidence": "confirmed" if attribution_profile else "unknown",
+    }
+    roles_consistent = (
+        task_role["profile"] == desktop_role["profile"]
+        if task_role.get("profile") and desktop_role.get("profile")
+        else None
+    )
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "profile_root": str(profile_root),
@@ -1397,6 +1601,12 @@ def build_profiles_payload(
         "attribution_summary": {
             "active_profile": attribution_ledger.get("active_profile"),
             "managed": bool(attribution_ledger.get("managed")),
+        },
+        "profile_roles": {
+            "task": task_role,
+            "desktop": desktop_role,
+            "attribution": attribution_role,
+            "task_matches_desktop": roles_consistent,
         },
         "profiles": profiles,
     }

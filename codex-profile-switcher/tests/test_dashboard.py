@@ -30,6 +30,261 @@ class DashboardNormalizationTests(unittest.TestCase):
         self.assertEqual(result["last_7_tokens"], 60)
         self.assertEqual(result["last_14_tokens"], 60)
 
+
+class TaskProfileInferenceTests(unittest.TestCase):
+    def _write_state(self, shared: Path, rollout: Path, *, updated_at: int) -> None:
+        import sqlite3
+
+        conn = sqlite3.connect(shared / "state_5.sqlite")
+        try:
+            conn.execute(
+                "create table threads (id text, rollout_path text, updated_at integer, archived integer, preview text)"
+            )
+            conn.execute(
+                "insert into threads values (?, ?, ?, 0, 'visible task')",
+                ("task-1", str(rollout), updated_at),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def _write_rollout(
+        self,
+        rollout: Path,
+        *,
+        timestamp: str,
+        primary_reset: int,
+        secondary_reset: int = 1784200000,
+    ) -> None:
+        rollout.parent.mkdir(parents=True, exist_ok=True)
+        rollout.write_text(
+            json.dumps(
+                {
+                    "timestamp": timestamp,
+                    "payload": {
+                        "type": "token_count",
+                        "info": {
+                            "total_token_usage": {"total_tokens": 1},
+                            "rate_limits": {
+                                "primary": {
+                                    "window_minutes": 300,
+                                    "resets_at": primary_reset,
+                                    "used_percent": 12,
+                                },
+                                "secondary": {
+                                    "window_minutes": 10080,
+                                    "resets_at": secondary_reset,
+                                    "used_percent": 34,
+                                },
+                            },
+                        },
+                    },
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+    @staticmethod
+    def _profile_limits(primary_reset: int, secondary_reset: int = 1784200000) -> dict:
+        return {
+            "primary": {
+                "window_minutes": 300,
+                "resets_at": primary_reset,
+                "remaining_percent": 88,
+            },
+            "secondary": {
+                "window_minutes": 10080,
+                "resets_at": secondary_reset,
+                "remaining_percent": 66,
+            },
+        }
+
+    def test_unique_exact_fingerprint_infers_task_profile(self):
+        from codex_profile_dashboard import infer_task_profile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            shared = Path(tmp)
+            rollout = shared / "sessions" / "rollout-task.jsonl"
+            self._write_rollout(
+                rollout,
+                timestamp="2026-07-11T08:00:00Z",
+                primary_reset=1783781285,
+            )
+            self._write_state(shared, rollout, updated_at=1783756800)
+
+            result = infer_task_profile(
+                shared,
+                {
+                    "hd-master": self._profile_limits(1783781285),
+                    "hd-sarah-blackwell": self._profile_limits(1783782219),
+                },
+                now_seconds=1783757100,
+            )
+
+            self.assertEqual(result["profile"], "hd-master")
+            self.assertEqual(result["source"], "recent_active_thread_rate_limit_match")
+            self.assertEqual(result["confidence"], "inferred")
+            self.assertEqual(result["thread_id"], "task-1")
+
+    def test_small_reset_time_tolerance_still_matches(self):
+        from codex_profile_dashboard import infer_task_profile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            shared = Path(tmp)
+            rollout = shared / "sessions" / "rollout-task.jsonl"
+            self._write_rollout(
+                rollout,
+                timestamp="2026-07-11T08:00:00Z",
+                primary_reset=1783781285,
+            )
+            self._write_state(shared, rollout, updated_at=1783756800)
+
+            result = infer_task_profile(
+                shared,
+                {"hd-master": self._profile_limits(1783781288)},
+                now_seconds=1783757100,
+            )
+
+            self.assertEqual(result["profile"], "hd-master")
+
+    def test_no_matching_fingerprint_returns_unknown(self):
+        from codex_profile_dashboard import infer_task_profile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            shared = Path(tmp)
+            rollout = shared / "sessions" / "rollout-task.jsonl"
+            self._write_rollout(
+                rollout,
+                timestamp="2026-07-11T08:00:00Z",
+                primary_reset=1783781285,
+            )
+            self._write_state(shared, rollout, updated_at=1783756800)
+
+            result = infer_task_profile(
+                shared,
+                {"other": self._profile_limits(1783790000)},
+                now_seconds=1783757100,
+            )
+
+            self.assertIsNone(result["profile"])
+            self.assertEqual(result["source"], "no_rate_limit_match")
+
+    def test_multiple_matching_fingerprints_return_ambiguous(self):
+        from codex_profile_dashboard import infer_task_profile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            shared = Path(tmp)
+            rollout = shared / "sessions" / "rollout-task.jsonl"
+            self._write_rollout(
+                rollout,
+                timestamp="2026-07-11T08:00:00Z",
+                primary_reset=1783781285,
+            )
+            self._write_state(shared, rollout, updated_at=1783756800)
+
+            result = infer_task_profile(
+                shared,
+                {
+                    "account-a": self._profile_limits(1783781285),
+                    "account-b": self._profile_limits(1783781285),
+                },
+                now_seconds=1783757100,
+            )
+
+            self.assertIsNone(result["profile"])
+            self.assertEqual(result["source"], "ambiguous_rate_limit_match")
+
+    def test_stale_rollout_returns_unknown_without_matching(self):
+        from codex_profile_dashboard import infer_task_profile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            shared = Path(tmp)
+            rollout = shared / "sessions" / "rollout-task.jsonl"
+            self._write_rollout(
+                rollout,
+                timestamp="2026-07-11T06:00:00Z",
+                primary_reset=1783781285,
+            )
+            self._write_state(shared, rollout, updated_at=1783749600)
+
+            result = infer_task_profile(
+                shared,
+                {"hd-master": self._profile_limits(1783781285)},
+                now_seconds=1783757100,
+            )
+
+            self.assertIsNone(result["profile"])
+            self.assertEqual(result["source"], "stale_thread_rate_limits")
+
+    def test_multiple_threads_use_most_recent_activity_and_report_thread_id(self):
+        import sqlite3
+        from codex_profile_dashboard import infer_task_profile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            shared = Path(tmp)
+            older = shared / "sessions" / "rollout-older.jsonl"
+            newer = shared / "sessions" / "rollout-newer.jsonl"
+            self._write_rollout(older, timestamp="2026-07-11T07:58:00Z", primary_reset=1783781285)
+            self._write_rollout(newer, timestamp="2026-07-11T08:00:00Z", primary_reset=1783782219)
+            conn = sqlite3.connect(shared / "state_5.sqlite")
+            try:
+                conn.execute(
+                    "create table threads (id text, rollout_path text, updated_at integer, archived integer, preview text)"
+                )
+                conn.execute("insert into threads values ('older', ?, 100, 0, 'visible')", (str(older),))
+                conn.execute("insert into threads values ('newer-background', ?, 200, 0, 'visible')", (str(newer),))
+                conn.commit()
+            finally:
+                conn.close()
+
+            result = infer_task_profile(
+                shared,
+                {
+                    "hd-master": self._profile_limits(1783781285),
+                    "hd-sarah-blackwell": self._profile_limits(1783782219),
+                },
+                now_seconds=1783757100,
+            )
+
+            self.assertEqual(result["profile"], "hd-sarah-blackwell")
+            self.assertEqual(result["thread_id"], "newer-background")
+            self.assertEqual(result["source"], "recent_active_thread_rate_limit_match")
+
+    def test_stale_newest_thread_does_not_fall_back_to_older_thread(self):
+        import sqlite3
+        from codex_profile_dashboard import infer_task_profile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            shared = Path(tmp)
+            older = shared / "sessions" / "rollout-older.jsonl"
+            stale_newer = shared / "sessions" / "rollout-stale-newer.jsonl"
+            self._write_rollout(older, timestamp="2026-07-11T08:00:00Z", primary_reset=1783781285)
+            self._write_rollout(stale_newer, timestamp="2026-07-11T06:00:00Z", primary_reset=1783782219)
+            conn = sqlite3.connect(shared / "state_5.sqlite")
+            try:
+                conn.execute(
+                    "create table threads (id text, rollout_path text, updated_at integer, archived integer, preview text)"
+                )
+                conn.execute("insert into threads values ('older', ?, 100, 0, 'visible')", (str(older),))
+                conn.execute("insert into threads values ('stale-background', ?, 200, 0, 'visible')", (str(stale_newer),))
+                conn.commit()
+            finally:
+                conn.close()
+
+            result = infer_task_profile(
+                shared,
+                {
+                    "hd-master": self._profile_limits(1783781285),
+                    "hd-sarah-blackwell": self._profile_limits(1783782219),
+                },
+                now_seconds=1783757100,
+            )
+
+            self.assertIsNone(result["profile"])
+            self.assertEqual(result["thread_id"], "stale-background")
+            self.assertEqual(result["source"], "stale_thread_rate_limits")
+
     def test_summarize_account_usage_uses_today_when_present(self):
         from datetime import datetime, timezone
 
@@ -153,6 +408,77 @@ class DashboardNormalizationTests(unittest.TestCase):
         self.assertEqual(result["credits_available"], 3)
         self.assertEqual(result["reset_credits"]["available_count"], 3)
         self.assertEqual(result["reset_credits"]["expires_at"], 1783100000)
+
+    def test_normalize_rate_limits_prefers_codex_bucket_and_embeds_credit_details(self):
+        from codex_profile_dashboard import normalize_rate_limits
+
+        payload = {
+            "rateLimits": {"limitId": "legacy", "primary": {"usedPercent": 99}},
+            "rateLimitsByLimitId": {
+                "codex": {
+                    "limitId": "codex",
+                    "planType": "plus",
+                    "primary": {"usedPercent": 20, "resetsAt": 1783700000},
+                    "secondary": {"usedPercent": 30, "resetsAt": 1784200000},
+                    "individualLimit": {
+                        "used": "12.5",
+                        "limit": "100",
+                        "remainingPercent": 87,
+                        "resetsAt": 1784300000,
+                    },
+                }
+            },
+            "rateLimitResetCredits": {
+                "availableCount": 2,
+                "credits": [
+                    {
+                        "id": "RateLimitResetCredit-abcdef123456",
+                        "status": "available",
+                        "resetType": "codexRateLimits",
+                        "title": "Rate limit reset",
+                        "description": "Available for 30 days",
+                        "grantedAt": 1781743011,
+                        "expiresAt": 1784335011,
+                    }
+                ],
+            },
+        }
+
+        result = normalize_rate_limits(payload)
+
+        self.assertEqual(result["limit_id"], "codex")
+        self.assertEqual(result["primary"]["remaining_percent"], 80)
+        self.assertEqual(result["secondary"]["remaining_percent"], 70)
+        self.assertEqual(result["individual_limit"]["remaining_percent"], 87)
+        self.assertEqual(result["individual_limit"]["resets_at"], 1784300000)
+        self.assertEqual(result["reset_credits"]["available_count"], 2)
+        details = result["reset_credit_details"]
+        self.assertEqual(details["available_count"], 2)
+        self.assertEqual(details["earliest_expires_at"], 1784335011)
+        self.assertEqual(details["credits"][0]["reset_type"], "codexRateLimits")
+        self.assertEqual(details["credits"][0]["title"], "Rate limit reset")
+        self.assertEqual(details["credits"][0]["description"], "Available for 30 days")
+        self.assertNotIn("abcdef123456", details["credits"][0]["id"])
+
+    def test_normalize_account_exposes_status_without_email_value(self):
+        from codex_profile_dashboard import normalize_account
+
+        result = normalize_account(
+            {
+                "account": {
+                    "type": "chatgpt",
+                    "planType": "plus",
+                    "email": "private@example.com",
+                },
+                "requiresOpenaiAuth": True,
+            }
+        )
+
+        self.assertEqual(result["type"], "chatgpt")
+        self.assertEqual(result["plan_type"], "plus")
+        self.assertTrue(result["email_present"])
+        self.assertTrue(result["requires_openai_auth"])
+        self.assertNotIn("email", result)
 
 
 class LocalTokenSnapshotTests(unittest.TestCase):
@@ -651,6 +977,62 @@ class ProfileApiTests(unittest.TestCase):
             self.assertEqual(details["available_count"], 1)
             self.assertEqual(details["earliest_expires_at"], 1784344611)
             self.assertEqual(details["credits"][0]["status"], "available")
+
+    def test_build_profiles_payload_prefers_app_server_credit_details(self):
+        from codex_profile_dashboard import build_profiles_payload
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "profiles"
+            shared = Path(tmp) / "shared"
+            profile = root / "account-a"
+            profile.mkdir(parents=True)
+            shared.mkdir()
+            fallback_calls = []
+
+            result = build_profiles_payload(
+                root,
+                shared,
+                remote_reader=lambda _: {
+                    "ok": True,
+                    "account": {
+                        "account": {"type": "chatgpt", "planType": "plus", "email": None},
+                        "requiresOpenaiAuth": True,
+                    },
+                    "rate_limits": {
+                        "rateLimitsByLimitId": {
+                            "codex": {"limitId": "codex", "planType": "plus"}
+                        },
+                        "rateLimitResetCredits": {
+                            "availableCount": 1,
+                            "credits": [
+                                {
+                                    "id": "private-reset-credit-id",
+                                    "status": "available",
+                                    "grantedAt": 1781743011,
+                                    "expiresAt": 1784335011,
+                                }
+                            ],
+                        },
+                    },
+                    "usage": None,
+                    "error": None,
+                },
+                reset_credit_reader=lambda _: fallback_calls.append(True),
+            )
+
+            profile_payload = result["profiles"][0]
+            self.assertEqual(fallback_calls, [])
+            self.assertEqual(profile_payload["account"]["type"], "chatgpt")
+            self.assertEqual(profile_payload["reset_credit_details"]["available_count"], 1)
+            self.assertEqual(
+                profile_payload["reset_credit_details"]["earliest_expires_at"],
+                1784335011,
+            )
+            self.assertFalse(profile_payload["reset_credit_stale"])
+            self.assertNotIn(
+                "private-reset-credit-id",
+                json.dumps(profile_payload["reset_credit_details"]),
+            )
 
     def test_build_profiles_payload_includes_token_attribution(self):
         from codex_profile_dashboard import build_profiles_payload, record_attribution_baseline
