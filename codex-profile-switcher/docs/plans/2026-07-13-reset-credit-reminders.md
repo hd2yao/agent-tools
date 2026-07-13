@@ -33,8 +33,8 @@
 
 1. 为工作日提醒规则、通知标识、UserNotifications 接入和耗尽门槛写失败测试。
 2. 运行定向测试，确认 RED。
-3. 实现纯 Swift `ResetCreditReminderPlan`，输出前一工作日、当天上午和提前一小时提醒时间。
-4. 实现 `ResetCreditNotificationScheduler`，权限失败不得影响主流程。
+3. 在 Python 适配层生成前一工作日、当天上午和提前一小时提醒时间，并随脱敏卡片 payload 返回。
+4. 实现 Swift `ResetCreditNotificationScheduler`，按 payload 时间调度；权限失败不得影响主流程。
 5. 实现自动使用指纹、幂等键持久化和 outcome 处理；仅 `rateLimitReachedType` 非空时触发。
 6. 在状态刷新成功后同步提醒和自动使用。
 7. 为构建脚本增加 UserNotifications framework 并运行定向测试转绿。

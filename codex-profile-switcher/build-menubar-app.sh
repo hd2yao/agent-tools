@@ -16,6 +16,7 @@ mkdir -p "$MACOS_DIR" "$HELPER_DIR"
 swiftc \
   "$ROOT_DIR/macos/CodexProfileMenuBar.swift" \
   -framework AppKit \
+  -framework UserNotifications \
   -o "$MACOS_DIR/$APP_NAME"
 
 cat > "$CONTENTS_DIR/Info.plist" <<'PLIST'

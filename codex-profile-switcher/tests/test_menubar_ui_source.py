@@ -6,6 +6,28 @@ SWIFT_SOURCE = Path(__file__).resolve().parents[1] / "macos" / "CodexProfileMenu
 
 
 class MenuBarUISourceTests(unittest.TestCase):
+    def test_reset_credit_notifications_use_payload_schedule(self):
+        source = SWIFT_SOURCE.read_text()
+
+        self.assertIn("import UserNotifications", source)
+        self.assertIn("struct ResetCreditReminder", source)
+        self.assertIn("final class ResetCreditNotificationScheduler", source)
+        self.assertIn("UNCalendarNotificationTrigger", source)
+        self.assertIn("reminder.kind", source)
+        self.assertIn("reminder.at", source)
+
+    def test_automatic_reset_requires_official_exhausted_state(self):
+        source = SWIFT_SOURCE.read_text()
+        start = source.index("final class CodexProfileMenuBarApp")
+        app_source = source[start:]
+
+        self.assertIn("attemptAutomaticResetIfNeeded", app_source)
+        self.assertIn("profile.rateLimits.rateLimitReachedType", app_source)
+        self.assertIn('"consume-reset-credit"', app_source)
+        self.assertIn('"--idempotency-key"', app_source)
+        self.assertIn('case "reset", "alreadyRedeemed":', app_source)
+        self.assertIn('case "nothingToReset", "noCredit":', app_source)
+
     def test_python_runtime_prefers_compatible_paths_before_inherited_gui_path(self):
         source = SWIFT_SOURCE.read_text()
 

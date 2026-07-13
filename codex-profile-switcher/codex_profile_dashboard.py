@@ -15,7 +15,7 @@ import subprocess
 import time
 import webbrowser
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time as datetime_time, timedelta, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -137,6 +137,52 @@ def _mask_identifier(value: object | None) -> str | None:
     return f"{text[:4]}...{text[-4:]} hash:{digest}"
 
 
+def build_reset_credit_reminder_schedule(expires_at: object | None) -> list[dict]:
+    """Build reset-credit reminder timestamps in the user's Beijing workday."""
+    expiry_timestamp = _optional_timestamp(expires_at)
+    if expiry_timestamp is None:
+        return []
+
+    timezone_beijing = ZoneInfo("Asia/Shanghai")
+    expiry = datetime.fromtimestamp(expiry_timestamp, timezone_beijing)
+    previous_workday = expiry.date() - timedelta(days=1)
+    while previous_workday.weekday() >= 5:
+        previous_workday -= timedelta(days=1)
+
+    reminders = [
+        {
+            "kind": "previous_workday",
+            "at": int(
+                datetime.combine(
+                    previous_workday,
+                    datetime_time(hour=16, minute=30),
+                    tzinfo=timezone_beijing,
+                ).timestamp()
+            ),
+        }
+    ]
+    if expiry.weekday() < 5 and (expiry.hour, expiry.minute) >= (11, 0):
+        reminders.append(
+            {
+                "kind": "same_day_morning",
+                "at": int(
+                    datetime.combine(
+                        expiry.date(),
+                        datetime_time(hour=9, minute=30),
+                        tzinfo=timezone_beijing,
+                    ).timestamp()
+                ),
+            }
+        )
+    reminders.append(
+        {
+            "kind": "last_chance",
+            "at": int((expiry - timedelta(hours=1)).timestamp()),
+        }
+    )
+    return sorted(reminders, key=lambda reminder: reminder["at"])
+
+
 def normalize_reset_credits(payload: dict, limits: dict) -> dict:
     candidates = [
         payload.get("rateLimitResetCredits"),
@@ -199,6 +245,7 @@ def normalize_reset_credit_details(payload: dict | None) -> dict:
             "description": _first_present(item, "description"),
             "granted_at": granted_at,
             "expires_at": expires_at,
+            "reminders": build_reset_credit_reminder_schedule(expires_at),
         }
         normalized_credits.append(card)
 

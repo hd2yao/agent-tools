@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import UserNotifications
 
 private enum MenuLayout {
     static let popoverWidth: CGFloat = 380
@@ -276,6 +277,7 @@ struct ResetCreditCard: Decodable {
     let description: String?
     let grantedAt: TimeInterval?
     let expiresAt: TimeInterval?
+    let reminders: [ResetCreditReminder]?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -286,6 +288,26 @@ struct ResetCreditCard: Decodable {
         case description
         case grantedAt = "granted_at"
         case expiresAt = "expires_at"
+        case reminders
+    }
+}
+
+struct ResetCreditReminder: Decodable {
+    let kind: String
+    let at: TimeInterval
+}
+
+struct ResetCreditConsumeResult: Decodable {
+    let ok: Bool
+    let outcome: String?
+    let expiresAt: TimeInterval?
+    let error: String?
+
+    enum CodingKeys: String, CodingKey {
+        case ok
+        case outcome
+        case expiresAt = "expires_at"
+        case error
     }
 }
 
@@ -987,6 +1009,115 @@ enum TokenText {
     }
 }
 
+final class ResetCreditNotificationScheduler: NSObject, UNUserNotificationCenterDelegate {
+    private let center: UNUserNotificationCenter
+    private let identifierPrefix = "com.hd2yao.codex-profile-switcher.reset-credit."
+
+    override init() {
+        center = UNUserNotificationCenter.current()
+        super.init()
+        center.delegate = self
+    }
+
+    func requestAuthorization() {
+        center.requestAuthorization(options: [.alert, .sound]) { _, _ in }
+    }
+
+    func sync(payload: DashboardPayload) {
+        let now = Date().timeIntervalSince1970
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Asia/Shanghai") ?? .current
+        var requests: [String: UNNotificationRequest] = [:]
+
+        for profile in payload.profiles {
+            for card in profile.resetCreditDetails?.credits ?? [] {
+                guard card.used != true,
+                      let expiry = card.expiresAt,
+                      expiry > now else {
+                    continue
+                }
+                for reminder in card.reminders ?? [] where reminder.at > now {
+                    let identifier = reminderIdentifier(
+                        profile: profile.name,
+                        expiry: expiry,
+                        kind: reminder.kind
+                    )
+                    let content = UNMutableNotificationContent()
+                    content.title = reminderTitle(kind: reminder.kind)
+                    content.body = "\(displayName(profile.name)) 的重置卡将在 \(TimeText.beijingMonthDayMinute(expiry)) 到期。"
+                    content.sound = .default
+                    let components = calendar.dateComponents(
+                        [.calendar, .timeZone, .year, .month, .day, .hour, .minute],
+                        from: Date(timeIntervalSince1970: reminder.at)
+                    )
+                    let trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: false)
+                    requests[identifier] = UNNotificationRequest(
+                        identifier: identifier,
+                        content: content,
+                        trigger: trigger
+                    )
+                }
+            }
+        }
+
+        center.getPendingNotificationRequests { [weak self] pending in
+            guard let self else { return }
+            let desired = Set(requests.keys)
+            let obsolete = pending
+                .map(\.identifier)
+                .filter { $0.hasPrefix(self.identifierPrefix) && !desired.contains($0) }
+            if !obsolete.isEmpty {
+                self.center.removePendingNotificationRequests(withIdentifiers: obsolete)
+            }
+            let existing = Set(pending.map(\.identifier))
+            for (identifier, request) in requests where !existing.contains(identifier) {
+                self.center.add(request)
+            }
+        }
+    }
+
+    func notifyAutomaticReset(profile: String, outcome: String) {
+        let content = UNMutableNotificationContent()
+        content.title = outcome == "reset" ? "额度已自动重置" : "重置卡已处理"
+        content.body = "已为 \(displayName(profile)) 使用重置卡，并重新读取额度。"
+        content.sound = .default
+        center.add(
+            UNNotificationRequest(
+                identifier: "\(identifierPrefix)automatic.\(profile).\(outcome)",
+                content: content,
+                trigger: nil
+            )
+        )
+    }
+
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        completionHandler([.banner, .sound])
+    }
+
+    private func reminderIdentifier(profile: String, expiry: TimeInterval, kind: String) -> String {
+        "\(identifierPrefix)\(profile).\(Int(expiry)).\(kind)"
+    }
+
+    private func reminderTitle(kind: String) -> String {
+        switch kind {
+        case "previous_workday":
+            return "重置卡将在下一个工作日到期"
+        case "same_day_morning":
+            return "重置卡今天到期"
+        default:
+            return "重置卡将在 1 小时后到期"
+        }
+    }
+
+    private func displayName(_ profile: String) -> String {
+        profile.hasPrefix("hd-") ? String(profile.dropFirst(3)) : profile
+    }
+}
+
 final class CodexProfileMenuBarApp: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let popover = NSPopover()
@@ -997,6 +1128,8 @@ final class CodexProfileMenuBarApp: NSObject, NSApplicationDelegate, NSPopoverDe
     private var globalEventMonitor: Any?
     private var localEventMonitor: Any?
     private var dashboardWindowController: DashboardWindowController?
+    private let resetCreditNotificationScheduler = ResetCreditNotificationScheduler()
+    private var automaticResetInFlight = Set<String>()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -1009,6 +1142,7 @@ final class CodexProfileMenuBarApp: NSObject, NSApplicationDelegate, NSPopoverDe
         )
         configureStatusItem()
         configurePopover()
+        resetCreditNotificationScheduler.requestAuthorization()
         updatePopover()
         refreshStatus(showProgress: false)
         startAutoRefresh()
@@ -1166,13 +1300,14 @@ final class CodexProfileMenuBarApp: NSObject, NSApplicationDelegate, NSPopoverDe
             return
         }
         do {
-            latestPayload = try JSONDecoder().decode(DashboardPayload.self, from: data)
+            let payload = try JSONDecoder().decode(DashboardPayload.self, from: data)
+            latestPayload = payload
             latestError = nil
             updateStatusTitle()
             updatePopover()
-            if let payload = latestPayload {
-                dashboardWindowController?.update(payload: payload)
-            }
+            dashboardWindowController?.update(payload: payload)
+            resetCreditNotificationScheduler.sync(payload: payload)
+            attemptAutomaticResetIfNeeded(payload)
         } catch {
             latestError = "无法解析账号状态。"
             updateStatusTitle()
@@ -1286,6 +1421,84 @@ final class CodexProfileMenuBarApp: NSObject, NSApplicationDelegate, NSPopoverDe
                     self.latestError = error
                     self.updateStatusTitle()
                     self.updatePopover(message: error)
+                }
+            }
+        }
+    }
+
+    private func attemptAutomaticResetIfNeeded(_ payload: DashboardPayload) {
+        let now = Date().timeIntervalSince1970
+        let defaults = UserDefaults.standard
+        for profile in payload.profiles {
+            guard let reachedType = profile.rateLimits.rateLimitReachedType?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+                  !reachedType.isEmpty else {
+                continue
+            }
+            let availableCount = profile.resetCreditDetails?.availableCount
+                ?? profile.rateLimits.resetCredits?.availableCount
+                ?? profile.rateLimits.creditsAvailable
+                ?? 0
+            guard availableCount > 0 else {
+                continue
+            }
+            let earliestExpiry = profile.resetCreditDetails?.earliestExpiresAt
+                ?? profile.rateLimits.resetCredits?.expiresAt
+            if let earliestExpiry, earliestExpiry <= now {
+                continue
+            }
+            let quotaWindow = profile.rateLimits.primary?.resetsAt
+                ?? profile.rateLimits.secondary?.resetsAt
+                ?? earliestExpiry
+                ?? 0
+            let fingerprint = "\(profile.name).\(reachedType).\(Int(quotaWindow))"
+            let outcomeKey = "automatic-reset.outcome.\(fingerprint)"
+            if let outcome = defaults.string(forKey: outcomeKey),
+               ["reset", "alreadyRedeemed", "nothingToReset", "noCredit"].contains(outcome) {
+                continue
+            }
+            let lastAttemptKey = "automatic-reset.last-attempt.\(fingerprint)"
+            let lastAttempt = defaults.double(forKey: lastAttemptKey)
+            guard lastAttempt == 0 || now - lastAttempt >= 10 * 60,
+                  !automaticResetInFlight.contains(fingerprint) else {
+                continue
+            }
+            let idempotencyKeyName = "automatic-reset.idempotency.\(fingerprint)"
+            let idempotencyKey = defaults.string(forKey: idempotencyKeyName) ?? UUID().uuidString
+            defaults.set(idempotencyKey, forKey: idempotencyKeyName)
+            defaults.set(now, forKey: lastAttemptKey)
+            automaticResetInFlight.insert(fingerprint)
+
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                let result = Self.runPython(arguments: [
+                    "consume-reset-credit",
+                    profile.name,
+                    "--idempotency-key",
+                    idempotencyKey,
+                ])
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    self.automaticResetInFlight.remove(fingerprint)
+                    guard case .success(let output) = result,
+                          let data = output.data(using: .utf8),
+                          let consume = try? JSONDecoder().decode(ResetCreditConsumeResult.self, from: data),
+                          consume.ok,
+                          let outcome = consume.outcome else {
+                        return
+                    }
+                    switch outcome {
+                    case "reset", "alreadyRedeemed":
+                        defaults.set(outcome, forKey: outcomeKey)
+                        self.resetCreditNotificationScheduler.notifyAutomaticReset(
+                            profile: profile.name,
+                            outcome: outcome
+                        )
+                        self.refreshStatus(showProgress: false, forceResetCredits: true)
+                    case "nothingToReset", "noCredit":
+                        defaults.set(outcome, forKey: outcomeKey)
+                    default:
+                        break
+                    }
                 }
             }
         }

@@ -1,13 +1,84 @@
 import json
 import tempfile
 import unittest
+from datetime import datetime
 from http.client import HTTPConnection
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 from threading import Thread
+from zoneinfo import ZoneInfo
 
 
 class DashboardNormalizationTests(unittest.TestCase):
+    def test_reset_credit_reminders_cover_workday_afternoon_expiry(self):
+        from codex_profile_dashboard import build_reset_credit_reminder_schedule
+
+        expiry = datetime(2026, 7, 21, 15, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+        result = build_reset_credit_reminder_schedule(expiry.timestamp())
+
+        self.assertEqual(
+            [
+                (
+                    item["kind"],
+                    datetime.fromtimestamp(item["at"], ZoneInfo("Asia/Shanghai")),
+                )
+                for item in result
+            ],
+            [
+                (
+                    "previous_workday",
+                    datetime(2026, 7, 20, 16, 30, tzinfo=ZoneInfo("Asia/Shanghai")),
+                ),
+                (
+                    "same_day_morning",
+                    datetime(2026, 7, 21, 9, 30, tzinfo=ZoneInfo("Asia/Shanghai")),
+                ),
+                (
+                    "last_chance",
+                    datetime(2026, 7, 21, 14, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+                ),
+            ],
+        )
+
+    def test_reset_credit_reminders_skip_same_morning_for_early_expiry(self):
+        from codex_profile_dashboard import build_reset_credit_reminder_schedule
+
+        expiry = datetime(2026, 7, 21, 8, 36, tzinfo=ZoneInfo("Asia/Shanghai"))
+        result = build_reset_credit_reminder_schedule(expiry.timestamp())
+
+        self.assertEqual(
+            [item["kind"] for item in result],
+            ["previous_workday", "last_chance"],
+        )
+
+    def test_reset_credit_reminders_move_monday_notice_to_friday(self):
+        from codex_profile_dashboard import build_reset_credit_reminder_schedule
+
+        expiry = datetime(2026, 7, 20, 12, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+        result = build_reset_credit_reminder_schedule(expiry.timestamp())
+
+        previous = datetime.fromtimestamp(result[0]["at"], ZoneInfo("Asia/Shanghai"))
+        self.assertEqual(
+            previous,
+            datetime(2026, 7, 17, 16, 30, tzinfo=ZoneInfo("Asia/Shanghai")),
+        )
+
+    def test_reset_credit_reminders_move_weekend_notice_to_friday(self):
+        from codex_profile_dashboard import build_reset_credit_reminder_schedule
+
+        expiry = datetime(2026, 7, 19, 12, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+        result = build_reset_credit_reminder_schedule(expiry.timestamp())
+
+        self.assertEqual(
+            [item["kind"] for item in result],
+            ["previous_workday", "last_chance"],
+        )
+        previous = datetime.fromtimestamp(result[0]["at"], ZoneInfo("Asia/Shanghai"))
+        self.assertEqual(
+            previous,
+            datetime(2026, 7, 17, 16, 30, tzinfo=ZoneInfo("Asia/Shanghai")),
+        )
+
     def test_summarize_account_usage_marks_today_missing_when_account_data_lags(self):
         from datetime import datetime, timezone
 
