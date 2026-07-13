@@ -938,6 +938,13 @@ enum TimeText {
         return format(Date(timeIntervalSince1970: timestamp), dateFormat: "M月d日 HH:mm")
     }
 
+    static func beijingMonthDayWeekdayMinute(_ timestamp: TimeInterval?) -> String {
+        guard let timestamp else {
+            return "--"
+        }
+        return format(Date(timeIntervalSince1970: timestamp), dateFormat: "M月d日 E HH:mm")
+    }
+
     static func monthDay(_ value: String) -> String {
         let parser = DateFormatter()
         parser.locale = Locale(identifier: "en_US_POSIX")
@@ -2155,7 +2162,7 @@ final class CodexUResetCreditsProgressView: NSView {
         let spacer = NSView()
         spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
         header.addArrangedSubview(spacer)
-        header.addArrangedSubview(DashboardText.mono("\(availableCount()) 张", size: 15, weight: .bold, alpha: 0.88))
+        header.addArrangedSubview(DashboardText.mono("\(availableCount())张", size: 15, weight: .bold, alpha: 0.88))
         stack.addArrangedSubview(header)
 
         let progress = ExpiryProgressBarView(progress: expiryProgress())
@@ -2461,7 +2468,7 @@ final class DashboardMetricGridView: NSView {
                 MainMetricCardView(title: "近 7 日 token", value: TokenText.compact(activeProfile()?.usageMetrics?.last7Tokens), caption: displayRoleCaption(), tint: NSColor(calibratedRed: 0.55, green: 0.42, blue: 0.96, alpha: 1), width: cardWidth, height: 88),
             ],
             [
-                MainMetricCardView(title: "重置卡", value: "\(resetCardCount(activeProfile())) 张", caption: nearestCreditExpiry(activeProfile()), tint: NSColor.systemOrange, width: cardWidth, height: 88),
+                MainMetricCardView(title: "重置卡", value: "\(resetCardCount(activeProfile()))张", caption: nearestCreditExpiry(activeProfile()), tint: NSColor.systemOrange, width: cardWidth, height: 88),
                 MainMetricCardView(title: "托管状态", value: runtimeShortValue(), caption: desktopStatusText(), tint: RuntimeLight(status: payload.runtimeStatus).color, width: cardWidth, height: 88),
             ],
         ]
@@ -2910,6 +2917,10 @@ final class DashboardTabButtonView: NSView {
         self.action = action
         super.init(frame: .zero)
         wantsLayer = true
+        setAccessibilityElement(true)
+        setAccessibilityRole(.button)
+        setAccessibilityLabel(tab.title)
+        setAccessibilityValue(isSelected ? "已选择" : "未选择")
 
         let row = NSStackView()
         row.orientation = .horizontal
@@ -2957,6 +2968,11 @@ final class DashboardTabButtonView: NSView {
 
     override func mouseDown(with event: NSEvent) {
         action()
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        action()
+        return true
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -3511,10 +3527,14 @@ final class ProjectActivityPanelView: AnalyticsCardView {
         row.alignment = .firstBaseline
         row.translatesAutoresizingMaskIntoConstraints = false
         row.widthAnchor.constraint(equalToConstant: width).isActive = true
-        row.addArrangedSubview(DashboardText.label(title, size: 12, weight: .semibold, alpha: 0.48))
+        let titleLabel = DashboardText.label(title, size: 12, weight: .semibold, alpha: 0.48)
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        titleLabel.widthAnchor.constraint(equalToConstant: 44).isActive = true
+        row.addArrangedSubview(titleLabel)
+        let valueWidth = min(190, max(84, width * 0.46))
         let valueLabel = DashboardText.mono(value, size: 17, weight: .heavy, alpha: 0.78)
         valueLabel.translatesAutoresizingMaskIntoConstraints = false
-        valueLabel.widthAnchor.constraint(equalToConstant: min(190, max(84, width * 0.46))).isActive = true
+        valueLabel.widthAnchor.constraint(equalToConstant: valueWidth).isActive = true
         valueLabel.lineBreakMode = .byTruncatingMiddle
         valueLabel.maximumNumberOfLines = 1
         row.addArrangedSubview(valueLabel)
@@ -3657,13 +3677,14 @@ final class AccountQuotaRowView: NSView {
 
 final class ResetCreditCompactStripView: NSView {
     init(profile: ProfileStatus, width: CGFloat) {
+        let expiries = Self.availableExpiries(profile)
+        let panelHeight = CGFloat(43 + max(1, expiries.count) * 20)
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
         widthAnchor.constraint(equalToConstant: width).isActive = true
-        heightAnchor.constraint(equalToConstant: 78).isActive = true
+        heightAnchor.constraint(equalToConstant: panelHeight).isActive = true
         wantsLayer = true
         layer?.cornerRadius = 14
-        layer?.backgroundColor = NSColor.white.withAlphaComponent(0.28).cgColor
 
         let stack = NSStackView()
         stack.orientation = .vertical
@@ -3674,7 +3695,8 @@ final class ResetCreditCompactStripView: NSView {
         NSLayoutConstraint.activate([
             stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
             stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
-            stack.centerYAnchor.constraint(equalTo: centerYAnchor),
+            stack.topAnchor.constraint(equalTo: topAnchor, constant: 10),
+            stack.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -10),
         ])
 
         let header = NSStackView()
@@ -3689,32 +3711,63 @@ final class ResetCreditCompactStripView: NSView {
         let spacer = NSView()
         spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
         header.addArrangedSubview(spacer)
-        header.addArrangedSubview(DashboardText.mono("\(count(profile)) 张", size: 11, weight: .bold, alpha: 0.58))
+        header.addArrangedSubview(DashboardText.mono("\(count(profile))张", size: 11, weight: .bold, alpha: 0.58))
         stack.addArrangedSubview(header)
 
-        let line = DashboardText.label(expiryText(profile), size: 11.5, weight: .semibold, alpha: 0.60)
-        line.translatesAutoresizingMaskIntoConstraints = false
-        line.widthAnchor.constraint(equalToConstant: width - 24).isActive = true
-        stack.addArrangedSubview(line)
+        if expiries.isEmpty {
+            let line = DashboardText.label(profile.resetCreditError ?? "暂无可用重置卡", size: 10.5, weight: .medium, alpha: 0.52)
+            line.translatesAutoresizingMaskIntoConstraints = false
+            line.widthAnchor.constraint(equalToConstant: width - 24).isActive = true
+            stack.addArrangedSubview(line)
+        } else {
+            for (index, expiry) in expiries.enumerated() {
+                stack.addArrangedSubview(expiryRow(index: index, expiry: expiry, width: width - 24))
+            }
+        }
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 
+    override func draw(_ dirtyRect: NSRect) {
+        let path = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 14, yRadius: 14)
+        AppearanceTokens.control.setFill()
+        path.fill()
+        AppearanceTokens.stroke.setStroke()
+        path.lineWidth = 1
+        path.stroke()
+    }
+
     private func count(_ profile: ProfileStatus) -> Int {
         profile.resetCreditDetails?.availableCount ?? profile.rateLimits.resetCredits?.availableCount ?? 0
     }
 
-    private func expiryText(_ profile: ProfileStatus) -> String {
-        let cards = (profile.resetCreditDetails?.credits ?? [])
+    private static func availableExpiries(_ profile: ProfileStatus) -> [TimeInterval] {
+        (profile.resetCreditDetails?.credits ?? [])
             .filter { $0.used != true }
             .compactMap(\.expiresAt)
             .sorted()
-        guard !cards.isEmpty else {
-            return profile.resetCreditError ?? "暂无可用重置卡"
-        }
-        return cards.prefix(3).map { TimeText.beijingMonthDayMinute($0) }.joined(separator: " · ")
+    }
+
+    private func expiryRow(index: Int, expiry: TimeInterval, width: CGFloat) -> NSView {
+        let row = NSStackView()
+        row.orientation = .horizontal
+        row.spacing = 7
+        row.alignment = .centerY
+        row.translatesAutoresizingMaskIntoConstraints = false
+        row.widthAnchor.constraint(equalToConstant: width).isActive = true
+        let indexLabel = DashboardText.mono("\(index + 1)", size: 9.5, weight: .bold, alpha: 0.42)
+        indexLabel.alignment = .center
+        indexLabel.translatesAutoresizingMaskIntoConstraints = false
+        indexLabel.widthAnchor.constraint(equalToConstant: 14).isActive = true
+        row.addArrangedSubview(indexLabel)
+        let dateText = TimeText.beijingMonthDayWeekdayMinute(expiry)
+        let expiryLabel = DashboardText.mono(dateText, size: 10.5, weight: .semibold, alpha: 0.64)
+        expiryLabel.toolTip = "到期时间：\(TimeText.beijingShort(expiry))"
+        expiryLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+        row.addArrangedSubview(expiryLabel)
+        return row
     }
 }
 
@@ -3803,7 +3856,7 @@ final class PopoverRuntimeSummaryView: NSView {
             for item in quotaWindows.prefix(2) {
                 metrics.addArrangedSubview(quotaColumn(item))
             }
-            metrics.addArrangedSubview(todayColumn(active, caption: "重置卡 \(resetCount(active)) 张"))
+            metrics.addArrangedSubview(todayColumn(active, caption: "重置卡 \(resetCount(active))张"))
         } else {
             if let item = quotaWindows.first {
                 metrics.addArrangedSubview(quotaColumn(item))
@@ -3816,7 +3869,7 @@ final class PopoverRuntimeSummaryView: NSView {
             metrics.addArrangedSubview(
                 PopoverQuotaColumnView(
                     title: "重置卡",
-                    value: "\(resetCount(active)) 张",
+                    value: "\(resetCount(active))张",
                     caption: nearestResetExpiry(active),
                     percent: nil,
                     tint: nil
@@ -3908,7 +3961,7 @@ final class PopoverQuotaColumnView: NSView {
 
         let stack = NSStackView()
         stack.orientation = .vertical
-        stack.spacing = 2
+        stack.spacing = 3
         stack.alignment = .leading
         stack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stack)
@@ -3918,8 +3971,8 @@ final class PopoverQuotaColumnView: NSView {
             stack.topAnchor.constraint(equalTo: topAnchor),
         ])
 
-        stack.addArrangedSubview(DashboardText.label(title, size: 9, weight: .medium, alpha: 0.52))
-        stack.addArrangedSubview(DashboardText.mono(value, size: 15, weight: .heavy, alpha: 0.86))
+        stack.addArrangedSubview(DashboardText.label(title, size: 9.5, weight: .medium, alpha: 0.52))
+        stack.addArrangedSubview(DashboardText.mono(value, size: 14, weight: .bold, alpha: 0.84))
         if let tint {
             stack.addArrangedSubview(PopoverQuotaBarView(percent: percent, tint: tint))
         } else {
@@ -3928,7 +3981,7 @@ final class PopoverQuotaColumnView: NSView {
             spacer.heightAnchor.constraint(equalToConstant: 4).isActive = true
             stack.addArrangedSubview(spacer)
         }
-        stack.addArrangedSubview(DashboardText.mono(caption, size: 8, weight: .medium, alpha: 0.42))
+        stack.addArrangedSubview(DashboardText.mono(caption, size: 8.5, weight: .medium, alpha: 0.46))
     }
 
     required init?(coder: NSCoder) {

@@ -6,6 +6,55 @@ SWIFT_SOURCE = Path(__file__).resolve().parents[1] / "macos" / "CodexProfileMenu
 
 
 class MenuBarUISourceTests(unittest.TestCase):
+    def test_reset_credit_panel_renders_each_expiry_as_a_full_row(self):
+        source = SWIFT_SOURCE.read_text()
+        start = source.index("final class ResetCreditCompactStripView")
+        end = source.index("final class PopoverRuntimeSummaryView", start)
+        panel_source = source[start:end]
+
+        self.assertIn("beijingMonthDayWeekdayMinute", panel_source)
+        self.assertIn("for (index, expiry) in expiries.enumerated()", panel_source)
+        self.assertIn("let panelHeight", panel_source)
+        self.assertNotIn('joined(separator: " · ")', panel_source)
+
+    def test_reset_credit_counts_have_no_artificial_word_spacing(self):
+        source = SWIFT_SOURCE.read_text()
+
+        self.assertNotIn('resetCount(active)) 张', source)
+        self.assertNotIn('availableCount()) 张', source)
+        self.assertNotIn('resetCardCount(activeProfile())) 张', source)
+
+    def test_popover_metric_type_scale_is_compact_and_balanced(self):
+        source = SWIFT_SOURCE.read_text()
+        start = source.index("final class PopoverQuotaColumnView")
+        end = source.index("final class PopoverQuotaBarView", start)
+        column_source = source[start:end]
+
+        self.assertIn("size: 9.5, weight: .medium", column_source)
+        self.assertIn("size: 14, weight: .bold", column_source)
+        self.assertIn("size: 8.5, weight: .medium", column_source)
+        self.assertNotIn("weight: .heavy", column_source)
+
+    def test_project_activity_metrics_use_fixed_shared_columns(self):
+        source = SWIFT_SOURCE.read_text()
+        start = source.index("final class ProjectActivityPanelView")
+        end = source.index("final class AccountQuotaRowView", start)
+        panel_source = source[start:end]
+
+        self.assertIn("let valueWidth", panel_source)
+        self.assertIn("titleLabel.widthAnchor.constraint(equalToConstant: 44)", panel_source)
+        self.assertIn("valueLabel.widthAnchor.constraint(equalToConstant: valueWidth)", panel_source)
+
+    def test_dashboard_tabs_expose_native_accessibility_actions(self):
+        source = SWIFT_SOURCE.read_text()
+        start = source.index("final class DashboardTabButtonView")
+        end = source.index("final class AccountSwitcherStripView", start)
+        button_source = source[start:end]
+
+        self.assertIn("setAccessibilityRole(.button)", button_source)
+        self.assertIn("setAccessibilityLabel(tab.title)", button_source)
+        self.assertIn("override func accessibilityPerformPress() -> Bool", button_source)
+
     def test_reset_credit_notifications_use_payload_schedule(self):
         source = SWIFT_SOURCE.read_text()
 

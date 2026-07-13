@@ -193,7 +193,7 @@ The dashboard shows:
 - Codex plan type and limit id
 - primary and secondary rate limit windows
 - reset time for each limit window
-- available reset credits and expiration time when app-server provides them
+- available reset credits and each exact expiration time from app-server
 - Codex daily usage buckets from `account/usage/read`
 - latest local token snapshot from shared rollout logs
 - local 14-day token totals and top model totals from rollout logs
@@ -242,8 +242,9 @@ open "$HOME/Applications/Codex Profile Switcher.app"
 ```
 
 The app runs as a menu bar accessory. It does not show a Dock icon. The status
-item displays the active profile's 5-hour remaining quota percent and a runtime
-state light:
+item displays the first official quota window currently returned by app-server
+and a runtime state light. It does not assume that a 5-hour window is always
+present:
 
 - green: a Codex conversation process is running, or Codex produced output in
   the last 90 seconds
@@ -252,15 +253,11 @@ state light:
 - red: no live process or recent Codex activity was found
 
 The popover closes when clicking elsewhere, matching normal menu bar behavior.
-It has two pages:
-
-- `额度`: each profile shows plan, auth/config state, 5-hour and 7-day reset
-  windows, reset credit count, the nearest reset-credit expiry, and switch
-  actions. A compact detail panel lists all available reset-credit expiry times
-  per managed profile.
-- `Token 分析`: each profile has its own recent daily usage chart. Hovering a
-  bar shows the exact date and token count. A separate shared local panel shows
-  input, cached input, output, and reasoning token split from rollout logs.
+It keeps quota, today's token usage, reset-credit count, account switching, and
+the core actions in one compact runtime card. The main window provides the full
+dashboard with `用量趋势`, `账号额度`, `项目排行`, and `工具 / Skill` tabs.
+The reset-credit detail card lists each available card on its own row with the
+exact Beijing weekday and expiration time.
 
 The app refreshes status on launch, after a profile switch, and every 60
 seconds while it is running. Background refresh updates the status item without
@@ -276,13 +273,19 @@ If a background refresh hits a transient app-server timeout, the popover keeps
 the last known quota and marks the profile as `暂存` instead of clearing the card
 to `UNKNOWN`.
 
-Reset-credit card details are read with a read-only GET request to ChatGPT's
-`/backend-api/wham/rate-limit-reset-credits` endpoint using each managed
-profile's local `auth.json` access token. The app stores only normalized,
-masked card summaries in its local cache; it never stores access tokens or raw
-credit IDs. Background refreshes reuse the cache for up to 6 hours unless the
+Reset-credit details are read from the official app-server
+`account/rateLimits/read` response. The public dashboard payload contains only
+normalized, masked card summaries; it never exposes access tokens or raw credit
+IDs. Background refreshes reuse the cache for up to 6 hours unless the
 app-server reset-credit count changes. Manual refresh and profile switches force
-a fresh reset-credit detail read.
+a fresh detail read.
+
+The menu app schedules local notifications for the previous workday, the
+morning of a weekday afternoon expiry, and one hour before expiration. When the
+official `rateLimitReachedType` explicitly reports exhaustion and a card is
+available, it uses app-server `account/rateLimitResetCredit/consume` with a
+persistent idempotency key, then refreshes the quota. Expiration alone never
+consumes a card.
 
 Codex app-server currently returns account usage as daily total token buckets;
 it does not expose account-specific model/input/output/cache breakdowns, so
