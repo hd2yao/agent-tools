@@ -292,10 +292,12 @@ struct ResetCreditCard: Decodable {
 struct RateLimitWindow: Decodable {
     let remainingPercent: Int?
     let resetsAt: TimeInterval?
+    let windowMinutes: Int?
 
     enum CodingKeys: String, CodingKey {
         case remainingPercent = "remaining_percent"
         case resetsAt = "resets_at"
+        case windowMinutes = "window_minutes"
     }
 }
 
@@ -629,6 +631,76 @@ enum RuntimeLight {
             return "空闲"
         case .unknown:
             return "未知"
+        }
+    }
+}
+
+struct QuotaWindowPresentation {
+    let window: RateLimitWindow
+    let shortLabel: String
+    let longLabel: String
+    let tint: NSColor
+
+    static func windows(for limits: RateLimits) -> [QuotaWindowPresentation] {
+        [limits.primary, limits.secondary]
+            .compactMap { $0 }
+            .map { window in
+                let label = shortLabel(for: window.windowMinutes)
+                return QuotaWindowPresentation(
+                    window: window,
+                    shortLabel: label,
+                    longLabel: longLabel(for: label),
+                    tint: tint(for: window.windowMinutes)
+                )
+            }
+            .sorted { ($0.window.windowMinutes ?? Int.max) < ($1.window.windowMinutes ?? Int.max) }
+    }
+
+    var resetText: String {
+        guard let minutes = window.windowMinutes else {
+            return TimeText.beijingShort(window.resetsAt)
+        }
+        return minutes >= 24 * 60
+            ? TimeText.beijingMonthDay(window.resetsAt)
+            : TimeText.beijingHourMinute(window.resetsAt)
+    }
+
+    private static func shortLabel(for minutes: Int?) -> String {
+        switch minutes {
+        case 300:
+            return "5h"
+        case 10_080:
+            return "7d"
+        case let value? where value % (24 * 60) == 0:
+            return "\(value / (24 * 60))d"
+        case let value? where value % 60 == 0:
+            return "\(value / 60)h"
+        case let value?:
+            return "\(value)m"
+        case nil:
+            return "额度"
+        }
+    }
+
+    private static func longLabel(for shortLabel: String) -> String {
+        switch shortLabel {
+        case "5h":
+            return "5小时剩余"
+        case "7d":
+            return "7日剩余"
+        default:
+            return "\(shortLabel)剩余"
+        }
+    }
+
+    private static func tint(for minutes: Int?) -> NSColor {
+        switch minutes {
+        case 300:
+            return QuotaPalette.fiveHour
+        case 10_080:
+            return QuotaPalette.sevenDay
+        default:
+            return NSColor.systemTeal
         }
     }
 }
@@ -3317,8 +3389,16 @@ final class AccountQuotaRowView: NSView {
         bars.orientation = .vertical
         bars.spacing = 7
         bars.alignment = .leading
-        bars.addArrangedSubview(barLine(title: "5h", window: profile.rateLimits.primary, width: barWidth, color: QuotaPalette.fiveHour))
-        bars.addArrangedSubview(barLine(title: "7d", window: profile.rateLimits.secondary, width: barWidth, color: QuotaPalette.sevenDay))
+        let quotaWindows = QuotaWindowPresentation.windows(for: profile.rateLimits)
+        if quotaWindows.isEmpty {
+            bars.addArrangedSubview(DashboardText.label("额度暂不可用", size: 11, weight: .semibold, alpha: 0.48))
+        } else {
+            for item in quotaWindows.prefix(2) {
+                bars.addArrangedSubview(
+                    barLine(title: item.shortLabel, window: item.window, width: barWidth, color: item.tint)
+                )
+            }
+        }
         row.addArrangedSubview(bars)
 
         let spacer = NSView()
@@ -3335,7 +3415,7 @@ final class AccountQuotaRowView: NSView {
         }
     }
 
-    private func barLine(title: String, window: RateLimitWindow?, width: CGFloat, color: NSColor) -> NSView {
+    private func barLine(title: String, window: RateLimitWindow, width: CGFloat, color: NSColor) -> NSView {
         let row = NSStackView()
         row.orientation = .horizontal
         row.spacing = 8
@@ -3344,7 +3424,7 @@ final class AccountQuotaRowView: NSView {
         label.translatesAutoresizingMaskIntoConstraints = false
         label.widthAnchor.constraint(equalToConstant: 24).isActive = true
         row.addArrangedSubview(label)
-        let remaining = window?.remainingPercent
+        let remaining = window.remainingPercent
         let bar = PixelBarView(percent: remaining ?? 0, color: color)
         bar.translatesAutoresizingMaskIntoConstraints = false
         bar.widthAnchor.constraint(equalToConstant: width).isActive = true
@@ -3505,33 +3585,31 @@ final class PopoverRuntimeSummaryView: NSView {
         metrics.alignment = .top
         metrics.translatesAutoresizingMaskIntoConstraints = false
         stack.addArrangedSubview(metrics)
-        metrics.addArrangedSubview(
-            PopoverQuotaColumnView(
-                title: "5小时剩余",
-                value: percentText(active?.rateLimits.primary?.remainingPercent),
-                caption: TimeText.beijingHourMinute(active?.rateLimits.primary?.resetsAt),
-                percent: active?.rateLimits.primary?.remainingPercent,
-                tint: QuotaPalette.fiveHour
+        let quotaWindows = active.map { QuotaWindowPresentation.windows(for: $0.rateLimits) } ?? []
+        if quotaWindows.count >= 2 {
+            for item in quotaWindows.prefix(2) {
+                metrics.addArrangedSubview(quotaColumn(item))
+            }
+            metrics.addArrangedSubview(todayColumn(active, caption: "重置卡 \(resetCount(active)) 张"))
+        } else {
+            if let item = quotaWindows.first {
+                metrics.addArrangedSubview(quotaColumn(item))
+            } else {
+                metrics.addArrangedSubview(
+                    PopoverQuotaColumnView(title: "额度", value: "--", caption: "暂不可用", percent: nil, tint: nil)
+                )
+            }
+            metrics.addArrangedSubview(todayColumn(active, caption: "账号统计"))
+            metrics.addArrangedSubview(
+                PopoverQuotaColumnView(
+                    title: "重置卡",
+                    value: "\(resetCount(active)) 张",
+                    caption: nearestResetExpiry(active),
+                    percent: nil,
+                    tint: nil
+                )
             )
-        )
-        metrics.addArrangedSubview(
-            PopoverQuotaColumnView(
-                title: "7日剩余",
-                value: percentText(active?.rateLimits.secondary?.remainingPercent),
-                caption: TimeText.beijingMonthDay(active?.rateLimits.secondary?.resetsAt),
-                percent: active?.rateLimits.secondary?.remainingPercent,
-                tint: QuotaPalette.sevenDay
-            )
-        )
-        metrics.addArrangedSubview(
-            PopoverQuotaColumnView(
-                title: "今日 token",
-                value: todayToken(active),
-                caption: "重置卡 \(resetCount(active)) 张",
-                percent: nil,
-                tint: nil
-            )
-        )
+        }
 
         let source = DashboardText.label(accountSourceLine(payload), size: 9, weight: .medium, alpha: 0.52)
         source.translatesAutoresizingMaskIntoConstraints = false
@@ -3574,8 +3652,33 @@ final class PopoverRuntimeSummaryView: NSView {
         return TokenText.compact(profile?.usageMetrics?.todayTokens)
     }
 
+    private func quotaColumn(_ item: QuotaWindowPresentation) -> NSView {
+        PopoverQuotaColumnView(
+            title: item.longLabel,
+            value: percentText(item.window.remainingPercent),
+            caption: item.resetText,
+            percent: item.window.remainingPercent,
+            tint: item.tint
+        )
+    }
+
+    private func todayColumn(_ profile: ProfileStatus?, caption: String) -> NSView {
+        PopoverQuotaColumnView(
+            title: "今日 token",
+            value: todayToken(profile),
+            caption: caption,
+            percent: nil,
+            tint: nil
+        )
+    }
+
     private func resetCount(_ profile: ProfileStatus?) -> Int {
         profile?.resetCreditDetails?.availableCount ?? profile?.rateLimits.resetCredits?.availableCount ?? 0
+    }
+
+    private func nearestResetExpiry(_ profile: ProfileStatus?) -> String {
+        let expiry = profile?.resetCreditDetails?.earliestExpiresAt ?? profile?.rateLimits.resetCredits?.expiresAt
+        return expiry.map { "\(TimeText.beijingMonthDay($0)) 到期" } ?? "暂无到期"
     }
 
     private func percentText(_ value: Int?) -> String {
@@ -4217,23 +4320,32 @@ final class QuotaDialView: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
+        let windows = profile.map { QuotaWindowPresentation.windows(for: $0.rateLimits) } ?? []
         let center = CGPoint(x: bounds.midX, y: bounds.midY + 10)
-        drawRing(center: center, radius: 48, percent: profile?.rateLimits.primary?.remainingPercent, color: QuotaPalette.fiveHour)
-        drawRing(center: center, radius: 34, percent: profile?.rateLimits.secondary?.remainingPercent, color: QuotaPalette.sevenDay)
+        if windows.count == 1, let item = windows.first {
+            drawRing(center: center, radius: 44, percent: item.window.remainingPercent, color: item.tint)
+            drawCentered("\(item.shortLabel) \(percentText(item.window.remainingPercent))", y: center.y - 5, color: item.tint)
+        } else {
+            for (index, item) in windows.prefix(2).enumerated() {
+                let radius: CGFloat = index == 0 ? 48 : 34
+                let y = index == 0 ? center.y + 5 : center.y - 14
+                drawRing(center: center, radius: radius, percent: item.window.remainingPercent, color: item.tint)
+                drawCentered("\(item.shortLabel) \(percentText(item.window.remainingPercent))", y: y, color: item.tint)
+            }
+        }
 
-        let primary = profile?.rateLimits.primary?.remainingPercent.map { "\($0)%" } ?? "--"
-        let secondary = profile?.rateLimits.secondary?.remainingPercent.map { "\($0)%" } ?? "--"
-        drawCentered("5h \(primary)", y: center.y + 5, color: QuotaPalette.fiveHour)
-        drawCentered("7d \(secondary)", y: center.y - 14, color: QuotaPalette.sevenDay)
-
-        drawLegend(color: QuotaPalette.fiveHour, label: "5h", value: TimeText.beijingHourMinute(profile?.rateLimits.primary?.resetsAt), y: 16)
-        drawLegend(color: QuotaPalette.sevenDay, label: "7d", value: TimeText.beijingMonthDay(profile?.rateLimits.secondary?.resetsAt), y: 0)
+        if windows.isEmpty {
+            drawCentered("额度 --", y: center.y - 5, color: NSColor.systemGray)
+        }
+        for (index, item) in windows.prefix(2).enumerated() {
+            drawLegend(item, y: CGFloat(16 - index * 16))
+        }
     }
 
     private func drawRing(center: CGPoint, radius: CGFloat, percent: Int?, color: NSColor) {
         let track = NSBezierPath()
         track.appendArc(withCenter: center, radius: radius, startAngle: 0, endAngle: 360)
-        NSColor.white.withAlphaComponent(0.38).setStroke()
+        AppearanceTokens.stroke.setStroke()
         track.lineWidth = 10
         track.stroke()
 
@@ -4259,10 +4371,10 @@ final class QuotaDialView: NSView {
         label.draw(at: CGPoint(x: bounds.midX - size.width / 2, y: y), withAttributes: attributes)
     }
 
-    private func drawLegend(color: NSColor, label: String, value: String, y: CGFloat) {
-        color.setFill()
+    private func drawLegend(_ item: QuotaWindowPresentation, y: CGFloat) {
+        item.tint.setFill()
         NSBezierPath(ovalIn: NSRect(x: 8, y: y + 3, width: 6, height: 6)).fill()
-        let text = "\(label) 重置" as NSString
+        let text = "\(item.shortLabel) 重置" as NSString
         text.draw(
             at: CGPoint(x: 20, y: y),
             withAttributes: [
@@ -4270,13 +4382,17 @@ final class QuotaDialView: NSView {
                 .foregroundColor: AppearanceTokens.label(alpha: 0.58),
             ]
         )
-        (value as NSString).draw(
+        (item.resetText as NSString).draw(
             at: CGPoint(x: 82, y: y),
             withAttributes: [
                 .font: NSFont.monospacedSystemFont(ofSize: 10, weight: .medium),
                 .foregroundColor: AppearanceTokens.label(alpha: 0.58),
             ]
         )
+    }
+
+    private func percentText(_ value: Int?) -> String {
+        value.map { "\($0)%" } ?? "--"
     }
 }
 

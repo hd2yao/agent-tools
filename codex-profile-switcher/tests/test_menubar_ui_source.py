@@ -138,6 +138,7 @@ class MenuBarUISourceTests(unittest.TestCase):
 
     def test_swift_models_include_current_app_server_summary_fields(self):
         source = SWIFT_SOURCE.read_text()
+        self.assertIn("let windowMinutes: Int?", source)
         self.assertIn("let longestRunningTurnSec: Int?", source)
         self.assertIn("let title: String?", source)
         self.assertIn("let description: String?", source)
@@ -152,8 +153,8 @@ class MenuBarUISourceTests(unittest.TestCase):
         dial_start = source.index("final class QuotaDialView")
         dial_end = source.index("final class DailyUsageChartView", dial_start)
         dial_source = source[dial_start:dial_end]
-        self.assertIn("QuotaPalette.fiveHour", dial_source)
-        self.assertIn("QuotaPalette.sevenDay", dial_source)
+        self.assertIn("QuotaWindowPresentation.windows", dial_source)
+        self.assertIn("item.tint", dial_source)
         self.assertNotIn("AccountHealth(remaining:", dial_source)
 
     def test_tabs_use_neutral_codexu_selection_surface(self):
@@ -212,10 +213,35 @@ class MenuBarUISourceTests(unittest.TestCase):
         card_end = source.index("final class PopoverProfileSwitcherView", card_start)
         card_source = source[card_start:card_end]
         self.assertIn("PopoverQuotaColumnView", card_source)
-        self.assertIn('title: "5小时剩余"', card_source)
-        self.assertIn('title: "7日剩余"', card_source)
+        self.assertIn("title: item.longLabel", card_source)
         self.assertIn('title: "今日 token"', card_source)
         self.assertNotIn("QuotaDialView", card_source)
+        self.assertIn("QuotaWindowPresentation.windows", card_source)
+        self.assertIn('title: "重置卡"', card_source)
+
+    def test_quota_windows_are_labeled_from_window_minutes(self):
+        source = SWIFT_SOURCE.read_text()
+        start = source.index("struct QuotaWindowPresentation")
+        end = source.index("enum DashboardSectionTab", start)
+        presentation_source = source[start:end]
+        self.assertIn("window.windowMinutes", presentation_source)
+        self.assertIn("case 300:", presentation_source)
+        self.assertIn('return "5h"', presentation_source)
+        self.assertIn("case 10_080:", presentation_source)
+        self.assertIn('return "7d"', presentation_source)
+        self.assertIn("compactMap", presentation_source)
+        self.assertIn("QuotaPalette.fiveHour", presentation_source)
+        self.assertIn("QuotaPalette.sevenDay", presentation_source)
+
+    def test_quota_dial_supports_a_single_weekly_ring(self):
+        source = SWIFT_SOURCE.read_text()
+        dial_start = source.index("final class QuotaDialView")
+        dial_end = source.index("final class DailyUsageChartView", dial_start)
+        dial_source = source[dial_start:dial_end]
+        self.assertIn("QuotaWindowPresentation.windows", dial_source)
+        self.assertIn("windows.count == 1", dial_source)
+        self.assertNotIn("profile?.rateLimits.primary", dial_source)
+        self.assertNotIn("profile?.rateLimits.secondary", dial_source)
 
     def test_account_sources_are_explicit_and_desktop_default_is_not_current_task(self):
         source = SWIFT_SOURCE.read_text()
@@ -332,8 +358,8 @@ class MenuBarUISourceTests(unittest.TestCase):
         self.assertIn("let barWidth", row_source)
         self.assertNotIn("equalToConstant: 160", row_source)
         self.assertNotIn("width: 210", row_source)
-        self.assertIn("QuotaPalette.fiveHour", row_source)
-        self.assertIn("QuotaPalette.sevenDay", row_source)
+        self.assertIn("QuotaWindowPresentation.windows", row_source)
+        self.assertIn("item.tint", row_source)
         self.assertNotIn("AccountHealth(remaining:", row_source)
 
     def test_rankings_fit_six_rows_and_truncate_long_names(self):

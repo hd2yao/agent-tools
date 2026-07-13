@@ -148,6 +148,96 @@ class TaskProfileInferenceTests(unittest.TestCase):
 
             self.assertEqual(result["profile"], "hd-master")
 
+    def test_unique_single_weekly_window_infers_task_profile(self):
+        from codex_profile_dashboard import infer_task_profile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            shared = Path(tmp)
+            rollout = shared / "sessions" / "rollout-task.jsonl"
+            rollout.parent.mkdir(parents=True, exist_ok=True)
+            rollout.write_text(
+                json.dumps(
+                    {
+                        "timestamp": "2026-07-13T08:00:00Z",
+                        "payload": {
+                            "type": "token_count",
+                            "info": {
+                                "total_token_usage": {"total_tokens": 1},
+                                "rate_limits": {
+                                    "primary": {
+                                        "window_minutes": 10080,
+                                        "resets_at": 1784513608,
+                                        "used_percent": 4,
+                                    },
+                                    "secondary": None,
+                                },
+                            },
+                        },
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            self._write_state(shared, rollout, updated_at=1783930000)
+
+            result = infer_task_profile(
+                shared,
+                {
+                    "hd-master": {
+                        "primary": {
+                            "window_minutes": 10080,
+                            "resets_at": 1784513608,
+                            "remaining_percent": 100,
+                        },
+                        "secondary": None,
+                    },
+                    "legacy-two-window": self._profile_limits(1784513608),
+                },
+                now_seconds=1783929900,
+            )
+
+            self.assertEqual(result["profile"], "hd-master")
+            self.assertEqual(result["source"], "recent_active_thread_rate_limit_match")
+
+    def test_single_window_fingerprint_does_not_match_two_window_profile(self):
+        from codex_profile_dashboard import infer_task_profile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            shared = Path(tmp)
+            rollout = shared / "sessions" / "rollout-task.jsonl"
+            rollout.parent.mkdir(parents=True, exist_ok=True)
+            rollout.write_text(
+                json.dumps(
+                    {
+                        "timestamp": "2026-07-13T08:00:00Z",
+                        "payload": {
+                            "type": "token_count",
+                            "info": {
+                                "total_token_usage": {"total_tokens": 1},
+                                "rate_limits": {
+                                    "primary": {
+                                        "window_minutes": 10080,
+                                        "resets_at": 1784513608,
+                                    }
+                                },
+                            },
+                        },
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            self._write_state(shared, rollout, updated_at=1783930000)
+
+            result = infer_task_profile(
+                shared,
+                {"legacy-two-window": self._profile_limits(1784513608)},
+                now_seconds=1783929900,
+            )
+
+            self.assertIsNone(result["profile"])
+            self.assertEqual(result["source"], "no_rate_limit_match")
+
     def test_no_matching_fingerprint_returns_unknown(self):
         from codex_profile_dashboard import infer_task_profile
 

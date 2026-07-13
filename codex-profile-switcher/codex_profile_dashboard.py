@@ -585,11 +585,11 @@ def _rate_limit_fingerprint(value: dict | None) -> dict | None:
             return None
         return {"window_minutes": minutes, "resets_at": int(resets_at)}
 
-    primary = window("primary")
-    secondary = window("secondary")
-    if primary is None or secondary is None:
+    windows = [item for item in (window("primary"), window("secondary")) if item is not None]
+    windows.sort(key=lambda item: (item["window_minutes"], item["resets_at"]))
+    if not windows:
         return None
-    return {"primary": primary, "secondary": secondary}
+    return {"windows": windows}
 
 
 def _latest_visible_thread_rollout(shared_home: Path) -> tuple[str | None, Path] | None:
@@ -701,9 +701,11 @@ def infer_task_profile(
         fingerprint = _rate_limit_fingerprint(candidate)
         if fingerprint is None:
             return False
-        for window_name in ("primary", "secondary"):
-            task_window = task_fingerprint[window_name]
-            candidate_window = fingerprint[window_name]
+        task_windows = task_fingerprint["windows"]
+        candidate_windows = fingerprint["windows"]
+        if len(candidate_windows) != len(task_windows):
+            return False
+        for task_window, candidate_window in zip(task_windows, candidate_windows):
             if candidate_window["window_minutes"] != task_window["window_minutes"]:
                 return False
             if abs(candidate_window["resets_at"] - task_window["resets_at"]) > reset_tolerance_seconds:
