@@ -1,0 +1,300 @@
+import Foundation
+
+public struct ContextCardEvidence: Equatable, Sendable {
+    public let generatedAt: Date
+    public let trigger: String
+    public let threadID: String
+    public let projectPath: String?
+    public let sourcePath: String
+
+    public init(
+        generatedAt: Date,
+        trigger: String,
+        threadID: String,
+        projectPath: String?,
+        sourcePath: String
+    ) {
+        self.generatedAt = generatedAt
+        self.trigger = trigger
+        self.threadID = threadID
+        self.projectPath = projectPath
+        self.sourcePath = sourcePath
+    }
+
+    public static func parse(markdown: String, sourcePath: String) -> ContextCardEvidence? {
+        var values: [String: String] = [:]
+        for line in markdown.split(separator: "\n", omittingEmptySubsequences: false) {
+            let text = String(line)
+            guard text.hasPrefix("- "), let separator = text.firstIndex(of: ":") else { continue }
+            let key = String(text[text.index(text.startIndex, offsetBy: 2)..<separator])
+                .trimmingCharacters(in: .whitespaces)
+            let rawValue = String(text[text.index(after: separator)...])
+                .trimmingCharacters(in: .whitespaces)
+            values[key] = rawValue.trimmingCharacters(in: CharacterSet(charactersIn: "`"))
+        }
+
+        guard
+            let generated = values["生成时间"],
+            let generatedAt = EvidenceDateParser.date(from: generated),
+            let trigger = values["触发事件"],
+            let threadID = values["会话 ID"],
+            !threadID.isEmpty
+        else {
+            return nil
+        }
+
+        return ContextCardEvidence(
+            generatedAt: generatedAt,
+            trigger: trigger,
+            threadID: threadID,
+            projectPath: values["项目路径"],
+            sourcePath: sourcePath
+        )
+    }
+}
+
+public struct AutomaticResetEvidence: Equatable, Sendable {
+    public let profile: String
+    public let reason: String
+    public let expiresAt: Date
+    public let attemptedAt: Date
+    public let outcome: String
+
+    public init(profile: String, reason: String, expiresAt: Date, attemptedAt: Date, outcome: String) {
+        self.profile = profile
+        self.reason = reason
+        self.expiresAt = expiresAt
+        self.attemptedAt = attemptedAt
+        self.outcome = outcome
+    }
+
+    public static func parse(preferences: [String: JSONValue]) -> [AutomaticResetEvidence] {
+        let outcomePrefix = "automatic-reset.outcome."
+        let attemptPrefix = "automatic-reset.last-attempt."
+
+        return preferences.compactMap { key, value in
+            guard key.hasPrefix(outcomePrefix), case .string(let outcome) = value else { return nil }
+            let suffix = String(key.dropFirst(outcomePrefix.count))
+            let components = suffix.split(separator: ".").map(String.init)
+            guard
+                components.count >= 3,
+                let expirySeconds = TimeInterval(components.last ?? "")
+            else {
+                return nil
+            }
+            let reason = components[components.count - 2]
+            let profile = components.dropLast(2).joined(separator: ".")
+            let attemptKey = attemptPrefix + suffix
+            guard
+                let attemptValue = preferences[attemptKey],
+                case .number(let attemptSeconds) = attemptValue,
+                !profile.isEmpty
+            else {
+                return nil
+            }
+            return AutomaticResetEvidence(
+                profile: profile,
+                reason: reason,
+                expiresAt: Date(timeIntervalSince1970: expirySeconds),
+                attemptedAt: Date(timeIntervalSince1970: attemptSeconds),
+                outcome: outcome
+            )
+        }
+        .sorted { $0.attemptedAt > $1.attemptedAt }
+    }
+}
+
+public enum LifecycleKind: String, Sendable {
+    case task
+    case work
+}
+
+public struct LifecycleItem: Equatable, Sendable {
+    public let id: String
+    public let title: String
+    public let status: String?
+    public let projectName: String?
+    public let projectPath: String?
+    public let threadID: String?
+
+    public init(
+        id: String,
+        title: String,
+        status: String?,
+        projectName: String?,
+        projectPath: String?,
+        threadID: String?
+    ) {
+        self.id = id
+        self.title = title
+        self.status = status
+        self.projectName = projectName
+        self.projectPath = projectPath
+        self.threadID = threadID
+    }
+}
+
+public struct LifecycleLedgerRecord: Equatable, Sendable {
+    public let at: Date
+    public let event: String
+    public let kind: LifecycleKind
+    public let item: LifecycleItem
+
+    public init(at: Date, event: String, kind: LifecycleKind, item: LifecycleItem) {
+        self.at = at
+        self.event = event
+        self.kind = kind
+        self.item = item
+    }
+
+    public static func parse(line: String, kind: LifecycleKind) -> LifecycleLedgerRecord? {
+        guard
+            let data = line.data(using: .utf8),
+            let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let atString = object["at"] as? String,
+            let at = EvidenceDateParser.date(from: atString),
+            let event = object["event"] as? String,
+            let payload = object[kind.rawValue] as? [String: Any],
+            let id = payload["id"] as? String,
+            let title = payload["title"] as? String
+        else {
+            return nil
+        }
+        let project = payload["project"] as? [String: Any]
+        let source = payload["source"] as? [String: Any]
+        return LifecycleLedgerRecord(
+            at: at,
+            event: event,
+            kind: kind,
+            item: LifecycleItem(
+                id: id,
+                title: title,
+                status: payload["status"] as? String,
+                projectName: project?["name"] as? String,
+                projectPath: project?["path"] as? String,
+                threadID: source?["thread_id"] as? String
+            )
+        )
+    }
+}
+
+public struct EvidenceSnapshot: Equatable, Sendable {
+    public let contextCards: [ContextCardEvidence]
+    public let automaticResets: [AutomaticResetEvidence]
+    public let lifecycleRecords: [LifecycleLedgerRecord]
+    public let warnings: [String]
+
+    public init(
+        contextCards: [ContextCardEvidence] = [],
+        automaticResets: [AutomaticResetEvidence] = [],
+        lifecycleRecords: [LifecycleLedgerRecord] = [],
+        warnings: [String] = []
+    ) {
+        self.contextCards = contextCards
+        self.automaticResets = automaticResets
+        self.lifecycleRecords = lifecycleRecords
+        self.warnings = warnings
+    }
+}
+
+public struct LocalEvidencePaths: Equatable, Sendable {
+    public let contextCardsDirectory: URL
+    public let taskLedgerURL: URL
+    public let workLedgerURL: URL
+    public let profileSwitcherDefaultsDomain: String
+
+    public init(
+        contextCardsDirectory: URL,
+        taskLedgerURL: URL,
+        workLedgerURL: URL,
+        profileSwitcherDefaultsDomain: String = "com.hd2yao.codex-profile-switcher"
+    ) {
+        self.contextCardsDirectory = contextCardsDirectory
+        self.taskLedgerURL = taskLedgerURL
+        self.workLedgerURL = workLedgerURL
+        self.profileSwitcherDefaultsDomain = profileSwitcherDefaultsDomain
+    }
+
+    public static func standard(homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser) -> Self {
+        let codexHome = homeDirectory.appendingPathComponent(".codex", isDirectory: true)
+        return Self(
+            contextCardsDirectory: codexHome.appendingPathComponent("context-cards", isDirectory: true),
+            taskLedgerURL: codexHome.appendingPathComponent("task-ledger/tasks.jsonl"),
+            workLedgerURL: codexHome.appendingPathComponent("work-ledger/work.jsonl")
+        )
+    }
+}
+
+public struct LocalEvidenceReader {
+    public init() {}
+
+    public func read(
+        paths: LocalEvidencePaths = .standard(),
+        resetPreferences: [String: JSONValue]? = nil
+    ) -> EvidenceSnapshot {
+        var cards: [ContextCardEvidence] = []
+        var records: [LifecycleLedgerRecord] = []
+        var warnings: [String] = []
+
+        let cardURLs = (try? FileManager.default.contentsOfDirectory(
+            at: paths.contextCardsDirectory,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        )) ?? []
+        for url in cardURLs where url.pathExtension.lowercased() == "md" {
+            guard let markdown = try? String(contentsOf: url, encoding: .utf8) else {
+                warnings.append("无法读取上下文摘要卡片。")
+                continue
+            }
+            if let card = ContextCardEvidence.parse(markdown: markdown, sourcePath: url.path) {
+                cards.append(card)
+            }
+        }
+
+        records += readLifecycleLedger(at: paths.taskLedgerURL, kind: .task, warnings: &warnings)
+        records += readLifecycleLedger(at: paths.workLedgerURL, kind: .work, warnings: &warnings)
+
+        var preferenceValues = resetPreferences ?? [:]
+        if resetPreferences == nil, let defaults = UserDefaults(suiteName: paths.profileSwitcherDefaultsDomain) {
+            for (key, value) in defaults.dictionaryRepresentation() {
+                if let string = value as? String {
+                    preferenceValues[key] = .string(string)
+                } else if let number = value as? NSNumber {
+                    preferenceValues[key] = .number(number.doubleValue)
+                }
+            }
+        }
+
+        return EvidenceSnapshot(
+            contextCards: cards.sorted { $0.generatedAt > $1.generatedAt },
+            automaticResets: AutomaticResetEvidence.parse(preferences: preferenceValues),
+            lifecycleRecords: records.sorted { $0.at > $1.at },
+            warnings: warnings
+        )
+    }
+
+    private func readLifecycleLedger(
+        at url: URL,
+        kind: LifecycleKind,
+        warnings: inout [String]
+    ) -> [LifecycleLedgerRecord] {
+        guard FileManager.default.fileExists(atPath: url.path) else { return [] }
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else {
+            warnings.append("无法读取\(kind == .task ? "任务" : "成果")台账。")
+            return []
+        }
+        return text.split(separator: "\n").compactMap {
+            LifecycleLedgerRecord.parse(line: String($0), kind: kind)
+        }
+    }
+}
+
+enum EvidenceDateParser {
+    static func date(from value: String) -> Date? {
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let standard = ISO8601DateFormatter()
+        standard.formatOptions = [.withInternetDateTime]
+        return fractional.date(from: value) ?? standard.date(from: value)
+    }
+}
