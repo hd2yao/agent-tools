@@ -6,7 +6,7 @@
 
 **Architecture:** Swift Package 将纯模型与本地数据访问放在 `CodexWorkbenchCore`，将 SwiftUI/AppKit scene 放在 `CodexWorkbenchApp`。App 读取独立 JSONL operation ledger，通过只读 reconciler 补扫本地证据，并通过隔离的 `AccountGateway` 调用打包的 Profile Switcher Python 后端。
 
-**Tech Stack:** Swift 6、SwiftUI、AppKit、Foundation、ServiceManagement、Python 3（仅打包既有账号后端）、XCTest。
+**Tech Stack:** Swift 6、SwiftUI、AppKit、Foundation、ServiceManagement、Python 3（仅打包既有账号后端）、仓库内零依赖 Swift 测试 harness（本机工具链不提供 XCTest/Testing 模块）。
 
 ---
 
@@ -17,6 +17,7 @@
 - Create: `codex-workbench/Sources/CodexWorkbenchCore/AppContracts.swift`
 - Create: `codex-workbench/Sources/CodexWorkbenchApp/CodexWorkbenchApp.swift`
 - Create: `codex-workbench/Tests/CodexWorkbenchCoreTests/AppContractsTests.swift`
+- Create: `codex-workbench/test.sh`
 - Create: `codex-workbench/build-app.sh`
 
 **Step 1: 写失败测试**
@@ -25,7 +26,7 @@
 
 **Step 2: 运行测试并确认失败**
 
-Run: `cd codex-workbench && swift test --filter AppContractsTests`
+Run: `cd codex-workbench && ./test.sh`
 
 Expected: FAIL，目标类型尚不存在。
 
@@ -35,7 +36,7 @@ Expected: FAIL，目标类型尚不存在。
 
 **Step 4: 运行测试并构建**
 
-Run: `cd codex-workbench && swift test && swift build`
+Run: `cd codex-workbench && ./test.sh && swift build`
 
 Expected: PASS，debug executable 构建成功。
 
@@ -67,7 +68,7 @@ git commit -m "feat: scaffold native Codex workbench"
 
 **Step 2: 确认失败**
 
-Run: `swift test --filter LedgerRepositoryTests`
+Run: `./test.sh`
 
 Expected: FAIL，事件模型不存在。
 
@@ -107,7 +108,7 @@ git commit -m "feat: add operation ledger core"
 
 **Step 2: 确认失败并最小实现**
 
-Run: `swift test --filter EvidenceReconcilerTests`
+Run: `./test.sh`
 
 **Step 3: 写 context card / reset outcome fixture 测试**
 
@@ -142,7 +143,7 @@ git commit -m "feat: reconcile Codex activity evidence"
 
 **Step 2: 确认失败并实现 Codable 模型**
 
-Run: `swift test --filter AccountGatewayTests`
+Run: `./test.sh`
 
 **Step 3: 写命令构造失败测试**
 
@@ -223,7 +224,7 @@ git commit -m "feat: build Codex workbench shell"
 
 **Step 5: 运行测试和 debug build**
 
-Run: `swift test && swift build`
+Run: `./test.sh && swift build`
 
 **Step 6: Commit**
 
@@ -275,7 +276,7 @@ git commit -m "feat: add menu bar and Codex integration"
 
 **Step 1: 全量验证**
 
-Run: `swift test && ./build-app.sh && ./verify-install.sh`
+Run: `./test.sh && ./build-app.sh && ./verify-install.sh`
 
 Expected: 全部通过且无 warning/error。
 

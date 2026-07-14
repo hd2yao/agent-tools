@@ -2,4 +2,6 @@
 __pycache__/
 *.py[cod]
 codex-profile-switcher/build/
+codex-workbench/.build/
+codex-workbench/build/
 water-reminder/water-reminder

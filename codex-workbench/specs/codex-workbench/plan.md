@@ -65,7 +65,7 @@ Design Lock 详见项目根目录 `DESIGN.md`。核心是“Calm Operations Cons
 
 ## 测试和验证
 
-- Core 单元测试：事件解码、坏行容错、倒序/分组、过滤、去重、账号 payload 解码、深链。
+- Core 单元测试：通过仓库内零依赖 Swift test harness 覆盖事件解码、坏行容错、倒序/分组、过滤、去重、账号 payload 解码、深链；本机工具链不提供 XCTest/Testing 模块。
 - 构建测试：`swift test`、`./build-app.sh`、Info.plist/bundle/resource 验证。
 - 行为测试：账号状态加载、打开 Codex、打开任务深链、空/错/加载状态。
 - 视觉测试：最小 `900×640`、默认 `1160×780`、宽屏 `1440×900`；概览、日志、账号三页；浅色/深色各至少一轮。
