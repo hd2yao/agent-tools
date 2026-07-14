@@ -21,6 +21,7 @@ runAppContractsTests(&runner)
 runLedgerRepositoryTests(&runner)
 runActivityFilterTests(&runner)
 runEvidenceReconcilerTests(&runner)
+runAccountGatewayTests(&runner)
 
 if runner.failures.isEmpty {
     print("PASS: CodexWorkbenchCoreTests")
