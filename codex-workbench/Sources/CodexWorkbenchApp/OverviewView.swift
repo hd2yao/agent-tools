@@ -47,7 +47,7 @@ struct OverviewView: View {
                     SummaryTile(
                         title: "需关注",
                         value: String(model.attentionCount),
-                        detail: "关键 / 失败 / 推断事件",
+                        detail: "额度 / 账号 / 失败 / 推断",
                         systemImage: "exclamationmark.circle",
                         color: model.attentionCount > 0 ? .orange : .secondary
                     )

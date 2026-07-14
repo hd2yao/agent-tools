@@ -160,7 +160,7 @@ final class WorkbenchAppModel: ObservableObject {
 
     func updateCodexRunningState() {
         isCodexRunning = !NSRunningApplication.runningApplications(
-            withBundleIdentifier: "com.openai.codex"
+            withBundleIdentifier: CodexIntegration.bundleIdentifier
         ).isEmpty
     }
 

@@ -318,6 +318,16 @@ struct ActivityInspector: View {
                                 value: thread.title ?? thread.id ?? "未命名任务"
                             )
                             InspectorValue(label: "关系", value: thread.relation.rawValue)
+                            if let threadID = thread.id,
+                               CodexIntegration.threadURL(for: threadID) != nil {
+                                Button {
+                                    CodexIntegrationService.openThread(threadID)
+                                } label: {
+                                    Label("在 Codex 中打开任务", systemImage: "arrow.up.forward.app")
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                            }
                         }
                         if let project = event.project {
                             InspectorValue(label: "项目", value: project.name ?? project.path ?? "—")

@@ -25,6 +25,11 @@ struct WorkbenchShell: View {
                 )
                 .accessibilityLabel(model.isCodexRunning ? "Codex 正在运行" : "Codex 未运行")
 
+                Button(action: CodexIntegrationService.openCodex) {
+                    Label(model.isCodexRunning ? "切到 Codex" : "打开 Codex", systemImage: "terminal")
+                }
+                .help(model.isCodexRunning ? "切换到 Codex" : "启动 Codex")
+
                 Button {
                     Task { await model.refreshAll(refreshResetCredits: model.selectedModule == .accounts) }
                 } label: {
