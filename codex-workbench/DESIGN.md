@@ -1,0 +1,193 @@
+# Codex 工具台 Design Lock
+
+## 设计目标
+
+- **目标界面**：可长期使用的原生 macOS Codex 运维控制台。
+- **用户场景**：工作中随时确认 Codex 状态、追溯关键操作、定位任务、管理账号。
+- **主要任务**：在 5 秒内回答“发生了什么、谁触发、在哪个任务、是否可信、下一步去哪”。
+- **参考模式**：结构借鉴，不复制品牌视觉或独特资产。
+- **成功标准**：像成熟的 Mac 工具，而不是网页后台模板或数据营销页。
+
+## 参考拆解
+
+| 参考 | 采用 | 不采用 |
+|---|---|---|
+| [Apple Sidebars](https://developer.apple.com/design/human-interface-guidelines/sidebars) / [Split views](https://developer.apple.com/design/human-interface-guidelines/split-views) | 原生侧栏、持久选中、可调整分栏、合理 min/max、可隐藏侧栏 | 自定义厚分隔线、过度玻璃化 |
+| [Apple Toolbars](https://developer.apple.com/cn/design/human-interface-guidelines/toolbars) | 标题栏承载页面标题、搜索和当前页操作 | 把所有筛选和按钮塞入 toolbar |
+| [Raycast Extensions](https://manual.raycast.com/extensions) / [Settings](https://manual.raycast.com/settings) | 上层工具壳、模块分组、菜单栏快速入口 | 黑色命令面板式高对比作为整页主题 |
+| [GitHub Audit Log](https://docs.github.com/en/organizations/keeping-your-organization-secure/managing-security-settings-for-your-organization/reviewing-the-audit-log-for-your-organization) | actor/action/time 的事件语法、筛选与检索 | 安全审计表格的强技术文案 |
+| [Vercel Activity Log](https://vercel.com/docs/activity-log) | 紧凑倒序活动流、状态与范围筛选 | Web 控制台式顶栏和品牌组件 |
+| [Sentry Issue Details](https://docs.sentry.dev/product/issues/issue-details/) | 概要头、生命周期活动、渐进式详情 inspector | 过多告警密度和工程术语 |
+| [Linear](https://linear.app/) | 克制色彩、清晰排版、低噪声分隔与紧凑节奏 | 复制其品牌紫色和网页导航结构 |
+| [Stats](https://github.com/exelban/stats) | 菜单栏常驻、模块独立配置、按需展开 | 把所有指标都塞进菜单栏 |
+
+## 视觉 DNA
+
+- **信息架构**：固定侧栏 + 单一主内容 + 宽屏可选 inspector。
+- **布局骨架**：titlebar toolbar、页面标题区、紧凑内容区；不使用营销 hero。
+- **密度**：工作型中高密度，8pt 基线；一屏至少看见 6 条日志或 3 个账号摘要。
+- **字体**：系统字体；标题使用 20/24 semibold，正文 13/18，辅助 11/16；数值使用 monospaced digits。
+- **色彩**：中性表面为主，强调色只表达选择或语义状态。
+- **组件语言**：8–12pt 圆角、0.5–1pt 边框、极轻阴影；卡片只用于真正独立的信息组。
+- **状态交互**：选中、hover、focus、loading、empty、error 都有明确但克制的反馈。
+- **动效**：120–180ms 淡入/位移，只用于展开和状态变化；尊重 Reduce Motion。
+- **独特记忆点**：日志时间轴的“来源链 + 置信度 + 任务定位”三件套。
+
+## Design Lock
+
+### 视觉方向
+
+**Calm Operations Console / 安静的运行控制台**。像 Apple 原生工具与 Linear 的克制信息密度结合：稳、清楚、可信，不追求炫技。
+
+### 产品性格
+
+- 理性、可解释、可靠。
+- 对不确定性诚实，不用绿色圆点包装推断。
+- 主要信息先于装饰，操作先于数据炫耀。
+
+### 几何模型
+
+- 窗口最小：`900 × 640`。
+- 默认：`1160 × 780`。
+- 宽屏验收：`1440 × 900`。
+- 侧栏：默认 `216pt`，允许 `188–248pt`；可通过 toolbar/快捷键隐藏。
+- 内容边距：最小窗口 `20pt`，默认/宽屏 `28pt`。
+- 内容最大可读宽度：概览 `1180pt`；日志列表不超过 `820pt`，多余空间给 inspector。
+- 固定层：titlebar/toolbar；其余内容垂直滚动。
+- 只有主内容滚动，不允许根窗口产生横向滚动。
+
+```text
+┌──────────────────────────────────────────────────────────────┐
+│ traffic lights   当前模块          Codex 状态   搜索 / 操作  │
+├──────────────┬───────────────────────────────────────────────┤
+│ Codex 工具台 │ 页面标题 / 说明 / 局部筛选                    │
+│              │                                               │
+│ 概览         │ 核心内容（连续表面，少量必要卡片）             │
+│ 操作日志     │                                               │
+│ 账号管理     │ 宽屏时：列表                 │ 详情 inspector │
+│ ───────────  │                                               │
+│ 即将推出     │                                               │
+│ 线程/自动化  │                                               │
+└──────────────┴───────────────────────────────────────────────┘
+```
+
+### 色彩与 token
+
+颜色使用 SwiftUI semantic colors，以下是角色而非固定 hex：
+
+- `surface.window`：`windowBackgroundColor`
+- `surface.sidebar`：系统 sidebar material
+- `surface.card`：`controlBackgroundColor`，保证不透明度足以隔绝背景干扰
+- `surface.selected`：accent 10–14% 混合
+- `border.subtle`：`separatorColor` 55–70%
+- `text.primary` / `text.secondary` / `text.tertiary`：系统 label colors
+- `semantic.success`：green，仅用于已确认成功
+- `semantic.warning`：orange，仅用于需关注/推断/资源消耗
+- `semantic.failure`：red，仅用于失败或高风险
+- `semantic.thread`：blue
+- `semantic.context`：indigo/purple
+- `semantic.neutral`：secondary gray
+
+禁止同屏为不同模块各自指定彩虹色图标。侧栏统一使用单色 SF Symbols，选中项才跟随 accent。
+
+### 间距、圆角和阴影
+
+- 间距标尺：`4 / 8 / 12 / 16 / 24 / 32`。
+- 卡片圆角：`12pt`；小 chip/button：`7–8pt`；popover：系统默认。
+- 边框：`0.5–1pt`。
+- 阴影：仅浮层或高优先级概览卡使用 `y=1, blur=8, opacity<=0.06`。
+- 不做彩色发光、霓虹、深重投影和多层玻璃卡。
+
+## 页面契约
+
+### 概览
+
+阅读顺序：
+
+1. 标题与“最后更新”。
+2. 四个紧凑状态块：Codex、桌面账号、今日事件、需关注。
+3. “最近活动”宽面板，显示 6–8 条事件。
+4. “数据源健康”与快捷操作，作为次要信息。
+
+状态块数字不超过 28pt，不使用超大 KPI。每块必须同时显示语义标签，不能只靠颜色。
+
+### 操作日志
+
+```text
+[搜索________________________________] [级别] [来源] [状态]
+
+今天
+  19:13  ● 已使用 1 次额度重置       成功  Profile Switcher
+           hd-master · 确定 · 活动时任务：系统日志时间轴设计
+  18:46  ● 上下文已压缩               成功  PreCompact Hook
+           来源任务 → 当前任务 · 确定
+```
+
+- 最新在上；日期标题 sticky。
+- 行高 `68–84pt`，标题单行，摘要最多两行。
+- 时间列固定 `54pt`；时间轴轨道固定 `20pt`；正文自适应；右侧来源/状态保持稳定宽度。
+- hover 只增强背景；核心字段不可只放 tooltip。
+- 点击行：默认展开/选中；宽屏显示右侧 inspector，窄屏使用 sheet 或页内展开。
+- inspector 分区：概要、任务关系、来源链、before/after、证据、原始字段（脱敏）。
+
+### 账号管理
+
+- 顶部明确三种角色：最近任务（可能为推断）、桌面默认、统计归因。
+- 主列表按 profile 展示登录状态、主要额度、重置时间、重置卡；当前桌面 profile 有明确但不夸张的选中状态。
+- 切换账号是高影响动作，按钮文案为“切换并重启 Codex”，点击后需明确进度和结果。
+- 不在 V1 复制旧 Dashboard 的所有排行与分析；保留“打开独立 Profile Switcher”入口作为高级功能。
+
+### 菜单栏
+
+- 宽度约 `360pt`，最大高度 `500pt`。
+- 顶部：Codex 状态 + 桌面账号。
+- 中部：最近 3 条 P0/P1 事件。
+- 底部：打开工具台、打开 Codex；设置/退出放次级菜单。
+- 菜单栏不是完整 Dashboard，不放多页导航和复杂图表。
+
+## 状态来源
+
+| UI 状态 | 权威来源 | 作用域 | 降级文案 |
+|---|---|---|---|
+| Codex 是否运行 | `NSRunningApplication` bundle id | 设备 | “未检测到 Codex 进程” |
+| 桌面默认账号 | Profile Switcher `desktop_status/active_profile` | 设备 | “未知；打开账号管理刷新” |
+| 最近任务账号 | `profile_roles.task` | 最近活动任务 | 必须显示“推断”或“未知” |
+| 统计归因账号 | `profile_roles.attribution` | 本地统计周期 | “未建立归因记录” |
+| 日志事实 | operation ledger + evidence | 单事件 | `确定 / 推断 / 无法证实` |
+
+## 响应式策略
+
+- `900–1079pt`：侧栏可隐藏；日志单列，详情页内展开；状态块 2×2。
+- `1080–1279pt`：侧栏固定；日志主列；详情按选择以 overlay/页内呈现；状态块 4 列。
+- `>=1280pt`：日志列表 + `320–380pt` inspector；账号卡可双列。
+- 长 profile 名单行中间/尾部截断，完整值在可访问性描述和详情中显示。
+- 最大数字使用 monospaced digits，预留位宽；缺失值显示“—”和原因，不显示假 0。
+
+## 状态覆盖
+
+- `loading`：使用稳定骨架/ProgressView，不让布局跳动。
+- `empty`：说明为何暂无事件，并给出“重新扫描”操作。
+- `error`：局部错误卡，不替换整个页面；保留上次成功数据并标注时间。
+- `disabled`：降低对比并给说明，不只变灰。
+- `success`：短暂状态反馈，不常驻庆祝动画。
+- `inferred`：橙色细标签 + “推断”，绝不使用成功绿色。
+
+## 禁止漂移
+
+- 不做营销 hero、玻璃拟态大卡片墙、装饰渐变背景。
+- 不用 32pt 以上大数字制造“Dashboard 感”。
+- 不混用 emoji、文字图标、第三方彩色图标和 SF Symbols。
+- 不让每个模块拥有独立视觉主题。
+- 不把 hover tooltip 当作必要信息的唯一入口。
+- 不把推断状态显示为“当前”事实。
+
+## 验收截图
+
+- `overview-light-900x640.png`
+- `overview-light-1160x780.png`
+- `activity-light-1440x900-selected.png`
+- `activity-dark-1160x780.png`
+- `accounts-light-1160x780.png`
+- `menubar-dark.png`
+
+任何文字重叠、内容越界、根窗口横向滚动、关键字段缺失、推断被当事实或截图产物身份不明，直接判 `FAIL`。
