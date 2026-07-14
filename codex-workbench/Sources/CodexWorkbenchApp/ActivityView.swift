@@ -62,6 +62,7 @@ private struct ActivityFilterBar: View {
                     .foregroundStyle(.tertiary)
                 TextField("搜索动作、任务、来源或账号", text: $model.searchText)
                     .textFieldStyle(.plain)
+                    .accessibilityLabel("搜索操作日志")
             }
             .padding(.horizontal, 10)
             .frame(minWidth: 260, maxWidth: 460, minHeight: 30)
