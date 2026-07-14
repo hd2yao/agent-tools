@@ -14,6 +14,10 @@ func runAppContractsTests(_ runner: inout TestRunner) {
     )
     runner.expect(WorkbenchLayout.minimumWidth == 900, "Minimum window width should match Design Lock")
     runner.expect(WorkbenchLayout.minimumHeight == 640, "Minimum window height should match Design Lock")
+    runner.expect(
+        WorkbenchLayout.minimumContentHeight == 588,
+        "Content minimum should account for the standard 52pt titlebar"
+    )
     runner.expect(WorkbenchLayout.defaultWidth == 1_160, "Default width should match Design Lock")
     runner.expect(WorkbenchLayout.defaultHeight == 780, "Default height should match Design Lock")
     runner.expect(

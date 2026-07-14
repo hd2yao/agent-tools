@@ -10,7 +10,7 @@ struct CodexWorkbenchApp: App {
             WorkbenchShell(model: model)
                 .frame(
                     minWidth: WorkbenchLayout.minimumWidth,
-                    minHeight: WorkbenchLayout.minimumHeight
+                    minHeight: WorkbenchLayout.minimumContentHeight
                 )
                 .task { model.bootstrap() }
         }
