@@ -79,3 +79,14 @@ public enum ActivityGrouper {
             .sorted { $0.day > $1.day }
     }
 }
+
+public enum ActivityInsights {
+    public static func requiresAttention(_ event: OperationEvent) -> Bool {
+        if event.status == .failure || event.certainty != .confirmed {
+            return true
+        }
+
+        return event.importance == .critical
+            && [.quota, .account, .automation].contains(event.category)
+    }
+}

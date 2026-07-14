@@ -19,3 +19,14 @@ public enum AppModule: String, CaseIterable, Hashable, Sendable {
         }
     }
 }
+
+public enum WorkbenchLayout {
+    public static let minimumWidth = 900.0
+    public static let minimumHeight = 640.0
+    public static let defaultWidth = 1_160.0
+    public static let defaultHeight = 780.0
+    public static let sidebarMinimum = 188.0
+    public static let sidebarIdeal = 216.0
+    public static let sidebarMaximum = 248.0
+    public static let spacingUnit = 8.0
+}

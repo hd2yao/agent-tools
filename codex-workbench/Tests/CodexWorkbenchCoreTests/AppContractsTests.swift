@@ -12,4 +12,13 @@ func runAppContractsTests(_ runner: inout TestRunner) {
         AppModule.allCases.allSatisfy { !$0.systemImage.isEmpty },
         "Every module should have an SF Symbol"
     )
+    runner.expect(WorkbenchLayout.minimumWidth == 900, "Minimum window width should match Design Lock")
+    runner.expect(WorkbenchLayout.minimumHeight == 640, "Minimum window height should match Design Lock")
+    runner.expect(WorkbenchLayout.defaultWidth == 1_160, "Default width should match Design Lock")
+    runner.expect(WorkbenchLayout.defaultHeight == 780, "Default height should match Design Lock")
+    runner.expect(
+        WorkbenchLayout.sidebarMinimum == 188 && WorkbenchLayout.sidebarMaximum == 248,
+        "Sidebar bounds should match Design Lock"
+    )
+    runner.expect(WorkbenchLayout.spacingUnit == 8, "Spacing should use an 8pt base unit")
 }
