@@ -110,6 +110,7 @@ private struct ActivityFilterBar: View {
 private struct ActivityList: View {
     @ObservedObject var model: WorkbenchAppModel
     let expandsSelection: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var sections: [ActivityDaySection] {
         ActivityGrouper.sections(for: model.filteredEvents)
@@ -137,8 +138,12 @@ private struct ActivityList: View {
                                         isSelected: model.selectedEventID == event.id,
                                         showsInlineDetails: expandsSelection && model.selectedEventID == event.id
                                     ) {
-                                        withAnimation(.easeOut(duration: 0.14)) {
+                                        if reduceMotion {
                                             model.selectEvent(event)
+                                        } else {
+                                            withAnimation(.easeOut(duration: 0.14)) {
+                                                model.selectEvent(event)
+                                            }
                                         }
                                     }
                                 }
