@@ -2,6 +2,8 @@ import Foundation
 
 var runner = TestRunner()
 runAppContractsTests(&runner)
+runLedgerRepositoryTests(&runner)
+runActivityFilterTests(&runner)
 
 if runner.failures.isEmpty {
     print("PASS: CodexWorkbenchCoreTests")
