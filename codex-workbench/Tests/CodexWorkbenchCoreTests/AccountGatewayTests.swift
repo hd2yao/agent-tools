@@ -28,4 +28,14 @@ func runAccountGatewayTests(_ runner: inout TestRunner) {
     )
     runner.expect(builder.switchCommand(profile: "../../bad") == nil, "Unsafe profile names must be rejected")
     runner.expect(builder.switchCommand(profile: "name with space") == nil, "Whitespace profile names must be rejected")
+
+    let environment = AccountCommandBuilder.processEnvironment(base: ["PATH": "/custom/bin"])
+    runner.expect(
+        environment["PYTHONDONTWRITEBYTECODE"] == "1",
+        "Bundled Python must not mutate the signed app by writing bytecode caches"
+    )
+    runner.expect(
+        environment["PATH"]?.hasSuffix(":/custom/bin") == true,
+        "Python environment should preserve the caller PATH"
+    )
 }

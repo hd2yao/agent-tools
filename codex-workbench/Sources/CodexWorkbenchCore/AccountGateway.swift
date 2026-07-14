@@ -41,6 +41,19 @@ public struct AccountCommandBuilder: Equatable, Sendable {
             options: .regularExpression
         ) != nil
     }
+
+    public static func processEnvironment(base: [String: String]) -> [String: String] {
+        var environment = base
+        environment["PATH"] = [
+            "/opt/homebrew/bin",
+            "/usr/local/bin",
+            "/usr/bin",
+            "/bin",
+            base["PATH"] ?? "",
+        ].joined(separator: ":")
+        environment["PYTHONDONTWRITEBYTECODE"] = "1"
+        return environment
+    }
 }
 
 public enum AccountGatewayError: Error, Equatable, LocalizedError, Sendable {
@@ -98,15 +111,9 @@ public struct AccountGateway: Sendable {
         process.arguments = command.arguments
         process.standardOutput = output
         process.standardError = FileHandle.nullDevice
-        var environment = ProcessInfo.processInfo.environment
-        environment["PATH"] = [
-            "/opt/homebrew/bin",
-            "/usr/local/bin",
-            "/usr/bin",
-            "/bin",
-            environment["PATH"] ?? "",
-        ].joined(separator: ":")
-        process.environment = environment
+        process.environment = AccountCommandBuilder.processEnvironment(
+            base: ProcessInfo.processInfo.environment
+        )
 
         do {
             try process.run()
