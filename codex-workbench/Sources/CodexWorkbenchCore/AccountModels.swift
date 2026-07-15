@@ -120,19 +120,24 @@ public struct AccountRateLimits: Codable, Equatable, Sendable {
     public let limitName: String?
     public let primary: AccountQuotaWindow?
     public let secondary: AccountQuotaWindow?
+    private let rateLimitReachedType: String?
     public let resetCredits: AccountResetCredits?
+
+    public var reachedType: String? { rateLimitReachedType }
 
     public init(
         planType: String? = nil,
         limitName: String? = nil,
         primary: AccountQuotaWindow? = nil,
         secondary: AccountQuotaWindow? = nil,
+        reachedType: String? = nil,
         resetCredits: AccountResetCredits? = nil
     ) {
         self.planType = planType
         self.limitName = limitName
         self.primary = primary
         self.secondary = secondary
+        self.rateLimitReachedType = reachedType
         self.resetCredits = resetCredits
     }
 }
@@ -151,6 +156,7 @@ public struct AccountProfile: Codable, Identifiable, Equatable, Sendable {
     public var id: String { name }
 
     public let name: String
+    public let path: String?
     public let auth: String
     public let config: String
     public let rateLimits: AccountRateLimits
@@ -160,6 +166,7 @@ public struct AccountProfile: Codable, Identifiable, Equatable, Sendable {
 
     public init(
         name: String,
+        path: String? = nil,
         auth: String,
         config: String,
         rateLimits: AccountRateLimits,
@@ -168,6 +175,7 @@ public struct AccountProfile: Codable, Identifiable, Equatable, Sendable {
         remoteError: String? = nil
     ) {
         self.name = name
+        self.path = path
         self.auth = auth
         self.config = config
         self.rateLimits = rateLimits

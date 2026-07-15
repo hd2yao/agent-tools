@@ -24,6 +24,8 @@ runEvidenceReconcilerTests(&runner)
 runQuotaObservationTests(&runner)
 runCodexMetadataCatalogTests(&runner)
 runWorkflowEvidenceTests(&runner)
+runObservationStateTests(&runner)
+runAppServerNotificationTests(&runner)
 runAccountGatewayTests(&runner)
 runCodexIntegrationTests(&runner)
 
