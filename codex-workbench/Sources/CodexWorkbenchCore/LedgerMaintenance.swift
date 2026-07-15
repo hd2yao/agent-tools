@@ -47,7 +47,7 @@ public struct LedgerMaintenance: Sendable {
         } catch {
             return LedgerPruneResult(
                 removedCount: 0,
-                warnings: ["无法清理旧版额度消耗噪声。"]
+                warnings: ["无法清理旧版额度状态噪声。"]
             )
         }
     }

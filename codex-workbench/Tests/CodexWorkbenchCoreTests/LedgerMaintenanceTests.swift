@@ -8,8 +8,9 @@ func runLedgerMaintenanceTests(_ runner: inout TestRunner) {
     defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
 
     let usage = maintenanceEvent(id: "usage", action: "quota_usage_updated")
+    let resetTime = maintenanceEvent(id: "reset-time", action: "quota_reset_time_updated")
     let recovery = maintenanceEvent(id: "recovery", action: "official_quota_restored")
-    _ = LedgerWriter().append(events: [usage, recovery], to: ledgerURL)
+    _ = LedgerWriter().append(events: [usage, resetTime, recovery], to: ledgerURL)
     if let handle = try? FileHandle(forWritingTo: ledgerURL) {
         _ = try? handle.seekToEnd()
         try? handle.write(contentsOf: Data("{invalid-line}\n".utf8))
@@ -17,17 +18,17 @@ func runLedgerMaintenanceTests(_ runner: inout TestRunner) {
     }
 
     let first = LedgerMaintenance().prune(
-        actions: ["quota_usage_updated"],
+        actions: ["quota_usage_updated", "quota_reset_time_updated"],
         from: ledgerURL
     )
-    runner.expect(first.removedCount == 1, "Deprecated quota-usage events should be removed once")
+    runner.expect(first.removedCount == 2, "Deprecated quota-noise events should be removed once")
 
     let loaded = LedgerRepository().load(from: ledgerURL)
     runner.expect(loaded.events.map(\.action) == ["official_quota_restored"], "Important quota events should be preserved")
     runner.expect(loaded.warnings.count == 1, "Ledger maintenance should preserve unrelated malformed lines for diagnosis")
 
     let second = LedgerMaintenance().prune(
-        actions: ["quota_usage_updated"],
+        actions: ["quota_usage_updated", "quota_reset_time_updated"],
         from: ledgerURL
     )
     runner.expect(second.removedCount == 0, "Repeated maintenance should be idempotent")

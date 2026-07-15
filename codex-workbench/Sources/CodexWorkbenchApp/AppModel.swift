@@ -104,7 +104,7 @@ final class WorkbenchAppModel: ObservableObject {
             let reconciled = EvidenceReconciler().events(from: snapshot)
             let writeResult = LedgerWriter().append(events: reconciled, to: ledgerURL)
             let pruneResult = LedgerMaintenance().prune(
-                actions: ["quota_usage_updated"],
+                actions: ["quota_usage_updated", "quota_reset_time_updated"],
                 from: ledgerURL
             )
             let loaded = LedgerRepository().load(from: ledgerURL)

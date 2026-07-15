@@ -190,7 +190,7 @@ func runQuotaObservationTests(_ runner: inout TestRunner) {
         "A reset deadline that moves exactly with observation time is a derived rolling value, not an event"
     )
 
-    let meaningfulResetTime = factory.events(
+    let standaloneResetTimeChange = factory.events(
         previous: QuotaObservation(
             profile: "hd-master",
             observedAt: Date(timeIntervalSince1970: 16_000),
@@ -209,8 +209,8 @@ func runQuotaObservationTests(_ runner: inout TestRunner) {
         )
     )
     runner.expect(
-        meaningfulResetTime.contains { $0.action == "quota_reset_time_updated" },
-        "A reset deadline that changes independently should remain in the ledger"
+        standaloneResetTimeChange.isEmpty,
+        "A reset deadline change without an actual recovery should not create quota timeline noise"
     )
 
     let unchanged = factory.events(previous: officialCurrent, current: QuotaObservation(

@@ -124,22 +124,6 @@ public struct QuotaEventFactory: Sendable {
             ))
         }
 
-        if !recovered,
-           previous.resetsAt != current.resetsAt,
-           !isRollingDerivedResetTime(previous: previous, current: current) {
-            result.append(makeEvent(
-                action: "quota_reset_time_updated",
-                title: "额度刷新时间已更新",
-                summary: "\(current.profile) 的下一次额度刷新时间发生变化。",
-                status: .success,
-                importance: .routine,
-                certainty: .confirmed,
-                previous: previous,
-                current: current,
-                evidenceLabel: "官方额度快照差异"
-            ))
-        }
-
         let wasExhausted = previous.reachedType != nil || (previous.remainingPercent ?? 1) <= 0
         let isExhausted = current.reachedType != nil || (current.remainingPercent ?? 1) <= 0
         if !recovered, wasExhausted != isExhausted {
@@ -165,22 +149,6 @@ public struct QuotaEventFactory: Sendable {
         guard let resetsAt = previous.resetsAt else { return false }
         return observedAt >= resetsAt.addingTimeInterval(-scheduledLeadTime)
             && observedAt <= resetsAt.addingTimeInterval(scheduledLagTime)
-    }
-
-    private func isRollingDerivedResetTime(
-        previous: QuotaObservation,
-        current: QuotaObservation
-    ) -> Bool {
-        guard
-            previous.remainingPercent == current.remainingPercent,
-            let previousReset = previous.resetsAt,
-            let currentReset = current.resetsAt
-        else {
-            return false
-        }
-        let observationDelta = current.observedAt.timeIntervalSince(previous.observedAt)
-        let resetDelta = currentReset.timeIntervalSince(previousReset)
-        return observationDelta > 0 && abs(resetDelta - observationDelta) <= 5
     }
 
     private func matchingLocalReset(
