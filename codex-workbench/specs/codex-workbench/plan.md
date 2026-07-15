@@ -115,6 +115,23 @@ Design Lock 详见项目根目录 `DESIGN.md`。核心是“Calm Operations Cons
 | 能力摘要误导 | 只使用显式命令/关键词映射；无法识别时显示降级文案 | 仅显示字段变化和文件路径 |
 | revision 重复增长 | 追加前比较可见语义、关联关系与证据；完全等价时不生成新 revision | 停用 revision 写入，内存展示不落盘 |
 
+## V1.3 工作流语义说明方案
+
+- 把 `WorkflowSemanticSnapshot` 扩展为跨类型安全快照：保留 Automation 结构字段，并增加 `purpose`、公开 `interfaces` 与稳定 `capabilities`。
+- 为 Skill front matter / Markdown 标题和 Hook Python 模块说明 / 入口标记建立确定性解析；只输出有限中文标签，不持久化源文件正文。
+- 差异生成分三档：完整前后快照生成精确变化；新增文件生成用途与主要能力；旧快照缺失时生成“更新后职责”并附证据不足说明。
+- 扩展历史 revision：Automation 支持变量式更新调用；Skill/Hook 通用历史事件从当前安全快照生成诚实降级说明。所有 revision 保留稳定事件 ID 并幂等追加。
+- UI 继续复用现有时间轴和 inspector，不改变 Design Lock；fingerprint 只留在“技术状态”，语义说明固定置于“本次改动”。
+
+### V1.3 风险与回滚
+
+| 风险 | 缓解 | 回滚 |
+|---|---|---|
+| 标签分类过度概括 | 只匹配显式标题、入口或稳定 marker；无匹配时使用用途/当前职责 | 退回用途说明，不输出能力差异 |
+| 历史旧版本缺失 | 明示“更新后职责”，不把当前状态写成新增 | 关闭历史降级回填，只影响旧事件 |
+| 变量式调用误配 | 时间窗 + 更新工具名 + Automation ID 字面量或已读取配置引用 | 保持不关联并显示未定位来源 |
+| 快照泄露源码 | 编码测试断言正文 marker 不进入 ledger/state | 删除扩展字段并重建观察基线 |
+
 ## 执行契约
 
 ### Intent Lock
