@@ -532,6 +532,7 @@ class CommandTests(unittest.TestCase):
         profile.mkdir()
         calls = []
         old_bridge = codex_profile.activate_default_home_profile
+        old_reconcile = codex_profile.reconcile_default_home_auth_for_active_profile
         old_quit = codex_profile.quit_codex_desktop
         old_wait = codex_profile.wait_for_codex_desktop_exit
         old_launch = codex_profile.wait_for_codex_desktop_launch
@@ -543,6 +544,9 @@ class CommandTests(unittest.TestCase):
                 lambda profile_home, profile_name, shared_home=None: calls.append(
                     ("bridge", profile_home, profile_name, shared_home)
                 )
+            )
+            codex_profile.reconcile_default_home_auth_for_active_profile = (
+                lambda: calls.append(("reconcile", None)) or {"state": "linked"}
             )
             codex_profile.quit_codex_desktop = lambda: calls.append(("quit", None))
             codex_profile.wait_for_codex_desktop_exit = lambda: calls.append(("wait", None)) or True
@@ -556,6 +560,7 @@ class CommandTests(unittest.TestCase):
             code = main(["app", "account-a"])
         finally:
             codex_profile.activate_default_home_profile = old_bridge
+            codex_profile.reconcile_default_home_auth_for_active_profile = old_reconcile
             codex_profile.quit_codex_desktop = old_quit
             codex_profile.wait_for_codex_desktop_exit = old_wait
             codex_profile.wait_for_codex_desktop_launch = old_launch
@@ -567,9 +572,10 @@ class CommandTests(unittest.TestCase):
         self.assertEqual(
             calls,
             [
-                ("bridge", profile, "account-a", self.root / "shared-codex"),
                 ("quit", None),
                 ("wait", None),
+                ("reconcile", None),
+                ("bridge", profile, "account-a", self.root / "shared-codex"),
                 ("default", ["app"]),
                 ("launch", None),
                 ("active", "account-a", {"profile_home": profile, "codex_pid": 24680}),
@@ -620,7 +626,7 @@ class CommandTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertEqual(
             calls,
-            [("bridge", profile, "account-a", self.root / "shared-codex"), ("quit", None), ("wait", None)],
+            [("quit", None), ("wait", None)],
         )
         self.assertIn("did not quit", err.getvalue())
 
@@ -669,9 +675,9 @@ class CommandTests(unittest.TestCase):
         self.assertEqual(
             calls,
             [
-                ("bridge", profile, "account-a", self.root / "shared-codex"),
                 ("quit", None),
                 ("wait", None),
+                ("bridge", profile, "account-a", self.root / "shared-codex"),
                 ("default", ["app"]),
                 ("launch", None),
             ],
@@ -764,6 +770,50 @@ class CommandTests(unittest.TestCase):
         self.assertEqual(len(backups), 1)
         self.assertTrue((backups[0] / "auth.json").is_file())
         self.assertEqual((backups[0] / "auth.json").read_text(encoding="utf-8"), "default-auth")
+
+    def test_reconcile_default_auth_persists_atomic_replacement_for_same_account(self):
+        from codex_profile import reconcile_default_home_auth
+
+        shared_home = self.root / "shared-codex"
+        profile = self.root / "account-a"
+        shared_home.mkdir()
+        profile.mkdir()
+        old_auth = {
+            "tokens": {"account_id": "account-1", "refresh_token": "old-refresh"},
+            "last_refresh": "old",
+        }
+        refreshed_auth = {
+            "tokens": {"account_id": "account-1", "refresh_token": "new-refresh"},
+            "last_refresh": "new",
+        }
+        (profile / "auth.json").write_text(json.dumps(old_auth), encoding="utf-8")
+        (shared_home / "auth.json").write_text(json.dumps(refreshed_auth), encoding="utf-8")
+
+        result = reconcile_default_home_auth(shared_home, profile)
+
+        self.assertEqual(result["state"], "synced")
+        self.assertTrue((shared_home / "auth.json").is_symlink())
+        self.assertEqual((shared_home / "auth.json").resolve(), (profile / "auth.json").resolve())
+        self.assertEqual(json.loads((profile / "auth.json").read_text()), refreshed_auth)
+
+    def test_reconcile_default_auth_preserves_different_account_files(self):
+        from codex_profile import reconcile_default_home_auth
+
+        shared_home = self.root / "shared-codex"
+        profile = self.root / "account-a"
+        shared_home.mkdir()
+        profile.mkdir()
+        profile_auth = {"tokens": {"account_id": "account-1", "refresh_token": "profile-refresh"}}
+        default_auth = {"tokens": {"account_id": "account-2", "refresh_token": "default-refresh"}}
+        (profile / "auth.json").write_text(json.dumps(profile_auth), encoding="utf-8")
+        (shared_home / "auth.json").write_text(json.dumps(default_auth), encoding="utf-8")
+
+        result = reconcile_default_home_auth(shared_home, profile)
+
+        self.assertEqual(result["state"], "account_conflict")
+        self.assertFalse((shared_home / "auth.json").is_symlink())
+        self.assertEqual(json.loads((shared_home / "auth.json").read_text()), default_auth)
+        self.assertEqual(json.loads((profile / "auth.json").read_text()), profile_auth)
 
     def test_default_home_bridge_status_reports_active_profile_links(self):
         from codex_profile import activate_default_home_profile, default_home_bridge_status

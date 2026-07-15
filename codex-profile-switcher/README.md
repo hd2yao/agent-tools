@@ -85,7 +85,9 @@ another shared history location. Desktop account bridging is intended for the
 default shared home route; CLI commands can still run with per-profile
 `CODEX_HOME`.
 
-The tool does not read, print, copy, or modify token contents.
+The tool never prints or exposes token contents. To preserve Codex's atomic
+credential refreshes safely, it compares only the internal `account_id` before
+moving a complete `auth.json` file back into the matching profile.
 
 ## MVP Commands
 
@@ -129,10 +131,11 @@ Launch Codex with a profile:
 python3 codex_profile.py app account-a
 ```
 
-`app` first points the default Codex home at the selected profile's account
-files, then quits an already-running Codex Desktop app before opening it again.
-This matters because the Desktop app has a long-running `app-server` process;
-restarting it makes the active account and local app-server state line up.
+`app` first quits an already-running Codex Desktop app and waits for it to exit.
+It then saves any newly refreshed credential file into the previous matching
+profile, points the default Codex home at the selected profile, and opens Codex
+again. This order prevents the old app-server process from writing credentials
+through the next account's link.
 
 Use `--no-restart` only when you intentionally want to reuse the existing app
 process:
@@ -140,6 +143,8 @@ process:
 ```bash
 python3 codex_profile.py app account-a --no-restart
 ```
+
+The menu bar app and dashboard do not use `--no-restart` for account switches.
 
 To make command-line use shorter, add a shell alias:
 
@@ -307,14 +312,18 @@ refreshes the default-home links. If Codex is later opened manually, or Codex
 self-updates and relaunches itself, the app still reads the same active account
 through `~/.codex`. The menu bar reports this as `Codex 路径：已接管`.
 
-If an old regular `~/.codex/auth.json` already exists while the profile already
-has its own file, the tool moves the default file into
-`~/.codex/.codex-profile-switcher-backups/` before replacing it with a symlink.
+Codex may refresh credentials by atomically replacing the `auth.json` symlink
+with a regular file. During status refresh and before account switching, the
+tool compares that file's `account_id` with the active profile. A match moves
+the complete refreshed file back into the profile and restores the symlink. A
+mismatch leaves both files untouched and aborts the switch instead of mixing
+accounts. Unattributed legacy files are kept under
+`~/.codex/.codex-profile-switcher-backups/` when the bridge is first created.
 Older per-profile `config.toml` files are merged into the shared default config
 and then linked back into each profile. Hook review state is also mirrored across
 the default `~/.codex/hooks.json` path and each profile's `hooks.json` symlink
 path, so CLI profile runs and Desktop default-home runs see the same reviewed
-hooks. The tool does not print or inspect token contents.
+hooks. The tool never prints token contents.
 
 ### Another Mac
 

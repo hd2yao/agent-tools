@@ -537,6 +537,56 @@ def _bridge_account_file(
     return "linked"
 
 
+def _auth_account_id(path: Path) -> str | None:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    tokens = payload.get("tokens")
+    if not isinstance(tokens, dict):
+        return None
+    account_id = tokens.get("account_id")
+    return account_id if isinstance(account_id, str) and account_id else None
+
+
+def reconcile_default_home_auth(shared_home: Path, profile_home: Path) -> dict[str, str]:
+    shared_file = shared_home.expanduser() / "auth.json"
+    profile_file = profile_home.expanduser() / "auth.json"
+    shared_file.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    profile_file.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+
+    if shared_file.is_symlink():
+        state = "linked" if _same_resolved_path(shared_file, profile_file) else "linked_elsewhere"
+        return {"state": state}
+    if not shared_file.exists():
+        if not profile_file.exists():
+            return {"state": "missing"}
+        shared_file.symlink_to(profile_file)
+        return {"state": "linked"}
+    if not profile_file.exists():
+        os.replace(shared_file, profile_file)
+        profile_file.chmod(0o600)
+        shared_file.symlink_to(profile_file)
+        return {"state": "adopted"}
+
+    same_contents = shared_file.read_bytes() == profile_file.read_bytes()
+    shared_account = _auth_account_id(shared_file)
+    profile_account = _auth_account_id(profile_file)
+    if not same_contents and (
+        shared_account is None
+        or profile_account is None
+        or shared_account != profile_account
+    ):
+        return {"state": "account_conflict"}
+
+    os.replace(shared_file, profile_file)
+    profile_file.chmod(0o600)
+    shared_file.symlink_to(profile_file)
+    return {"state": "synced" if not same_contents else "linked"}
+
+
 def activate_default_home_profile(
     profile_home: Path,
     profile_name: str,
@@ -644,7 +694,18 @@ def repair_default_home_bridge_for_active_profile() -> dict:
     profile = profile_path(root, active)
     if not profile.is_dir():
         return default_home_bridge_status(active_profile=active)
-    return activate_default_home_profile(profile, active, shared_home=get_shared_home())
+    reconcile_default_home_auth(get_shared_home(), profile)
+    return default_home_bridge_status(active_profile=active)
+
+
+def reconcile_default_home_auth_for_active_profile() -> dict[str, str]:
+    active = read_active_profile()
+    if not active:
+        return {"state": "no_active_profile"}
+    profile = profile_path(get_profile_root(), active)
+    if not profile.is_dir():
+        return {"state": "missing_profile"}
+    return reconcile_default_home_auth(get_shared_home(), profile)
 
 
 def record_active_profile(
@@ -839,7 +900,6 @@ def cmd_use(args: argparse.Namespace) -> int:
 
 def cmd_app(args: argparse.Namespace) -> int:
     path = existing_profile(get_profile_root(), args.name)
-    activate_default_home_profile(path, args.name, shared_home=get_shared_home())
     if args.restart:
         quit_codex_desktop()
         if not wait_for_codex_desktop_exit():
@@ -848,6 +908,14 @@ def cmd_app(args: argparse.Namespace) -> int:
                 file=sys.stderr,
             )
             return 1
+        reconciliation = reconcile_default_home_auth_for_active_profile()
+        if reconciliation.get("state") == "account_conflict":
+            print(
+                "Codex auth account changed unexpectedly; switch aborted to preserve both accounts.",
+                file=sys.stderr,
+            )
+            return 1
+    activate_default_home_profile(path, args.name, shared_home=get_shared_home())
     code = run_codex_default_home(["app"])
     if code != 0:
         return code
