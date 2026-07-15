@@ -1,4 +1,4 @@
-# Codex 工具台实现方案
+# Codex 观测站实现方案
 
 ## 推荐方案
 
@@ -82,6 +82,14 @@ Design Lock 详见项目根目录 `DESIGN.md`。核心是“Calm Operations Cons
 | UI 材质导致可读性差 | 内容卡使用不透明语义表面，截图在干净背景复验 | 切换为系统 window background |
 
 删除 `Codex 工具台.app` 和 `~/.codex/operation-ledger/` 即可完整回滚；不会改变 Codex session 和账号认证数据。
+
+## V1.1 状态变化扩展
+
+- 新增 `QuotaObservation` 差异分类器和持久化状态基线；先确认变化事实，再按 `resetsAt` 与本地重置证据解释原因。
+- 当前桌面账号使用 app-server 稀疏通知近实时触发完整快照，所有账号 60 秒补扫；断线不阻塞现有 Dashboard。
+- 新增 SQLite 线程目录与工作流文件指纹目录，为 context card、项目空间、对话接续、摘要和全局能力变更补充证据。
+- 重要性扩展为 `关键 / 重要 / 常规 / 诊断`；连续使用变化允许进入诊断层，主时间轴保持重点明确。
+- 产品改名为 `Codex 观测站`，bundle id 不变，安装脚本负责旧 App 名称迁移。
 
 ## 执行契约
 

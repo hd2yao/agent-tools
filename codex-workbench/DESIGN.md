@@ -1,4 +1,4 @@
-# Codex 工具台 Design Lock
+# Codex 观测站 Design Lock
 
 ## 设计目标
 
@@ -124,11 +124,13 @@
 ```
 
 - 最新在上；日期标题 sticky。
-- 行高 `68–84pt`，标题单行，摘要最多两行。
+- 行高 `76–96pt`，标题单行，摘要最多两行；scope chips 可在窄屏换行。
 - 时间列固定 `54pt`；时间轴轨道固定 `20pt`；正文自适应；右侧来源/状态保持稳定宽度。
 - hover 只增强背景；核心字段不可只放 tooltip。
 - 点击行：默认展开/选中；宽屏显示右侧 inspector，窄屏使用 sheet 或页内展开。
-- inspector 分区：概要、任务关系、来源链、before/after、证据、原始字段（脱敏）。
+- 行内必须显示项目与对话名称；账号级事件显示账号与“全局事件”，不虚构线程。
+- 重要性通过节点尺寸、细强调线和文字共同表达，不只依赖颜色。
+- inspector 分区：概要、归属（项目/对话/账号）、完整线程 ID 与关系、来源链、before/after、证据、原始字段（脱敏）。
 
 ### 账号管理
 
@@ -153,7 +155,7 @@
 | 桌面默认账号 | Profile Switcher `desktop_status/active_profile` | 设备 | “未知；打开账号管理刷新” |
 | 最近任务账号 | `profile_roles.task` | 最近活动任务 | 必须显示“推断”或“未知” |
 | 统计归因账号 | `profile_roles.attribution` | 本地统计周期 | “未建立归因记录” |
-| 日志事实 | operation ledger + evidence | 单事件 | `确定 / 推断 / 无法证实` |
+| 日志事实 | operation ledger + evidence | 单事件 | `已核实 / 根据证据推断 / 尚无足够证据` |
 
 ## 响应式策略
 
