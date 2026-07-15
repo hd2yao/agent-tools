@@ -257,6 +257,7 @@ private struct ActivityTimelineRow: View {
                 .contentShape(Rectangle())
             }
             .accessibilityLabel(accessibilitySummary)
+            .accessibilityValue(accessibilitySummary)
             .accessibilityHint(showsInlineDetails ? "收起事件详情" : "显示事件详情")
             .buttonStyle(.plain)
 
