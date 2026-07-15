@@ -256,6 +256,8 @@ private struct ActivityTimelineRow: View {
                 .padding(.top, 11)
                 .contentShape(Rectangle())
             }
+            .accessibilityLabel(accessibilitySummary)
+            .accessibilityHint(showsInlineDetails ? "收起事件详情" : "显示事件详情")
             .buttonStyle(.plain)
 
             if showsInlineDetails {
@@ -274,8 +276,6 @@ private struct ActivityTimelineRow: View {
                 .stroke(isSelected ? Color.accentColor.opacity(0.28) : .clear, lineWidth: 0.5)
         )
         .onHover { isHovering = $0 }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(accessibilitySummary)
     }
 
     private var accessibilitySummary: String {
