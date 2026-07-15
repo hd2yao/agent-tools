@@ -131,7 +131,17 @@ public struct AutomationSessionEvidenceCollector: Sendable {
     }
 
     private static func quotedValue(for key: String, in text: String) -> String? {
-        capture(pattern: #"\b"# + NSRegularExpression.escapedPattern(for: key) + #"\s*:\s*\"([^\"]*)\""#, in: text)
+        guard let rawValue = capture(
+            pattern: #"\b"#
+                + NSRegularExpression.escapedPattern(for: key)
+                + #"\s*:\s*"((?:\\.|[^"\\])*)""#,
+            in: text
+        ) else {
+            return nil
+        }
+        let encodedLiteral = "\"\(rawValue)\""
+        guard let data = encodedLiteral.data(using: .utf8) else { return rawValue }
+        return (try? JSONDecoder().decode(String.self, from: data)) ?? rawValue
     }
 
     private static func templateLiteral(named name: String, in text: String) -> String? {
@@ -174,7 +184,6 @@ public struct WorkflowEventHistoryEnricher: Sendable {
         events.compactMap { event in
             guard
                 event.action == "automation_updated",
-                event.changes?.isEmpty != false || event.thread == nil,
                 let automationID = automationID(from: event),
                 let path = event.evidence.first(where: { $0.kind == "file_fingerprint" })?.path
             else {
@@ -231,7 +240,25 @@ public struct WorkflowEventHistoryEnricher: Sendable {
                     projectPath: target?.projectPath
                 ))
             }
-            return OperationEvent(
+            var sourceChain = event.sourceChain
+            if !sourceChain.contains(where: { $0.id == "structured-automation-update" }) {
+                sourceChain.append(EventActor(
+                    type: .system,
+                    id: "structured-automation-update",
+                    label: "Automation 更新调用"
+                ))
+            }
+            var evidence = event.evidence
+            if !evidence.contains(where: {
+                $0.kind == "structured_automation_update" && $0.path == match.evidencePath
+            }) {
+                evidence.append(EventEvidence(
+                    kind: "structured_automation_update",
+                    label: "结构化 Automation 更新调用",
+                    path: match.evidencePath
+                ))
+            }
+            let revision = OperationEvent(
                 schemaVersion: event.schemaVersion,
                 id: event.id,
                 occurredAt: event.occurredAt,
@@ -250,20 +277,25 @@ public struct WorkflowEventHistoryEnricher: Sendable {
                 scope: .globalWorkflow,
                 changes: semantic.changes,
                 relatedThreads: related,
-                sourceChain: event.sourceChain + [
-                    EventActor(type: .system, id: "structured-automation-update", label: "Automation 更新调用"),
-                ],
+                sourceChain: sourceChain,
                 before: event.before,
                 after: event.after,
-                evidence: event.evidence + [
-                    EventEvidence(
-                        kind: "structured_automation_update",
-                        label: "结构化 Automation 更新调用",
-                        path: match.evidencePath
-                    ),
-                ]
+                evidence: evidence
             )
+            return isSemanticallyEquivalent(revision, to: event) ? nil : revision
         }
+    }
+
+    private func isSemanticallyEquivalent(_ lhs: OperationEvent, to rhs: OperationEvent) -> Bool {
+        lhs.summary == rhs.summary
+            && lhs.certainty == rhs.certainty
+            && lhs.thread == rhs.thread
+            && lhs.project == rhs.project
+            && lhs.scope == rhs.scope
+            && lhs.changes == rhs.changes
+            && lhs.relatedThreads == rhs.relatedThreads
+            && lhs.sourceChain == rhs.sourceChain
+            && lhs.evidence == rhs.evidence
     }
 
     private func automationID(from event: OperationEvent) -> String? {

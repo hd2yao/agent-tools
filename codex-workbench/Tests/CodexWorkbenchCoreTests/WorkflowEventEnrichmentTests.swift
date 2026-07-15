@@ -15,7 +15,7 @@ func runWorkflowEventEnrichmentTests(_ runner: inout TestRunner) {
     name = "Codex 每日任务摘要与仓库收尾"
     prompt = "DailyDigest\\ngh pr merge"
     status = "ACTIVE"
-    rrule = "RRULE:FREQ=DAILY"
+    rrule = "DTSTART:20260708T000000Z\\nRRULE:FREQ=DAILY"
     target_thread_id = "thread-target"
     """
     let updateInput = """
@@ -28,6 +28,7 @@ func runWorkflowEventEnrichmentTests(_ runner: inout TestRunner) {
       id:"codex",
       mode:"update",
       prompt,
+      rrule:"DTSTART:20260708T000000Z\\nRRULE:FREQ=DAILY",
       targetThreadId:"thread-target"
     });
     """
@@ -124,6 +125,57 @@ func runWorkflowEventEnrichmentTests(_ runner: inout TestRunner) {
         revision?.changes?.contains { ["名称", "状态", "执行计划"].contains($0.label) } == false,
         "Fields omitted from a partial update call should inherit their previous values"
     )
+    if let revision {
+        runner.expect(
+            WorkflowEventHistoryEnricher().revisions(
+                events: [revision],
+                catalog: catalog,
+                recordedAt: Date(timeIntervalSince1970: 230)
+            ).isEmpty,
+            "An already-correct semantic revision should not be appended again"
+        )
+        let staleRevision = OperationEvent(
+            schemaVersion: revision.schemaVersion,
+            id: revision.id,
+            occurredAt: revision.occurredAt,
+            recordedAt: revision.recordedAt,
+            category: revision.category,
+            action: revision.action,
+            title: revision.title,
+            summary: "错误地把换行转义识别为执行计划变化。",
+            status: revision.status,
+            importance: revision.importance,
+            certainty: revision.certainty,
+            actor: revision.actor,
+            thread: revision.thread,
+            project: revision.project,
+            account: revision.account,
+            scope: revision.scope,
+            changes: [
+                EventChange(
+                    label: "执行计划",
+                    summary: "换行转义差异",
+                    before: "DTSTART:20260708T000000Z\nRRULE:FREQ=DAILY",
+                    after: "DTSTART:20260708T000000Z\\nRRULE:FREQ=DAILY"
+                ),
+            ],
+            relatedThreads: revision.relatedThreads,
+            sourceChain: revision.sourceChain,
+            before: revision.before,
+            after: revision.after,
+            evidence: revision.evidence
+        )
+        let corrected = WorkflowEventHistoryEnricher().revisions(
+            events: [staleRevision],
+            catalog: catalog,
+            recordedAt: Date(timeIntervalSince1970: 230)
+        )
+        runner.expect(corrected.count == 1, "A stale semantic revision should receive one corrected revision")
+        runner.expect(
+            corrected.first?.changes?.contains { $0.label == "执行计划" } == false,
+            "The corrected revision should remove the false schedule change"
+        )
+    }
 
     _ = LedgerWriter().append(events: [legacyEvent], to: ledgerURL)
     let firstRevision = LedgerWriter().appendRevisions(events: revisions, to: ledgerURL)
