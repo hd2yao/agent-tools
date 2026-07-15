@@ -8,6 +8,8 @@
   <string>Codex 观测站</string>
   <key>CFBundleExecutable</key>
   <string>CodexWorkbenchApp</string>
+  <key>CFBundleIconFile</key>
+  <string>AppIcon</string>
   <key>CFBundleIdentifier</key>
   <string>com.hd2yao.codex-workbench</string>
   <key>CFBundleInfoDictionaryVersion</key>

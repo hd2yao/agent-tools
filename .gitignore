@@ -4,4 +4,6 @@ __pycache__/
 codex-profile-switcher/build/
 codex-workbench/.build/
 codex-workbench/build/
+codex-workbench/Resources/AppIcon-1024.png
+codex-workbench/Resources/AppIcon.icns
 water-reminder/water-reminder

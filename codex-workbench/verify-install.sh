@@ -10,7 +10,10 @@ BINARY="$APP_DIR/Contents/MacOS/CodexWorkbenchApp"
 
 source_fingerprint() {
     cd "$ROOT_DIR"
-    find Sources Resources -type f -print0 \
+    find Sources Resources scripts -type f \
+        ! -name 'AppIcon-1024.png' \
+        ! -name 'AppIcon.icns' \
+        -print0 \
         | sort -z \
         | xargs -0 shasum -a 256 \
         | shasum -a 256 \
@@ -19,6 +22,7 @@ source_fingerprint() {
 
 [[ -d "$APP_DIR" ]] || { echo "FAIL: 未安装 $APP_DIR" >&2; exit 1; }
 [[ -x "$BINARY" ]] || { echo "FAIL: 缺少可执行文件" >&2; exit 1; }
+[[ -f "$APP_DIR/Contents/Resources/AppIcon.icns" ]] || { echo "FAIL: 缺少应用图标" >&2; exit 1; }
 [[ -f "$APP_DIR/Contents/Resources/codex-profile-switcher/codex_profile_dashboard.py" ]] \
     || { echo "FAIL: 缺少账号模块资源" >&2; exit 1; }
 
