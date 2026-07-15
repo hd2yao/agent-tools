@@ -108,7 +108,7 @@ func runCodexMetadataCatalogTests(_ runner: inout TestRunner) {
         title: "上下文已压缩",
         summary: "已生成摘要卡片。",
         status: .success,
-        importance: .routine,
+        importance: .critical,
         certainty: .confirmed,
         actor: EventActor(type: .hook, id: "precompact", label: "PreCompact Hook"),
         thread: EventThread(id: "thread-source", title: nil, relation: .triggeredBy)
@@ -117,4 +117,5 @@ func runCodexMetadataCatalogTests(_ runner: inout TestRunner) {
     runner.expect(enriched.first?.thread?.title == "系统日志时间轴设计", "Legacy events should resolve a readable conversation title")
     runner.expect(enriched.first?.project?.name == "tools", "Legacy events should resolve project identity from the thread catalog")
     runner.expect(enriched.first?.id == legacyEvent.id, "Enrichment must preserve stable event identity")
+    runner.expect(enriched.first?.importance == .routine, "Legacy context compactions should adopt the routine display level")
 }

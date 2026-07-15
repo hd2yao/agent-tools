@@ -128,10 +128,12 @@ public struct EventContextEnricher: Sendable {
         catalog: CodexMetadataCatalog
     ) -> [OperationEvent] {
         events.map { event in
-            guard
-                let threadID = event.thread?.id,
-                let metadata = catalog.thread(id: threadID)
-            else {
+            let threadID = event.thread?.id
+            let metadata = threadID.flatMap(catalog.thread(id:))
+            let normalizedImportance: EventImportance = event.action == "context_compacted"
+                ? .routine
+                : event.importance
+            guard metadata != nil || normalizedImportance != event.importance else {
                 return event
             }
             return OperationEvent(
@@ -144,18 +146,19 @@ public struct EventContextEnricher: Sendable {
                 title: event.title,
                 summary: event.summary,
                 status: event.status,
-                importance: event.importance,
+                importance: normalizedImportance,
                 certainty: event.certainty,
                 actor: event.actor,
-                thread: EventThread(
-                    id: threadID,
-                    title: event.thread?.title ?? metadata.title,
-                    relation: event.thread?.relation ?? .unknown
-                ),
-                project: event.project ?? EventProject(
-                    name: metadata.projectName,
-                    path: metadata.projectPath
-                ),
+                thread: event.thread.map { thread in
+                    EventThread(
+                        id: thread.id,
+                        title: thread.title ?? metadata?.title,
+                        relation: thread.relation
+                    )
+                },
+                project: event.project ?? metadata.map {
+                    EventProject(name: $0.projectName, path: $0.projectPath)
+                },
                 account: event.account,
                 sourceChain: event.sourceChain,
                 before: event.before,
