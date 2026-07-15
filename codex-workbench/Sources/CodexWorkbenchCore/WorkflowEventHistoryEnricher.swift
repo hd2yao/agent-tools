@@ -326,11 +326,19 @@ public struct WorkflowEventHistoryEnricher: Sendable {
         events: [OperationEvent],
         catalog: CodexMetadataCatalog,
         currentWorkflowFiles: [WorkflowFileFingerprint] = [],
+        workflowSourceRoots: [URL] = WorkflowGitHistoryEvidenceCollector.standardSourceRoots,
         recordedAt: Date
     ) -> [OperationEvent] {
         let currentByPath = Dictionary(uniqueKeysWithValues: currentWorkflowFiles.map { ($0.path, $0) })
         return events.compactMap { event in
             if let revision = automationRevision(event: event, catalog: catalog, recordedAt: recordedAt) {
+                return revision
+            }
+            if let revision = gitHistoryRevision(
+                event: event,
+                sourceRoots: workflowSourceRoots,
+                recordedAt: recordedAt
+            ) {
                 return revision
             }
             return currentSnapshotRevision(
@@ -339,6 +347,93 @@ public struct WorkflowEventHistoryEnricher: Sendable {
                 recordedAt: recordedAt
             )
         }
+    }
+
+    private func gitHistoryRevision(
+        event: OperationEvent,
+        sourceRoots: [URL],
+        recordedAt: Date
+    ) -> OperationEvent? {
+        guard
+            needsCurrentSnapshotExplanation(event),
+            let rawPath = event.evidence.first(where: { $0.kind == "file_fingerprint" })?.path,
+            let afterFingerprint = fingerprint(in: event.after),
+            let kind = workflowKind(for: event)
+        else {
+            return nil
+        }
+        let path = URL(fileURLWithPath: rawPath).standardizedFileURL.path
+        let label = event.actor.label
+        guard let history = WorkflowGitHistoryEvidenceCollector().evidence(
+            kind: kind,
+            label: label,
+            afterFingerprint: afterFingerprint,
+            sourceRoots: sourceRoots
+        ) else {
+            return nil
+        }
+        let current = WorkflowFileFingerprint(
+            path: path,
+            kind: kind,
+            label: label,
+            modifiedAt: event.occurredAt,
+            fingerprint: afterFingerprint,
+            semanticSnapshot: history.currentSnapshot
+        )
+        let previous: [String: WorkflowFileFingerprint]
+        if event.action.hasSuffix("_added") {
+            previous = [:]
+        } else {
+            let old = WorkflowFileFingerprint(
+                path: path,
+                kind: kind,
+                label: label,
+                modifiedAt: event.occurredAt,
+                fingerprint: fingerprint(in: event.before) ?? "legacy-before",
+                semanticSnapshot: history.previousSnapshot
+            )
+            previous = [path: old]
+        }
+        guard let semantic = WorkflowChangeEventFactory().events(
+            previous: previous,
+            current: [current],
+            observedAt: recordedAt
+        ).first else {
+            return nil
+        }
+        var evidence = event.evidence.filter { $0.kind != "current_workflow_snapshot" }
+        if !evidence.contains(where: { $0.kind == "git_workflow_history" }) {
+            evidence.append(EventEvidence(
+                kind: "git_workflow_history",
+                label: "Git 前后版本 · \(history.commit)",
+                path: history.sourcePath
+            ))
+        }
+        let revision = OperationEvent(
+            schemaVersion: event.schemaVersion,
+            id: event.id,
+            occurredAt: event.occurredAt,
+            recordedAt: recordedAt,
+            category: event.category,
+            action: event.action,
+            title: event.title,
+            summary: semantic.summary,
+            status: event.status,
+            importance: event.importance,
+            certainty: .confirmed,
+            actor: event.actor,
+            thread: event.thread,
+            project: event.project,
+            account: event.account,
+            scope: event.scope ?? .globalWorkflow,
+            changes: semantic.changes,
+            relatedThreads: event.relatedThreads,
+            sourceChain: event.sourceChain,
+            before: event.before,
+            after: event.after,
+            evidence: evidence
+        )
+        return isSemanticallyEquivalent(revision, to: event) ? nil : revision
     }
 
     private func automationRevision(
@@ -529,6 +624,20 @@ public struct WorkflowEventHistoryEnricher: Sendable {
         guard supported else { return false }
         return event.changes?.isEmpty != false
             || event.summary.contains("全局工作流定义已更新")
+            || event.evidence.contains { $0.kind == "current_workflow_snapshot" }
+    }
+
+    private func workflowKind(for event: OperationEvent) -> WorkflowFileKind? {
+        switch event.category {
+        case .skill:
+            return .skill
+        case .hook:
+            return .hook
+        case .automation:
+            return .automation
+        default:
+            return nil
+        }
     }
 
     private func listSummary(label: String, changes: [EventChange]) -> String {

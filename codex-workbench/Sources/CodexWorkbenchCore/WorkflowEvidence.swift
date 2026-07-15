@@ -179,6 +179,9 @@ enum AutomationCapabilityClassifier {
         ("运行指标记录", ["--duration-seconds", "--unsafe-actions"]),
         ("周一工作流复盘", ["retrospect_workflows.py"]),
         ("仓库收尾审计", ["repository-closure-audit.py"]),
+        ("远端状态刷新", ["--refresh-remotes"]),
+        ("提交等价性判定", ["patch_equivalent", "tree_equivalent", "patch-id"]),
+        ("默认分支与上游分离判断", ["upstream_ahead", "default_ahead"]),
     ]
 
     static func labels(in prompt: String) -> [String] {
@@ -454,15 +457,6 @@ public struct WorkflowChangeEventFactory: Sendable {
             return result
         }
         var result: [EventChange] = []
-        if previous.purpose != current.purpose {
-            let summary = current.purpose.map { "用途说明已调整：\($0)" } ?? "用途说明已移除"
-            result.append(EventChange(
-                label: "用途调整",
-                summary: summary,
-                before: previous.purpose,
-                after: current.purpose
-            ))
-        }
         appendFieldChange(label: "名称", before: previous.name, after: current.name, to: &result)
         appendFieldChange(label: "状态", before: previous.status, after: current.status, to: &result)
         appendFieldChange(label: "执行计划", before: previous.schedule, after: current.schedule, to: &result)
@@ -475,6 +469,15 @@ public struct WorkflowChangeEventFactory: Sendable {
         }
         for capability in oldCapabilities.subtracting(newCapabilities).sorted() {
             result.append(EventChange(label: "移除能力", summary: capability, before: capability))
+        }
+        if previous.purpose != current.purpose {
+            let summary = current.purpose.map { "用途说明已调整：\($0)" } ?? "用途说明已移除"
+            result.append(EventChange(
+                label: "用途调整",
+                summary: summary,
+                before: previous.purpose,
+                after: current.purpose
+            ))
         }
         let oldInterfaces = Set(previous.interfaces)
         let newInterfaces = Set(current.interfaces)
@@ -533,7 +536,9 @@ public struct WorkflowChangeEventFactory: Sendable {
     }
 
     private func summary(label: String, verb: String, changes: [EventChange]) -> String {
-        let readable = changes.prefix(3).map(\.summary).joined(separator: "；")
+        let readable = changes.prefix(3).map {
+            $0.summary.trimmingCharacters(in: CharacterSet(charactersIn: " \\t\\r\\n。；;"))
+        }.joined(separator: "；")
         return readable.isEmpty
             ? "\(label) 的全局工作流定义已\(verb)。"
             : "\(label)：\(readable)。"

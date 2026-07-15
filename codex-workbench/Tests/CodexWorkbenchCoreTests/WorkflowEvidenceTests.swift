@@ -194,6 +194,10 @@ func runWorkflowEvidenceTests(_ runner: inout TestRunner) {
             event?.summary.contains("周期任务健康审计") == true,
             "Skill list summaries should say what changed"
         )
+        runner.expect(
+            event?.summary.hasPrefix("task-continuity：周期任务健康审计") == true,
+            "Skill list summaries should lead with the concrete capability instead of a long purpose paragraph"
+        )
         let encoded = try? LedgerWriter.encoder().encode(event)
         let encodedText = encoded.map { String(decoding: $0, as: UTF8.self) } ?? ""
         runner.expect(
@@ -259,5 +263,52 @@ func runWorkflowEvidenceTests(_ runner: inout TestRunner) {
             hookEvent?.summary.contains("周期任务") == true,
             "New hook list summaries should describe what the hook does"
         )
+        runner.expect(
+            hookEvent?.summary.contains("。。") == false,
+            "Workflow summaries should not duplicate terminal punctuation"
+        )
     }
+
+    let oldClosureSnapshot = WorkflowSemanticSnapshot.hook(content: """
+    \"\"\"只读扫描本地仓库的收尾状态。\"\"\"
+    """)
+    let newClosureSnapshot = WorkflowSemanticSnapshot.hook(content: """
+    \"\"\"只读扫描本地仓库的收尾状态。\"\"\"
+    parser.add_argument("--refresh-remotes")
+    patch_equivalent = True
+    upstream_ahead = 1
+    """)
+    let oldClosure = WorkflowFileFingerprint(
+        path: "/Users/dysania/.codex/hooks/repository-closure-audit.py",
+        kind: .hook,
+        label: "repository-closure-audit",
+        modifiedAt: now,
+        fingerprint: "closure-v1",
+        semanticSnapshot: oldClosureSnapshot
+    )
+    let newClosure = WorkflowFileFingerprint(
+        path: oldClosure.path,
+        kind: .hook,
+        label: oldClosure.label,
+        modifiedAt: now,
+        fingerprint: "closure-v2",
+        semanticSnapshot: newClosureSnapshot
+    )
+    let closureEvent = WorkflowChangeEventFactory().events(
+        previous: [oldClosure.path: oldClosure],
+        current: [newClosure],
+        observedAt: now
+    ).first
+    runner.expect(
+        closureEvent?.changes?.contains { $0.summary == "远端状态刷新" } == true,
+        "Repository closure updates should explain remote refresh support"
+    )
+    runner.expect(
+        closureEvent?.changes?.contains { $0.summary == "提交等价性判定" } == true,
+        "Repository closure updates should explain commit-equivalence checks"
+    )
+    runner.expect(
+        closureEvent?.changes?.contains { $0.summary == "默认分支与上游分离判断" } == true,
+        "Repository closure updates should explain the two comparison baselines"
+    )
 }

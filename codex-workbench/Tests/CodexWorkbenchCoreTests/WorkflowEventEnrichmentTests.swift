@@ -395,6 +395,106 @@ func runWorkflowEventEnrichmentTests(_ runner: inout TestRunner) {
             "A confirmed added file should not be described as a missing-old-snapshot update"
         )
     }
+
+    let repositoryURL = temporaryDirectory.appendingPathComponent("workflow-source-repository", isDirectory: true)
+    let sourceSkillURL = repositoryURL.appendingPathComponent("codex-task-continuity/SKILL.md")
+    let installedSkillURL = temporaryDirectory
+        .appendingPathComponent("installed/skills/codex-task-continuity/SKILL.md")
+    try? FileManager.default.createDirectory(
+        at: sourceSkillURL.deletingLastPathComponent(),
+        withIntermediateDirectories: true
+    )
+    try? FileManager.default.createDirectory(
+        at: installedSkillURL.deletingLastPathComponent(),
+        withIntermediateDirectories: true
+    )
+    let gitOldSkill = """
+    ---
+    name: codex-task-continuity
+    description: 管理每日摘要和仓库收尾。
+    ---
+    repository-closure-audit.py
+    """
+    let gitNewSkill = """
+    ---
+    name: codex-task-continuity
+    description: 管理每日摘要、周期任务健康和仓库收尾。
+    ---
+    repository-closure-audit.py
+    recurring-task-audit.py
+    """
+    try? gitOldSkill.write(to: sourceSkillURL, atomically: true, encoding: .utf8)
+    let didPrepareRepository = runGit(["init", "-q"], in: repositoryURL)
+        && runGit(["config", "user.name", "Codex Workbench Tests"], in: repositoryURL)
+        && runGit(["config", "user.email", "codex-workbench@example.invalid"], in: repositoryURL)
+        && runGit(["add", "codex-task-continuity/SKILL.md"], in: repositoryURL)
+        && runGit(["commit", "-q", "-m", "old skill"], in: repositoryURL)
+    try? gitNewSkill.write(to: sourceSkillURL, atomically: true, encoding: .utf8)
+    let didCommitUpdate = runGit(["add", "codex-task-continuity/SKILL.md"], in: repositoryURL)
+        && runGit(["commit", "-q", "-m", "add recurring audit"], in: repositoryURL)
+    try? gitNewSkill.write(to: installedSkillURL, atomically: true, encoding: .utf8)
+    let installedGitSkill = WorkflowFileCollector().collect(roots: [installedSkillURL]).first
+    runner.expect(didPrepareRepository && didCommitUpdate, "Git history fixture should be available")
+    if let installedGitSkill {
+        let gitLegacyEvent = OperationEvent(
+            schemaVersion: 1,
+            id: "evt-skill-git-history",
+            occurredAt: Date(timeIntervalSince1970: 200),
+            recordedAt: Date(timeIntervalSince1970: 205),
+            category: .skill,
+            action: "skill_updated",
+            title: "Skill已更新",
+            summary: "codex-task-continuity 的全局工作流定义已更新。",
+            status: .success,
+            importance: .important,
+            certainty: .confirmed,
+            actor: EventActor(type: .skill, id: "workflow-file-monitor", label: "codex-task-continuity"),
+            before: .object(["fingerprint": .string("old-skill-fingerprint")]),
+            after: .object(["fingerprint": .string(installedGitSkill.fingerprint)]),
+            evidence: [EventEvidence(
+                kind: "file_fingerprint",
+                label: "受控工作流文件指纹",
+                path: installedSkillURL.path
+            )]
+        )
+        let gitRevision = WorkflowEventHistoryEnricher().revisions(
+            events: [gitLegacyEvent],
+            catalog: CodexMetadataCatalog(),
+            currentWorkflowFiles: [installedGitSkill],
+            workflowSourceRoots: [repositoryURL],
+            recordedAt: Date(timeIntervalSince1970: 220)
+        ).first
+        runner.expect(
+            gitRevision?.changes?.contains {
+                $0.label == "新增能力" && $0.summary == "周期任务健康审计"
+            } == true,
+            "Matching Git before/after blobs should recover the exact Skill capability change"
+        )
+        runner.expect(
+            gitRevision?.changes?.contains { $0.label == "证据边界" } == false,
+            "Exact Git history should replace the current-snapshot fallback"
+        )
+        runner.expect(
+            gitRevision?.evidence.contains { $0.kind == "git_workflow_history" } == true,
+            "Exact Git enrichment should identify its evidence source"
+        )
+    }
+}
+
+private func runGit(_ arguments: [String], in directory: URL) -> Bool {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+    process.arguments = arguments
+    process.currentDirectoryURL = directory
+    process.standardOutput = FileHandle.nullDevice
+    process.standardError = FileHandle.nullDevice
+    do {
+        try process.run()
+        process.waitUntilExit()
+        return process.terminationStatus == 0
+    } catch {
+        return false
+    }
 }
 
 private func sessionLine(timestamp: String, payload: [String: Any]) -> String {
