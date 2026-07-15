@@ -16,14 +16,28 @@ public struct EvidenceReconciler: Sendable {
     public init() {}
 
     public func events(from snapshot: EvidenceSnapshot, recordedAt: Date = Date()) -> [OperationEvent] {
-        let contextEvents = snapshot.contextCards.map { contextEvent(from: $0, recordedAt: recordedAt) }
+        let contextEvents = snapshot.contextCards.map {
+            contextEvent(from: $0, catalog: snapshot.threadCatalog, recordedAt: recordedAt)
+        }
         let resetEvents = snapshot.automaticResets.map { resetEvent(from: $0, recordedAt: recordedAt) }
-        let lifecycleEvents = snapshot.lifecycleRecords.map { lifecycleEvent(from: $0, recordedAt: recordedAt) }
-        return (contextEvents + resetEvents + lifecycleEvents).sorted { $0.occurredAt > $1.occurredAt }
+        let lifecycleEvents = snapshot.lifecycleRecords.map {
+            lifecycleEvent(from: $0, catalog: snapshot.threadCatalog, recordedAt: recordedAt)
+        }
+        let digestEvents = snapshot.dailyDigests.map {
+            DailyDigestEventFactory().event(from: $0, recordedAt: recordedAt)
+        }
+        return (contextEvents + resetEvents + lifecycleEvents + digestEvents)
+            .sorted { $0.occurredAt > $1.occurredAt }
     }
 
-    private func contextEvent(from evidence: ContextCardEvidence, recordedAt: Date) -> OperationEvent {
-        let project = evidence.projectPath.map {
+    private func contextEvent(
+        from evidence: ContextCardEvidence,
+        catalog: CodexMetadataCatalog,
+        recordedAt: Date
+    ) -> OperationEvent {
+        let metadata = catalog.thread(id: evidence.threadID)
+        let projectPath = metadata?.projectPath ?? evidence.projectPath
+        let project = projectPath.map {
             EventProject(name: URL(fileURLWithPath: $0).lastPathComponent, path: $0)
         }
         return OperationEvent(
@@ -40,10 +54,10 @@ public struct EvidenceReconciler: Sendable {
             title: "上下文已压缩",
             summary: "PreCompact 已生成中文摘要卡片，供压缩后继续使用。",
             status: .success,
-            importance: .critical,
+            importance: .routine,
             certainty: .confirmed,
             actor: EventActor(type: .hook, id: "codex-context-summary-hook", label: "PreCompact Hook"),
-            thread: EventThread(id: evidence.threadID, title: nil, relation: .triggeredBy),
+            thread: EventThread(id: evidence.threadID, title: metadata?.title, relation: .triggeredBy),
             project: project,
             sourceChain: [
                 EventActor(type: .system, id: "pre-compact", label: evidence.trigger),
@@ -90,12 +104,19 @@ public struct EvidenceReconciler: Sendable {
         )
     }
 
-    private func lifecycleEvent(from record: LifecycleLedgerRecord, recordedAt: Date) -> OperationEvent {
+    private func lifecycleEvent(
+        from record: LifecycleLedgerRecord,
+        catalog: CodexMetadataCatalog,
+        recordedAt: Date
+    ) -> OperationEvent {
         let isTask = record.kind == .task
         let actionSuffix = record.event == "add" ? "added" : "updated"
         let sourceID = isTask ? "task-continuity-ledger" : "program-artifact-tracker"
         let sourceLabel = isTask ? "Task Continuity" : "Program Artifact Tracker"
         let statusText = record.item.status.map { " · 状态：\($0)" } ?? ""
+        let failedStatuses = Set(["blocked", "error", "failed", "failure"])
+        let failed = record.item.status.map { failedStatuses.contains($0.lowercased()) } ?? false
+        let metadata = record.item.threadID.flatMap(catalog.thread(id:))
         return OperationEvent(
             schemaVersion: 1,
             id: StableEventID.make(parts: [
@@ -113,12 +134,17 @@ public struct EvidenceReconciler: Sendable {
                 ? (record.event == "add" ? "已登记任务" : "任务记录已更新")
                 : (record.event == "add" ? "已登记任务成果" : "任务成果已更新"),
             summary: record.item.title + statusText,
-            status: .success,
-            importance: .important,
+            status: failed ? .failure : .success,
+            importance: failed ? .critical : .important,
             certainty: .confirmed,
             actor: EventActor(type: .hook, id: sourceID, label: sourceLabel),
-            thread: record.item.threadID.map { EventThread(id: $0, title: nil, relation: .source) },
-            project: EventProject(name: record.item.projectName, path: record.item.projectPath),
+            thread: record.item.threadID.map {
+                EventThread(id: $0, title: metadata?.title, relation: .source)
+            },
+            project: EventProject(
+                name: metadata?.projectName ?? record.item.projectName,
+                path: metadata?.projectPath ?? record.item.projectPath
+            ),
             evidence: [
                 EventEvidence(
                     kind: isTask ? "task_ledger" : "work_ledger",

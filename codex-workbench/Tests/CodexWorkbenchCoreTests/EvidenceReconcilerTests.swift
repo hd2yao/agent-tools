@@ -42,10 +42,21 @@ func runEvidenceReconcilerTests(_ runner: inout TestRunner) {
     runner.expect(taskRecord?.item.title == "线程关联项目工具", "Task ledger title should parse")
     runner.expect(taskRecord?.item.threadID == "019f4613-1b48-7d00-a66f-788db5765f21", "Task thread should parse")
 
+    let threadCatalog = CodexMetadataCatalog(records: [
+        CodexThreadMetadata(
+            id: "019f6067-342c-7b22-a9fc-cd50ded08d86",
+            rawTitle: "Add 操作时间轴日志",
+            projectPath: "/Users/dysania/program/tools",
+            createdAt: Date(timeIntervalSince1970: 1_784_000_000),
+            updatedAt: Date(timeIntervalSince1970: 1_784_036_000),
+            sourceThreadID: nil
+        ),
+    ])
     let snapshot = EvidenceSnapshot(
         contextCards: card.map { [$0] } ?? [],
         automaticResets: resets,
-        lifecycleRecords: taskRecord.map { [$0] } ?? []
+        lifecycleRecords: taskRecord.map { [$0] } ?? [],
+        threadCatalog: threadCatalog
     )
     let recordedAt = Date(timeIntervalSince1970: 1_784_036_000)
     let events = EvidenceReconciler().events(from: snapshot, recordedAt: recordedAt)
@@ -56,6 +67,8 @@ func runEvidenceReconcilerTests(_ runner: inout TestRunner) {
     runner.expect(contextEvent?.actor.type == .hook, "PreCompact should be attributed to a hook")
     runner.expect(contextEvent?.certainty == .confirmed, "Card metadata is confirmed evidence")
     runner.expect(contextEvent?.thread?.id == "019f6067-342c-7b22-a9fc-cd50ded08d86", "Context event should retain thread id")
+    runner.expect(contextEvent?.thread?.title == "Add 操作时间轴日志", "Context event should resolve conversation title")
+    runner.expect(contextEvent?.importance == .routine, "Context compaction should be a routine event")
 
     let resetEvent = events.first { $0.action == "reset_credit_consumed" }
     runner.expect(resetEvent?.category == .quota, "Reset outcome should become a quota event")

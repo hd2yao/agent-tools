@@ -182,17 +182,26 @@ public struct EvidenceSnapshot: Equatable, Sendable {
     public let contextCards: [ContextCardEvidence]
     public let automaticResets: [AutomaticResetEvidence]
     public let lifecycleRecords: [LifecycleLedgerRecord]
+    public let threadCatalog: CodexMetadataCatalog
+    public let dailyDigests: [DailyDigestEvidence]
+    public let workflowFiles: [WorkflowFileFingerprint]
     public let warnings: [String]
 
     public init(
         contextCards: [ContextCardEvidence] = [],
         automaticResets: [AutomaticResetEvidence] = [],
         lifecycleRecords: [LifecycleLedgerRecord] = [],
+        threadCatalog: CodexMetadataCatalog = CodexMetadataCatalog(),
+        dailyDigests: [DailyDigestEvidence] = [],
+        workflowFiles: [WorkflowFileFingerprint] = [],
         warnings: [String] = []
     ) {
         self.contextCards = contextCards
         self.automaticResets = automaticResets
         self.lifecycleRecords = lifecycleRecords
+        self.threadCatalog = threadCatalog
+        self.dailyDigests = dailyDigests
+        self.workflowFiles = workflowFiles
         self.warnings = warnings
     }
 }
@@ -202,17 +211,26 @@ public struct LocalEvidencePaths: Equatable, Sendable {
     public let taskLedgerURL: URL
     public let workLedgerURL: URL
     public let profileSwitcherDefaultsDomain: String
+    public let stateDatabaseURL: URL?
+    public let dailyDigestDirectory: URL?
+    public let workflowWatchRoots: [URL]
 
     public init(
         contextCardsDirectory: URL,
         taskLedgerURL: URL,
         workLedgerURL: URL,
-        profileSwitcherDefaultsDomain: String = "com.hd2yao.codex-profile-switcher"
+        profileSwitcherDefaultsDomain: String = "com.hd2yao.codex-profile-switcher",
+        stateDatabaseURL: URL? = nil,
+        dailyDigestDirectory: URL? = nil,
+        workflowWatchRoots: [URL] = []
     ) {
         self.contextCardsDirectory = contextCardsDirectory
         self.taskLedgerURL = taskLedgerURL
         self.workLedgerURL = workLedgerURL
         self.profileSwitcherDefaultsDomain = profileSwitcherDefaultsDomain
+        self.stateDatabaseURL = stateDatabaseURL
+        self.dailyDigestDirectory = dailyDigestDirectory
+        self.workflowWatchRoots = workflowWatchRoots
     }
 
     public static func standard(homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser) -> Self {
@@ -220,7 +238,19 @@ public struct LocalEvidencePaths: Equatable, Sendable {
         return Self(
             contextCardsDirectory: codexHome.appendingPathComponent("context-cards", isDirectory: true),
             taskLedgerURL: codexHome.appendingPathComponent("task-ledger/tasks.jsonl"),
-            workLedgerURL: codexHome.appendingPathComponent("work-ledger/work.jsonl")
+            workLedgerURL: codexHome.appendingPathComponent("work-ledger/work.jsonl"),
+            stateDatabaseURL: codexHome.appendingPathComponent("state_5.sqlite"),
+            dailyDigestDirectory: codexHome.appendingPathComponent("task-ledger/digests/daily", isDirectory: true),
+            workflowWatchRoots: [
+                codexHome.appendingPathComponent("AGENTS.md"),
+                codexHome.appendingPathComponent("config.toml"),
+                codexHome.appendingPathComponent("hooks.json"),
+                codexHome.appendingPathComponent("hooks", isDirectory: true),
+                codexHome.appendingPathComponent("automations", isDirectory: true),
+                codexHome.appendingPathComponent("skills", isDirectory: true),
+                codexHome.appendingPathComponent("plugins/personal", isDirectory: true),
+                homeDirectory.appendingPathComponent("program/codex-workflow-skills", isDirectory: true),
+            ]
         )
     }
 }
@@ -235,6 +265,7 @@ public struct LocalEvidenceReader {
         var cards: [ContextCardEvidence] = []
         var records: [LifecycleLedgerRecord] = []
         var warnings: [String] = []
+        var threadCatalog = CodexMetadataCatalog()
 
         let cardURLs = (try? FileManager.default.contentsOfDirectory(
             at: paths.contextCardsDirectory,
@@ -254,6 +285,12 @@ public struct LocalEvidenceReader {
         records += readLifecycleLedger(at: paths.taskLedgerURL, kind: .task, warnings: &warnings)
         records += readLifecycleLedger(at: paths.workLedgerURL, kind: .work, warnings: &warnings)
 
+        if let stateDatabaseURL = paths.stateDatabaseURL {
+            let metadata = CodexMetadataCatalogReader().read(databaseURL: stateDatabaseURL)
+            threadCatalog = metadata.catalog
+            warnings += metadata.warnings
+        }
+
         var preferenceValues = resetPreferences ?? [:]
         if resetPreferences == nil, let defaults = UserDefaults(suiteName: paths.profileSwitcherDefaultsDomain) {
             for (key, value) in defaults.dictionaryRepresentation() {
@@ -269,6 +306,9 @@ public struct LocalEvidenceReader {
             contextCards: cards.sorted { $0.generatedAt > $1.generatedAt },
             automaticResets: AutomaticResetEvidence.parse(preferences: preferenceValues),
             lifecycleRecords: records.sorted { $0.at > $1.at },
+            threadCatalog: threadCatalog,
+            dailyDigests: readDailyDigests(directory: paths.dailyDigestDirectory),
+            workflowFiles: WorkflowFileCollector().collect(roots: paths.workflowWatchRoots),
             warnings: warnings
         )
     }
@@ -286,6 +326,28 @@ public struct LocalEvidenceReader {
         return text.split(separator: "\n").compactMap {
             LifecycleLedgerRecord.parse(line: String($0), kind: kind)
         }
+    }
+
+    private func readDailyDigests(directory: URL?) -> [DailyDigestEvidence] {
+        guard let directory else { return [] }
+        let urls = (try? FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: [.contentModificationDateKey],
+            options: [.skipsHiddenFiles]
+        )) ?? []
+        return urls.compactMap { url in
+            let day = url.deletingPathExtension().lastPathComponent
+            guard
+                url.pathExtension.lowercased() == "md",
+                day.range(of: #"^\d{4}-\d{2}-\d{2}$"#, options: .regularExpression) != nil,
+                let values = try? url.resourceValues(forKeys: [.contentModificationDateKey]),
+                let modifiedAt = values.contentModificationDate
+            else {
+                return nil
+            }
+            return DailyDigestEvidence(day: day, generatedAt: modifiedAt, sourcePath: url.path)
+        }
+        .sorted { $0.generatedAt > $1.generatedAt }
     }
 }
 

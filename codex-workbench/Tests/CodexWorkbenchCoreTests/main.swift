@@ -22,6 +22,8 @@ runLedgerRepositoryTests(&runner)
 runActivityFilterTests(&runner)
 runEvidenceReconcilerTests(&runner)
 runQuotaObservationTests(&runner)
+runCodexMetadataCatalogTests(&runner)
+runWorkflowEvidenceTests(&runner)
 runAccountGatewayTests(&runner)
 runCodexIntegrationTests(&runner)
 
