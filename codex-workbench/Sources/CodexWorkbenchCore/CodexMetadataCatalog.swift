@@ -7,6 +7,7 @@ public struct CodexThreadMetadata: Codable, Equatable, Sendable {
     public let createdAt: Date
     public let updatedAt: Date
     public let sourceThreadID: String?
+    public let rolloutPath: String?
 
     public init(
         id: String,
@@ -14,7 +15,8 @@ public struct CodexThreadMetadata: Codable, Equatable, Sendable {
         projectPath: String,
         createdAt: Date,
         updatedAt: Date,
-        sourceThreadID: String?
+        sourceThreadID: String?,
+        rolloutPath: String? = nil
     ) {
         self.id = id
         self.title = Self.normalizedTitle(rawTitle)
@@ -22,6 +24,7 @@ public struct CodexThreadMetadata: Codable, Equatable, Sendable {
         self.createdAt = createdAt
         self.updatedAt = updatedAt
         self.sourceThreadID = sourceThreadID
+        self.rolloutPath = rolloutPath
     }
 
     public var projectName: String {
@@ -133,7 +136,11 @@ public struct EventContextEnricher: Sendable {
             let normalizedImportance: EventImportance = event.action == "context_compacted"
                 ? .routine
                 : event.importance
-            guard metadata != nil || normalizedImportance != event.importance else {
+            let hasRelatedMetadata = event.relatedThreads?.contains {
+                catalog.thread(id: $0.id) != nil
+                    && ($0.title == nil || $0.projectName == nil || $0.projectPath == nil)
+            } == true
+            guard metadata != nil || hasRelatedMetadata || normalizedImportance != event.importance else {
                 return event
             }
             return OperationEvent(
@@ -160,6 +167,18 @@ public struct EventContextEnricher: Sendable {
                     EventProject(name: $0.projectName, path: $0.projectPath)
                 },
                 account: event.account,
+                scope: event.scope,
+                changes: event.changes,
+                relatedThreads: event.relatedThreads?.map { related in
+                    let relatedMetadata = catalog.thread(id: related.id)
+                    return EventRelatedThread(
+                        role: related.role,
+                        id: related.id,
+                        title: related.title ?? relatedMetadata?.title,
+                        projectName: related.projectName ?? relatedMetadata?.projectName,
+                        projectPath: related.projectPath ?? relatedMetadata?.projectPath
+                    )
+                },
                 sourceChain: event.sourceChain,
                 before: event.before,
                 after: event.after,
@@ -195,7 +214,7 @@ public struct CodexMetadataCatalogReader: Sendable {
             "-json",
             databaseURL.path,
             """
-            SELECT id, title, cwd, created_at, updated_at, first_user_message
+            SELECT id, title, cwd, created_at, updated_at, first_user_message, rollout_path
             FROM threads
             ORDER BY updated_at DESC
             LIMIT 5000;
@@ -229,7 +248,8 @@ public struct CodexMetadataCatalogReader: Sendable {
                         projectPath: $0.cwd,
                         createdAt: Date(timeIntervalSince1970: TimeInterval($0.createdAt)),
                         updatedAt: Date(timeIntervalSince1970: TimeInterval($0.updatedAt)),
-                        sourceThreadID: CodexThreadMetadata.sourceThreadID(from: $0.firstUserMessage)
+                        sourceThreadID: CodexThreadMetadata.sourceThreadID(from: $0.firstUserMessage),
+                        rolloutPath: $0.rolloutPath
                     )
                 })
             )
@@ -249,6 +269,7 @@ private struct RawThreadRow: Decodable {
     let createdAt: Int64
     let updatedAt: Int64
     let firstUserMessage: String
+    let rolloutPath: String?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -257,6 +278,7 @@ private struct RawThreadRow: Decodable {
         case createdAt = "created_at"
         case updatedAt = "updated_at"
         case firstUserMessage = "first_user_message"
+        case rolloutPath = "rollout_path"
     }
 }
 

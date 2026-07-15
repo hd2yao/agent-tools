@@ -129,6 +129,60 @@ public struct EventAccount: Codable, Equatable, Sendable {
     }
 }
 
+public enum EventScope: String, Codable, Equatable, Sendable {
+    case account
+    case device
+    case globalWorkflow = "global_workflow"
+    case project
+    case thread
+}
+
+public struct EventChange: Codable, Equatable, Sendable {
+    public let label: String
+    public let summary: String
+    public let before: String?
+    public let after: String?
+
+    public init(
+        label: String,
+        summary: String,
+        before: String? = nil,
+        after: String? = nil
+    ) {
+        self.label = label
+        self.summary = summary
+        self.before = before
+        self.after = after
+    }
+}
+
+public enum EventRelatedThreadRole: String, Codable, Equatable, Sendable {
+    case deliveryTarget = "delivery_target"
+    case modificationSource = "modification_source"
+}
+
+public struct EventRelatedThread: Codable, Equatable, Sendable {
+    public let role: EventRelatedThreadRole
+    public let id: String
+    public let title: String?
+    public let projectName: String?
+    public let projectPath: String?
+
+    public init(
+        role: EventRelatedThreadRole,
+        id: String,
+        title: String? = nil,
+        projectName: String? = nil,
+        projectPath: String? = nil
+    ) {
+        self.role = role
+        self.id = id
+        self.title = title
+        self.projectName = projectName
+        self.projectPath = projectPath
+    }
+}
+
 public struct EventEvidence: Codable, Equatable, Sendable {
     public let kind: String
     public let label: String
@@ -200,6 +254,9 @@ public struct OperationEvent: Codable, Identifiable, Equatable, Sendable {
     public let thread: EventThread?
     public let project: EventProject?
     public let account: EventAccount?
+    public let scope: EventScope?
+    public let changes: [EventChange]?
+    public let relatedThreads: [EventRelatedThread]?
     public let sourceChain: [EventActor]
     public let before: JSONValue?
     public let after: JSONValue?
@@ -221,6 +278,9 @@ public struct OperationEvent: Codable, Identifiable, Equatable, Sendable {
         thread: EventThread? = nil,
         project: EventProject? = nil,
         account: EventAccount? = nil,
+        scope: EventScope? = nil,
+        changes: [EventChange]? = nil,
+        relatedThreads: [EventRelatedThread]? = nil,
         sourceChain: [EventActor] = [],
         before: JSONValue? = nil,
         after: JSONValue? = nil,
@@ -241,6 +301,9 @@ public struct OperationEvent: Codable, Identifiable, Equatable, Sendable {
         self.thread = thread
         self.project = project
         self.account = account
+        self.scope = scope
+        self.changes = changes
+        self.relatedThreads = relatedThreads
         self.sourceChain = sourceChain
         self.before = before
         self.after = after

@@ -32,6 +32,32 @@ func runActivityFilterTests(_ runner: inout TestRunner) {
     runner.expect(ActivityFilter(actorTypes: [.hook]).matches(event), "Actor filter should match")
     runner.expect(ActivityFilter(statuses: [.failure]).matches(event) == false, "Status filter should exclude")
 
+    let workflowEvent = OperationEvent(
+        schemaVersion: 1,
+        id: "evt-workflow",
+        occurredAt: event.occurredAt,
+        recordedAt: event.recordedAt,
+        category: .automation,
+        action: "automation_updated",
+        title: "Automation 已更新",
+        summary: "新增动态仓库操作预算。",
+        status: .success,
+        importance: .important,
+        certainty: .confirmed,
+        actor: EventActor(type: .automation, id: "workflow-file-monitor", label: "codex"),
+        scope: .globalWorkflow,
+        changes: [EventChange(label: "新增能力", summary: "动态仓库操作预算")],
+        relatedThreads: [EventRelatedThread(
+            role: .modificationSource,
+            id: "thread-workflow",
+            title: "修复每日摘要自动化",
+            projectName: "codex-workflow-skills",
+            projectPath: "/Users/dysania/program/codex-workflow-skills"
+        )]
+    )
+    runner.expect(ActivityFilter(query: "动态仓库").matches(workflowEvent), "Query should search structured workflow changes")
+    runner.expect(ActivityFilter(query: "每日摘要自动化").matches(workflowEvent), "Query should search related conversation titles")
+
     var calendar = Calendar(identifier: .gregorian)
     calendar.timeZone = TimeZone(secondsFromGMT: 8 * 3_600)!
     let nextDay = OperationEvent(

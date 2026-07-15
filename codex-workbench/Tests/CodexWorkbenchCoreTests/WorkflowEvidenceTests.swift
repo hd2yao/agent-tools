@@ -70,4 +70,71 @@ func runWorkflowEvidenceTests(_ runner: inout TestRunner) {
     runner.expect(digestEvent.action == "daily_digest_generated", "Daily digest should have an explicit action")
     runner.expect(digestEvent.importance == .important, "Daily digest should be more prominent than context compression")
     runner.expect(digestEvent.actor.type == .automation, "Daily digest should be attributed to automation")
+
+    let temporaryDirectory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("codex-workflow-semantic-\(UUID().uuidString)", isDirectory: true)
+    let automationURL = temporaryDirectory
+        .appendingPathComponent("automations/codex/automation.toml")
+    defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+    try? FileManager.default.createDirectory(
+        at: automationURL.deletingLastPathComponent(),
+        withIntermediateDirectories: true
+    )
+
+    let oldAutomation = """
+    version = 1
+    id = "codex"
+    name = "Codex 每日任务摘要与仓库收尾"
+    prompt = "DailyDigest\\ngh pr merge"
+    status = "ACTIVE"
+    rrule = "RRULE:FREQ=DAILY"
+    target_thread_id = "thread-target"
+    """
+    try? oldAutomation.write(to: automationURL, atomically: true, encoding: .utf8)
+    let oldSnapshot = WorkflowFileCollector().collect(roots: [automationURL]).first
+
+    let newAutomation = """
+    version = 1
+    id = "codex"
+    name = "Codex 每日任务摘要与仓库收尾"
+    prompt = "DailyDigest\\nclear-activity\\nrepository-action-budget.py\\ngit worktree remove\\n--duration-seconds\\nprivate marker must never persist"
+    status = "ACTIVE"
+    rrule = "RRULE:FREQ=DAILY"
+    target_thread_id = "thread-target"
+    """
+    try? newAutomation.write(to: automationURL, atomically: true, encoding: .utf8)
+    let newSnapshot = WorkflowFileCollector().collect(roots: [automationURL]).first
+
+    runner.expect(oldSnapshot?.semanticSnapshot != nil, "Automation collection should retain a safe semantic snapshot")
+    runner.expect(
+        newSnapshot?.semanticSnapshot?.capabilities.contains("动态仓库操作预算") == true,
+        "Automation snapshots should derive stable capability labels"
+    )
+    if let oldSnapshot, let newSnapshot {
+        let semanticEvents = WorkflowChangeEventFactory().events(
+            previous: [oldSnapshot.path: oldSnapshot],
+            current: [newSnapshot],
+            observedAt: now
+        )
+        let event = semanticEvents.first
+        runner.expect(
+            event?.summary.contains("动态仓库操作预算") == true,
+            "Automation list summaries should explain a concrete change"
+        )
+        runner.expect(
+            event?.changes?.contains { $0.summary == "动态仓库操作预算" } == true,
+            "Automation details should expose structured capability changes"
+        )
+        runner.expect(event?.scope == .globalWorkflow, "Automation changes should expose global workflow scope")
+        runner.expect(
+            event?.relatedThreads?.contains { $0.role == .deliveryTarget && $0.id == "thread-target" } == true,
+            "Automation target threads should be distinct from modification-source threads"
+        )
+        let encoded = try? LedgerWriter.encoder().encode(event)
+        let encodedText = encoded.map { String(decoding: $0, as: UTF8.self) } ?? ""
+        runner.expect(
+            encodedText.contains("private marker must never persist") == false,
+            "Full automation prompts must never enter the operation ledger"
+        )
+    }
 }

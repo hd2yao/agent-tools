@@ -42,6 +42,10 @@ public struct ActivityFilter: Equatable, Sendable {
         ]
         .compactMap { $0 }
         + event.sourceChain.flatMap { [$0.id, $0.label] }
+        + (event.changes ?? []).flatMap { [$0.label, $0.summary, $0.before, $0.after].compactMap { $0 } }
+        + (event.relatedThreads ?? []).flatMap {
+            [$0.id, $0.title, $0.projectName, $0.projectPath].compactMap { $0 }
+        }
 
         return searchable.contains {
             $0.localizedCaseInsensitiveContains(trimmedQuery)
