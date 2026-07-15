@@ -65,7 +65,7 @@ public enum AccountGatewayError: Error, Equatable, LocalizedError, Sendable {
 
     public var errorDescription: String? {
         switch self {
-        case .backendMissing: "账号模块不可用，请重新构建工具台。"
+        case .backendMissing: "账号模块不可用，请重新构建观测站。"
         case .invalidProfile: "账号名称不符合安全规则。"
         case .launchFailed: "无法启动账号模块。"
         case .processFailed(let code): "账号模块执行失败（退出码 \(code)）。"

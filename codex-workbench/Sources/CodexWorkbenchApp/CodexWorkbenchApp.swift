@@ -6,7 +6,7 @@ struct CodexWorkbenchApp: App {
     @StateObject private var model = WorkbenchAppModel()
 
     var body: some Scene {
-        Window("Codex 工具台", id: "main") {
+        Window("Codex 观测站", id: "main") {
             WorkbenchShell(model: model)
                 .frame(
                     minWidth: WorkbenchLayout.minimumWidth,
@@ -20,7 +20,7 @@ struct CodexWorkbenchApp: App {
         MenuBarExtra {
             MenuBarView(model: model)
         } label: {
-            Label("Codex 工具台", systemImage: "square.grid.2x2")
+            Label("Codex 观测站", systemImage: "scope")
         }
         .menuBarExtraStyle(.window)
 

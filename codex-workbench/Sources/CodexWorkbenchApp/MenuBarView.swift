@@ -13,13 +13,13 @@ struct MenuBarView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: WorkbenchSpacing.md) {
             HStack(spacing: WorkbenchSpacing.sm) {
-                Image(systemName: "square.grid.2x2.fill")
+                Image(systemName: "scope")
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(Color.accentColor)
                     .frame(width: 34, height: 34)
                     .background(Color.accentColor.opacity(0.11), in: RoundedRectangle(cornerRadius: 10))
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Codex 工具台")
+                    Text("Codex 观测站")
                         .font(.system(size: 14, weight: .semibold))
                     Text(model.isCodexRunning ? "Codex 正在运行" : "Codex 当前未运行")
                         .font(.system(size: 10))
@@ -33,7 +33,7 @@ struct MenuBarView: View {
 
             VStack(spacing: WorkbenchSpacing.xs) {
                 Button(action: showWorkbench) {
-                    Label("打开工具台", systemImage: "macwindow")
+                    Label("打开观测站", systemImage: "macwindow")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
@@ -124,7 +124,7 @@ struct MenuBarView: View {
         openWindow(id: "main")
         NSApp.activate(ignoringOtherApps: true)
         DispatchQueue.main.async {
-            NSApp.windows.first { $0.title == "Codex 工具台" }?.makeKeyAndOrderFront(nil)
+            NSApp.windows.first { $0.title == "Codex 观测站" }?.makeKeyAndOrderFront(nil)
         }
     }
 

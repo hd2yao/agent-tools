@@ -2,7 +2,7 @@
 
 ## 推荐方案
 
-新建独立原生 macOS App `Codex 工具台.app`。App 由一个常驻但轻量的状态层、一个窗口 Dashboard 和一个菜单栏入口组成。账号管理通过适配器调用构建时打包的 Profile Switcher 后端；跨任务日志使用独立的追加式 operation ledger，并由 reconciliation 层从现有本地证据补扫。
+新建独立原生 macOS App `Codex 观测站.app`。App 由一个常驻但轻量的状态层、一个窗口 Dashboard 和一个菜单栏入口组成。账号管理通过适配器调用构建时打包的 Profile Switcher 后端；跨任务日志使用独立的追加式 operation ledger，并由 reconciliation 层从现有本地证据补扫。
 
 ## 第一性原理评审
 
@@ -81,7 +81,7 @@ Design Lock 详见项目根目录 `DESIGN.md`。核心是“Calm Operations Cons
 | 自动显示窗口打扰用户 | 设置项默认可控，监听仅在工具台已运行时生效 | 关闭关联设置 |
 | UI 材质导致可读性差 | 内容卡使用不透明语义表面，截图在干净背景复验 | 切换为系统 window background |
 
-删除 `Codex 工具台.app` 和 `~/.codex/operation-ledger/` 即可完整回滚；不会改变 Codex session 和账号认证数据。
+删除 `Codex 观测站.app` 和 `~/.codex/operation-ledger/` 即可完整回滚；不会改变 Codex session 和账号认证数据。
 
 ## V1.1 状态变化扩展
 

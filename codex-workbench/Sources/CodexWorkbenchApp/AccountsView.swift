@@ -10,7 +10,7 @@ struct AccountsView: View {
                 PageHeader(
                     eyebrow: "Accounts",
                     title: "账号管理",
-                    description: "账号是工具台中的独立模块。最近任务、桌面默认和统计归因不会混作同一个“当前账号”。",
+                    description: "账号是观测站中的独立模块。最近任务、桌面默认和统计归因不会混作同一个“当前账号”。",
                     trailing: AnyView(
                         Button("刷新额度") {
                             Task { await model.refreshAll(refreshResetCredits: true) }
@@ -91,7 +91,7 @@ struct AccountsView: View {
                             QuietEmptyState(
                                 systemImage: "person.crop.circle.badge.questionmark",
                                 title: "没有可显示的账号",
-                                message: "独立 Profile Switcher 仍可继续使用；重新构建工具台可恢复账号模块。"
+                                message: "独立 Profile Switcher 仍可继续使用；重新构建观测站可恢复账号模块。"
                             )
                             .frame(maxWidth: .infinity)
                         }
@@ -105,7 +105,7 @@ struct AccountsView: View {
                         VStack(alignment: .leading, spacing: 4) {
                             Text("模块边界")
                                 .font(.system(size: 11, weight: .semibold))
-                            Text("工具台调用 Profile Switcher 的账号后端；Profile Switcher 仍可独立运行，也不会承载全局操作日志。")
+                            Text("观测站调用 Profile Switcher 的账号后端；Profile Switcher 仍可独立运行，也不会承载全局操作日志。")
                                 .font(.system(size: 10))
                                 .foregroundStyle(.secondary)
                         }

@@ -21,8 +21,8 @@ struct WorkbenchSettingsView: View {
     var body: some View {
         Form {
             Section("启动关联") {
-                Toggle("打开 Codex 时显示工具台", isOn: $showWhenCodexLaunches)
-                Toggle("登录 Mac 时启动工具台", isOn: startAtLoginBinding)
+                Toggle("打开 Codex 时显示观测站", isOn: $showWhenCodexLaunches)
+                Toggle("登录 Mac 时启动观测站", isOn: startAtLoginBinding)
                 if let loginItemError {
                     Text(loginItemError)
                         .font(.caption)
@@ -31,7 +31,7 @@ struct WorkbenchSettingsView: View {
             }
 
             Section("说明") {
-                Text("登录启动让菜单栏入口始终可用；Codex 启动关联只负责显示工具台，不会改变账号或任务。")
+                Text("登录启动让菜单栏入口始终可用；Codex 启动关联只负责显示观测站，不会改变账号或任务。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

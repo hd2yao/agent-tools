@@ -15,7 +15,7 @@ func runAccountGatewayTests(_ runner: inout TestRunner) {
     runner.expect(decoded?.profiles.first?.rateLimits.reachedType == "primary", "Official reached state should decode")
 
     let pythonURL = URL(fileURLWithPath: "/usr/bin/python3")
-    let helperURL = URL(fileURLWithPath: "/Applications/Codex 工具台.app/Contents/Resources/codex-profile-switcher/codex_profile.py")
+    let helperURL = URL(fileURLWithPath: "/Applications/Codex 观测站.app/Contents/Resources/codex-profile-switcher/codex_profile.py")
     let builder = AccountCommandBuilder(pythonURL: pythonURL, helperURL: helperURL)
     let status = builder.statusCommand(refreshResetCredits: false)
     runner.expect(status.executableURL == pythonURL, "Status should use the selected Python runtime")

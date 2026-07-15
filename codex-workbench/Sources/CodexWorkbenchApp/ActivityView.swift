@@ -14,7 +14,7 @@ struct ActivityView: View {
                 PageHeader(
                     eyebrow: "Activity",
                     title: "操作日志",
-                    description: "最新操作在上。查看触发来源、任务关系、置信度与脱敏证据。"
+                    description: "最新变化在上。项目、对话、触发来源和判断依据都可定位。"
                 )
                 ActivityFilterBar(model: model)
             }
@@ -76,6 +76,7 @@ private struct ActivityFilterBar: View {
                 Text("全部级别").tag(Optional<EventImportance>.none)
                 Text("关键").tag(Optional(EventImportance.critical))
                 Text("重要").tag(Optional(EventImportance.important))
+                Text("常规").tag(Optional(EventImportance.routine))
                 Text("诊断").tag(Optional(EventImportance.diagnostic))
             }
             .labelsHidden()
@@ -207,25 +208,31 @@ private struct ActivityTimelineRow: View {
                     VStack(spacing: 0) {
                         ZStack {
                             Circle()
-                                .fill(event.category.color.opacity(0.14))
-                                .frame(width: 20, height: 20)
+                                .fill(event.importance.color.opacity(event.importance == .routine ? 0.08 : 0.14))
+                                .frame(width: event.importance.markerSize, height: event.importance.markerSize)
+                            Circle()
+                                .stroke(event.importance.color.opacity(0.22), lineWidth: 0.5)
+                                .frame(width: event.importance.markerSize, height: event.importance.markerSize)
                             Image(systemName: event.category.systemImage)
                                 .font(.system(size: 9, weight: .bold))
-                                .foregroundStyle(event.category.color)
+                                .foregroundStyle(event.importance == .routine ? Color.secondary : event.category.color)
                         }
                         Rectangle()
-                            .fill(Color.workbenchBorder.opacity(0.5))
-                            .frame(width: 1, height: 42)
+                            .fill(Color.workbenchBorder.opacity(event.importance == .routine ? 0.35 : 0.62))
+                            .frame(width: 1, height: 66)
                     }
-                    .frame(width: 20)
+                    .frame(width: 24)
 
                     VStack(alignment: .leading, spacing: 5) {
                         HStack(spacing: WorkbenchSpacing.xs) {
                             Text(event.title)
-                                .font(.system(size: 12, weight: .semibold))
+                                .font(.system(size: event.importance == .diagnostic ? 11 : 12, weight: event.importance.titleWeight))
                                 .foregroundStyle(.primary)
                                 .lineLimit(1)
                             Spacer(minLength: WorkbenchSpacing.sm)
+                            if event.importance != .routine {
+                                StatusChip(event.importance.displayName, color: event.importance.color)
+                            }
                             StatusChip(event.status.displayName, color: event.status.color)
                         }
                         Text(event.summary)
@@ -233,21 +240,12 @@ private struct ActivityTimelineRow: View {
                             .foregroundStyle(.secondary)
                             .lineLimit(2)
                             .fixedSize(horizontal: false, vertical: true)
+                        ActivityScopeLine(event: event)
                         HStack(spacing: 6) {
                             Label(event.actor.label, systemImage: "bolt.horizontal.circle")
                             Text("·")
                             Text(event.certainty.displayName)
                                 .foregroundStyle(event.certainty.color)
-                            if let threadTitle = event.thread?.title, !threadTitle.isEmpty {
-                                Text("·")
-                                Text(threadTitle).lineLimit(1)
-                            } else if event.thread?.id != nil {
-                                Text("· 已关联任务")
-                            }
-                            if let profile = event.account?.profile {
-                                Text("·")
-                                Text(profile).lineLimit(1)
-                            }
                         }
                         .font(.system(size: 9))
                         .foregroundStyle(.tertiary)
@@ -281,6 +279,59 @@ private struct ActivityTimelineRow: View {
     }
 }
 
+private struct ActivityScopeLine: View {
+    let event: OperationEvent
+
+    var body: some View {
+        if event.project != nil || event.thread != nil || event.account != nil {
+            HStack(spacing: 6) {
+                if let project = event.project {
+                    ScopePill(
+                        text: project.name ?? project.path ?? "未知项目",
+                        systemImage: "folder"
+                    )
+                }
+                if let thread = event.thread {
+                    ScopePill(
+                        text: thread.title ?? compactID(thread.id) ?? "未命名对话",
+                        systemImage: "bubble.left"
+                    )
+                }
+                if let account = event.account {
+                    ScopePill(
+                        text: account.profile ?? account.label ?? "全局账号",
+                        systemImage: "person.crop.circle"
+                    )
+                }
+                if event.account != nil, event.project == nil, event.thread == nil {
+                    ScopePill(text: "全局事件", systemImage: "globe")
+                }
+                Spacer(minLength: 0)
+            }
+        }
+    }
+
+    private func compactID(_ id: String?) -> String? {
+        guard let id, !id.isEmpty else { return nil }
+        return "对话 …\(id.suffix(8))"
+    }
+}
+
+private struct ScopePill: View {
+    let text: String
+    let systemImage: String
+
+    var body: some View {
+        Label(text, systemImage: systemImage)
+            .font(.system(size: 9, weight: .medium))
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 3)
+            .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 5))
+    }
+}
+
 struct ActivityInspector: View {
     let event: OperationEvent
     var inline = false
@@ -296,7 +347,7 @@ struct ActivityInspector: View {
                             .font(.system(size: 10, weight: .semibold))
                             .foregroundStyle(event.category.color)
                         Spacer()
-                        StatusChip(event.certainty.displayName, color: event.certainty.color)
+                        StatusChip(event.importance.displayName, color: event.importance.color)
                     }
                     Text(event.title)
                         .font(.system(size: inline ? 15 : 17, weight: .semibold))
@@ -307,40 +358,50 @@ struct ActivityInspector: View {
                     Text(event.occurredAt.formatted(date: .abbreviated, time: .standard))
                         .font(.system(size: 10, design: .monospaced))
                         .foregroundStyle(.tertiary)
-                }
-
-                InspectorSection(title: "来源") {
-                    InspectorValue(label: "主体", value: "\(event.actor.type.displayName) · \(event.actor.label)")
-                    ForEach(Array(event.sourceChain.enumerated()), id: \.offset) { index, actor in
-                        InspectorValue(label: index == 0 ? "来源链" : "", value: "\(index + 1). \(actor.label)")
+                    HStack(spacing: WorkbenchSpacing.xs) {
+                        StatusChip(event.certainty.displayName, color: event.certainty.color)
+                        Text(event.certainty.explanation)
+                            .font(.system(size: 9))
+                            .foregroundStyle(.tertiary)
                     }
                 }
 
                 if event.thread != nil || event.project != nil || event.account != nil {
                     InspectorSection(title: "定位") {
+                        if let project = event.project {
+                            InspectorValue(label: "项目", value: project.name ?? "未知项目")
+                            if let path = project.path {
+                                InspectorValue(label: "路径", value: path, monospaced: true)
+                            }
+                        }
                         if let thread = event.thread {
-                            InspectorValue(
-                                label: "任务",
-                                value: thread.title ?? thread.id ?? "未命名任务"
-                            )
-                            InspectorValue(label: "关系", value: thread.relation.rawValue)
+                            InspectorValue(label: "对话", value: thread.title ?? "未命名对话")
+                            InspectorValue(label: "关系", value: thread.relation.displayName)
+                            if let threadID = thread.id {
+                                InspectorValue(label: "对话 ID", value: threadID, monospaced: true)
+                            }
                             if let threadID = thread.id,
                                CodexIntegration.threadURL(for: threadID) != nil {
                                 Button {
                                     CodexIntegrationService.openThread(threadID)
                                 } label: {
-                                    Label("在 Codex 中打开任务", systemImage: "arrow.up.forward.app")
+                                    Label("在 Codex 中打开对话", systemImage: "arrow.up.forward.app")
                                 }
                                 .buttonStyle(.bordered)
                                 .controlSize(.small)
                             }
                         }
-                        if let project = event.project {
-                            InspectorValue(label: "项目", value: project.name ?? project.path ?? "—")
-                        }
                         if let account = event.account {
-                            InspectorValue(label: "账号", value: account.profile ?? account.label ?? "—")
+                            InspectorValue(label: "账号", value: account.profile ?? account.label ?? "全局账号")
                         }
+                    }
+                }
+
+                InspectorSection(title: "来源") {
+                    InspectorValue(label: "主体", value: "\(event.actor.type.displayName) · \(event.actor.label)")
+                    InspectorValue(label: "事件", value: event.action, monospaced: true)
+                    ForEach(Array(event.sourceChain.enumerated()), id: \.offset) { index, actor in
+                        InspectorValue(label: index == 0 ? "来源链" : "", value: "\(index + 1). \(actor.label)")
                     }
                 }
 
@@ -402,6 +463,7 @@ private struct InspectorSection<Content: View>: View {
 private struct InspectorValue: View {
     let label: String
     let value: String
+    var monospaced = false
 
     var body: some View {
         HStack(alignment: .top, spacing: WorkbenchSpacing.xs) {
@@ -410,7 +472,7 @@ private struct InspectorValue: View {
                 .foregroundStyle(.tertiary)
                 .frame(width: 44, alignment: .leading)
             Text(value)
-                .font(.system(size: 10))
+                .font(.system(size: 10, design: monospaced ? .monospaced : .default))
                 .foregroundStyle(.secondary)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)

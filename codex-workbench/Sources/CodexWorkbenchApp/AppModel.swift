@@ -226,10 +226,10 @@ final class WorkbenchAppModel: ObservableObject {
             status: .success,
             importance: .critical,
             certainty: .confirmed,
-            actor: EventActor(type: .app, id: "codex-workbench", label: "Codex 工具台"),
+            actor: EventActor(type: .app, id: "codex-workbench", label: "Codex 观测站"),
             account: EventAccount(profile: profile),
             sourceChain: [
-                EventActor(type: .app, id: "codex-workbench", label: "Codex 工具台"),
+                EventActor(type: .app, id: "codex-workbench", label: "Codex 观测站"),
                 EventActor(type: .app, id: "codex-profile-switcher", label: "Profile Switcher"),
             ],
             before: previousProfile.map { .object(["desktop_profile": .string($0)]) },

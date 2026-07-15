@@ -85,15 +85,15 @@ struct WorkbenchShell: View {
         .listStyle(.sidebar)
         .safeAreaInset(edge: .top, spacing: 0) {
             HStack(spacing: WorkbenchSpacing.sm) {
-                Image(systemName: "square.grid.2x2")
+                Image(systemName: "scope")
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(Color.accentColor)
                     .frame(width: 28, height: 28)
                     .background(Color.accentColor.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("Codex 工具台")
+                    Text("Codex 观测站")
                         .font(.system(size: 13, weight: .semibold))
-                    Text("本地运行控制台")
+                    Text("本地状态观测与操作台账")
                         .font(.system(size: 9))
                         .foregroundStyle(.tertiary)
                 }

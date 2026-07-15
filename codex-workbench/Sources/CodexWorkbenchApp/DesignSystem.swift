@@ -243,9 +243,17 @@ extension EventStatus {
 extension EventCertainty {
     var displayName: String {
         switch self {
-        case .confirmed: "确定"
-        case .inferred: "推断"
-        case .unverified: "无法证实"
+        case .confirmed: "已核实"
+        case .inferred: "根据证据推断"
+        case .unverified: "尚无足够证据"
+        }
+    }
+
+    var explanation: String {
+        switch self {
+        case .confirmed: "来自明确的系统记录或结构化关系。"
+        case .inferred: "由前后状态和时间窗口推断，官方未提供事件原因。"
+        case .unverified: "已观察到线索，但当前证据不足以确认原因。"
         }
     }
 
@@ -254,6 +262,57 @@ extension EventCertainty {
         case .confirmed: .secondary
         case .inferred: .orange
         case .unverified: .red
+        }
+    }
+}
+
+extension EventImportance {
+    var displayName: String {
+        switch self {
+        case .critical: "关键变更"
+        case .important: "重要"
+        case .routine: "常规"
+        case .diagnostic: "诊断"
+        }
+    }
+
+    var color: Color {
+        switch self {
+        case .critical: .orange
+        case .important: .indigo
+        case .routine: .secondary
+        case .diagnostic: .secondary
+        }
+    }
+
+    var markerSize: CGFloat {
+        switch self {
+        case .critical: 24
+        case .important: 22
+        case .routine: 18
+        case .diagnostic: 16
+        }
+    }
+
+    var titleWeight: Font.Weight {
+        switch self {
+        case .critical: .bold
+        case .important: .semibold
+        case .routine: .medium
+        case .diagnostic: .regular
+        }
+    }
+}
+
+extension EventThreadRelation {
+    var displayName: String {
+        switch self {
+        case .activeAtTime: "发生时所在对话"
+        case .source: "来源对话"
+        case .target: "接续后的对话"
+        case .triggeredBy: "由该对话触发"
+        case .unrelated: "无直接关系"
+        case .unknown: "关系未知"
         }
     }
 }
