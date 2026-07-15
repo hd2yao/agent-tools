@@ -120,6 +120,52 @@ public struct CodexMetadataCatalog: Codable, Equatable, Sendable {
     }
 }
 
+public struct EventContextEnricher: Sendable {
+    public init() {}
+
+    public func enrich(
+        events: [OperationEvent],
+        catalog: CodexMetadataCatalog
+    ) -> [OperationEvent] {
+        events.map { event in
+            guard
+                let threadID = event.thread?.id,
+                let metadata = catalog.thread(id: threadID)
+            else {
+                return event
+            }
+            return OperationEvent(
+                schemaVersion: event.schemaVersion,
+                id: event.id,
+                occurredAt: event.occurredAt,
+                recordedAt: event.recordedAt,
+                category: event.category,
+                action: event.action,
+                title: event.title,
+                summary: event.summary,
+                status: event.status,
+                importance: event.importance,
+                certainty: event.certainty,
+                actor: event.actor,
+                thread: EventThread(
+                    id: threadID,
+                    title: event.thread?.title ?? metadata.title,
+                    relation: event.thread?.relation ?? .unknown
+                ),
+                project: event.project ?? EventProject(
+                    name: metadata.projectName,
+                    path: metadata.projectPath
+                ),
+                account: event.account,
+                sourceChain: event.sourceChain,
+                before: event.before,
+                after: event.after,
+                evidence: event.evidence
+            )
+        }
+    }
+}
+
 public struct CodexMetadataReadResult: Equatable, Sendable {
     public let catalog: CodexMetadataCatalog
     public let warnings: [String]

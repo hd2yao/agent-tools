@@ -7,6 +7,7 @@ private struct LedgerRefreshResult: Sendable {
     let events: [OperationEvent]
     let warnings: [String]
     let appendedCount: Int
+    let snapshot: EvidenceSnapshot
 }
 
 private struct AccountRefreshResult: Sendable {
@@ -32,12 +33,17 @@ final class WorkbenchAppModel: ObservableObject {
     @Published var selectedEventID: String?
 
     private var hasBootstrapped = false
+    private var pollingTask: Task<Void, Never>?
     private let ledgerURL: URL
+    private let observationStateURL: URL
     private let accountGateway: AccountGateway?
+    private let officialRateLimitObserver = OfficialRateLimitObserver()
 
     init() {
         ledgerURL = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".codex/operation-ledger/events.jsonl")
+        observationStateURL = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".codex/operation-ledger/state/observation-state.json")
         accountGateway = AccountBackendLocator.bundled() ?? Self.developmentAccountGateway()
         updateCodexRunningState()
     }
@@ -78,6 +84,13 @@ final class WorkbenchAppModel: ObservableObject {
         guard !hasBootstrapped else { return }
         hasBootstrapped = true
         Task { await refreshAll() }
+        pollingTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(60))
+                guard !Task.isCancelled else { return }
+                await self?.refreshAll(refreshResetCredits: true)
+            }
+        }
     }
 
     func refreshAll(refreshResetCredits: Bool = false) async {
@@ -94,7 +107,8 @@ final class WorkbenchAppModel: ObservableObject {
             return LedgerRefreshResult(
                 events: loaded.events,
                 warnings: snapshot.warnings + writeResult.warnings + loaded.warnings.map(\.message),
-                appendedCount: writeResult.appendedCount
+                appendedCount: writeResult.appendedCount,
+                snapshot: snapshot
             )
         }.value
 
@@ -115,17 +129,51 @@ final class WorkbenchAppModel: ObservableObject {
         }.value
 
         let ledger = await ledgerResult
-        events = ledger.events
-        ledgerWarnings = ledger.warnings
-        lastUpdated = Date()
-
         let account = await accountResult
         if let payload = account.payload {
             accountPayload = payload
         }
         accountError = account.errorMessage
+
+        let observationStateURL = observationStateURL
+        let observedAt = Date()
+        let observationResult = await Task.detached(priority: .utility) {
+            let store = ObservationStateStore()
+            let previous = store.load(from: observationStateURL)
+            let reconciliation = ObservationStateReconciler().reconcile(
+                previous: previous,
+                evidence: ledger.snapshot,
+                accountPayload: account.payload,
+                existingEvents: ledger.events,
+                observedAt: observedAt
+            )
+            let writeResult = LedgerWriter().append(events: reconciliation.events, to: ledgerURL)
+            let didSave = store.save(reconciliation.state, to: observationStateURL)
+            let loaded = LedgerRepository().load(from: ledgerURL)
+            var warnings = ledger.warnings + writeResult.warnings + loaded.warnings.map(\.message)
+            if !didSave {
+                warnings.append("无法保存操作日志观察基线。")
+            }
+            return LedgerRefreshResult(
+                events: EventContextEnricher().enrich(
+                    events: loaded.events,
+                    catalog: ledger.snapshot.threadCatalog
+                ),
+                warnings: warnings,
+                appendedCount: ledger.appendedCount + writeResult.appendedCount,
+                snapshot: ledger.snapshot
+            )
+        }.value
+
+        events = observationResult.events
+        ledgerWarnings = observationResult.warnings
+        configureOfficialRateLimitObserver()
         lastUpdated = Date()
         isRefreshing = false
+    }
+
+    func handleSystemWake() {
+        Task { await refreshAll(refreshResetCredits: true) }
     }
 
     func selectEvent(_ event: OperationEvent) {
@@ -189,6 +237,19 @@ final class WorkbenchAppModel: ObservableObject {
             evidence: [EventEvidence(kind: "app_action", label: "账号切换完成")]
         )
         _ = LedgerWriter().append(events: [event], to: ledgerURL)
+    }
+
+    private func configureOfficialRateLimitObserver() {
+        guard
+            let profileName = desktopProfileName,
+            let profileHome = accountPayload?.profiles.first(where: { $0.name == profileName })?.path
+        else {
+            officialRateLimitObserver.stop()
+            return
+        }
+        officialRateLimitObserver.start(profileHome: profileHome) { [weak self] in
+            Task { await self?.refreshAll(refreshResetCredits: true) }
+        }
     }
 
     private static func developmentAccountGateway() -> AccountGateway? {

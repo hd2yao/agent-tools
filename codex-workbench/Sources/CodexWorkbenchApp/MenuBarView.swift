@@ -111,6 +111,13 @@ struct MenuBarView: View {
         ) { _ in
             model.updateCodexRunningState()
         }
+        .onReceive(
+            NSWorkspace.shared.notificationCenter.publisher(
+                for: NSWorkspace.didWakeNotification
+            )
+        ) { _ in
+            model.handleSystemWake()
+        }
     }
 
     private func showWorkbench() {
