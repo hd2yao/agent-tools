@@ -35,6 +35,7 @@ public enum EventImportance: String, Codable, CaseIterable, Sendable {
     case critical
     case diagnostic
     case important
+    case routine
 
     public init(from decoder: Decoder) throws {
         let value = try decoder.singleValueContainer().decode(String.self)

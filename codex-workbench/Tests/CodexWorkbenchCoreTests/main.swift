@@ -21,6 +21,7 @@ runAppContractsTests(&runner)
 runLedgerRepositoryTests(&runner)
 runActivityFilterTests(&runner)
 runEvidenceReconcilerTests(&runner)
+runQuotaObservationTests(&runner)
 runAccountGatewayTests(&runner)
 runCodexIntegrationTests(&runner)
 
