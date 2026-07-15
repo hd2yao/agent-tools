@@ -144,6 +144,52 @@ func runQuotaObservationTests(_ runner: inout TestRunner) {
         "Ordinary quota consumption should be retained as a diagnostic state change"
     )
 
+    let rollingResetTime = factory.events(
+        previous: QuotaObservation(
+            profile: "unused-profile",
+            observedAt: Date(timeIntervalSince1970: 15_000),
+            remainingPercent: 100,
+            resetsAt: Date(timeIntervalSince1970: 25_000),
+            resetCredits: 1,
+            reachedType: nil
+        ),
+        current: QuotaObservation(
+            profile: "unused-profile",
+            observedAt: Date(timeIntervalSince1970: 15_060),
+            remainingPercent: 100,
+            resetsAt: Date(timeIntervalSince1970: 25_060),
+            resetCredits: 1,
+            reachedType: nil
+        )
+    )
+    runner.expect(
+        rollingResetTime.contains { $0.action == "quota_reset_time_updated" } == false,
+        "A reset deadline that moves exactly with observation time is a derived rolling value, not an event"
+    )
+
+    let meaningfulResetTime = factory.events(
+        previous: QuotaObservation(
+            profile: "hd-master",
+            observedAt: Date(timeIntervalSince1970: 16_000),
+            remainingPercent: 50,
+            resetsAt: Date(timeIntervalSince1970: 26_000),
+            resetCredits: 3,
+            reachedType: nil
+        ),
+        current: QuotaObservation(
+            profile: "hd-master",
+            observedAt: Date(timeIntervalSince1970: 16_060),
+            remainingPercent: 50,
+            resetsAt: Date(timeIntervalSince1970: 27_000),
+            resetCredits: 3,
+            reachedType: nil
+        )
+    )
+    runner.expect(
+        meaningfulResetTime.contains { $0.action == "quota_reset_time_updated" },
+        "A reset deadline that changes independently should remain in the ledger"
+    )
+
     let unchanged = factory.events(previous: officialCurrent, current: QuotaObservation(
         profile: officialCurrent.profile,
         observedAt: Date(timeIntervalSince1970: 11_120),

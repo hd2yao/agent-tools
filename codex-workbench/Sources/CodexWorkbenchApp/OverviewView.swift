@@ -5,7 +5,9 @@ struct OverviewView: View {
     @ObservedObject var model: WorkbenchAppModel
 
     private var recentEvents: [OperationEvent] {
-        Array(model.events.prefix(7))
+        Array(model.events.filter {
+            $0.importance == .critical || $0.importance == .important
+        }.prefix(7))
     }
 
     var body: some View {
