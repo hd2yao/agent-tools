@@ -91,6 +91,30 @@ Design Lock 详见项目根目录 `DESIGN.md`。核心是“Calm Operations Cons
 - 重要性扩展为 `关键 / 重要 / 常规 / 诊断`；普通额度消耗和单独的刷新时间变化只更新基线，不进入时间轴。
 - 产品改名为 `Codex 观测站`，bundle id 不变，安装脚本负责旧 App 名称迁移。
 
+## V1.2 工作流变更解释方案
+
+- `WorkflowFileFingerprint` 增加可选的脱敏语义快照；旧观察状态仍可解码，新状态不保存完整 prompt。
+- Automation 快照解析 `name / status / rrule / target_thread_id`，并从 prompt 派生稳定的能力标签；新旧快照差异生成 `EventChange`。
+- `OperationEvent` 增加可选的 `scope / changes / related_threads`，兼容现有 schema；`thread` 保留主要定位，`related_threads` 明确角色。
+- 新增本地 Session 证据关联器：只扫描事件时间附近的 rollout 结构化工具调用，提取 Automation ID、来源线程和目标线程，不保存调用原文。
+- 新增追加式事件 revision：相同事件 ID 以更新的 `recorded_at` 追加增强版本，Repository 继续选择最新版本；不原地破坏历史 JSONL。
+- 时间轴行优先显示可读摘要与“全局工作流 / 来源对话”标签；详情顺序调整为“本次改动 -> 归属 -> 来源 -> 技术状态 -> 证据”。
+
+### V1.2 第一性原理评审
+
+- 真实目标是让用户恢复因果关系，不是展示文件监视器内部实现。
+- 最小可用结果必须同时包含改动内容、修改来源和运行目标；只有其中一项仍不足以解释事件。
+- 直接保存完整 prompt 虽然最容易做 diff，但违反隐私与低噪声边界；稳定能力标签和结构化字段差异足以覆盖本轮需求。
+
+### V1.2 风险与回滚
+
+| 风险 | 缓解 | 回滚 |
+|---|---|---|
+| Session 关联误配 | 时间窗口 + Automation ID + 结构化工具名三重约束；无法唯一匹配则不关联 | 停用 Session 回填，仅保留文件语义差异 |
+| 旧观察状态不兼容 | 新字段全部可选，fixture 覆盖旧 JSON 解码 | 删除新可选字段，继续读取 fingerprint |
+| 能力摘要误导 | 只使用显式命令/关键词映射；无法识别时显示降级文案 | 仅显示字段变化和文件路径 |
+| revision 重复增长 | 仅当最新事件缺少增强字段时追加，同一增强结果幂等 | 停用 revision 写入，内存展示不落盘 |
+
 ## 执行契约
 
 ### Intent Lock
@@ -106,6 +130,7 @@ Design Lock 详见项目根目录 `DESIGN.md`。核心是“Calm Operations Cons
 
 - 必须把事实、推断、无法证实明确分开。
 - 明确不改变现有 Profile Switcher 独立运行能力和账号认证文件内容。
+- V1.2 不记录完整 Automation prompt 或完整 Session 内容，只记录脱敏结构化差异和线程定位元数据。
 
 ### Design Constraints
 
@@ -131,3 +156,4 @@ Design Lock 详见项目根目录 `DESIGN.md`。核心是“Calm Operations Cons
 - 如果需要修改认证存储、Codex 私有协议或新增网络服务，回到 spec 并暂停。
 - 如果真实 payload 无法支持账号页面，回到 plan 重新定义适配边界。
 - 如果任一截图存在越界、裁切、错误“当前账号”语义，视为失败并返工。
+- 如果来源对话只能依赖标题相似或宽泛时间猜测，停止关联并降级为“未定位”，不得写成已核实。
