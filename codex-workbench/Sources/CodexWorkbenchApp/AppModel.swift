@@ -161,6 +161,7 @@ final class WorkbenchAppModel: ObservableObject {
             let workflowRevisions = WorkflowEventHistoryEnricher().revisions(
                 events: loaded.events,
                 catalog: ledger.snapshot.threadCatalog,
+                currentWorkflowFiles: ledger.snapshot.workflowFiles,
                 recordedAt: observedAt
             )
             let revisionWriteResult = LedgerWriter().appendRevisions(

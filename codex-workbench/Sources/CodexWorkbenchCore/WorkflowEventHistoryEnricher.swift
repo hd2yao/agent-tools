@@ -5,6 +5,7 @@ public struct AutomationUpdateEvidence: Equatable, Sendable {
     public let targetThreadID: String?
     public let previousSnapshot: WorkflowSemanticSnapshot?
     public let currentSnapshot: WorkflowSemanticSnapshot
+    public let directChanges: [EventChange]
     public let evidencePath: String
 
     public init(
@@ -12,12 +13,14 @@ public struct AutomationUpdateEvidence: Equatable, Sendable {
         targetThreadID: String?,
         previousSnapshot: WorkflowSemanticSnapshot?,
         currentSnapshot: WorkflowSemanticSnapshot,
+        directChanges: [EventChange] = [],
         evidencePath: String
     ) {
         self.sourceThread = sourceThread
         self.targetThreadID = targetThreadID
         self.previousSnapshot = previousSnapshot
         self.currentSnapshot = currentSnapshot
+        self.directChanges = directChanges
         self.evidencePath = evidencePath
     }
 }
@@ -88,7 +91,7 @@ public struct AutomationSessionEvidenceCollector: Sendable {
                 abs(timestamp.timeIntervalSince(occurredAt)) <= correlationWindow,
                 let input = payload["input"] as? String,
                 input.contains("codex_app__automation_update"),
-                Self.quotedValue(for: "id", in: input) == automationID,
+                Self.matchesAutomationID(automationID, in: input),
                 Self.quotedValue(for: "mode", in: input) == "update"
             else {
                 continue
@@ -117,8 +120,25 @@ public struct AutomationSessionEvidenceCollector: Sendable {
             targetThreadID: targetThreadID,
             previousSnapshot: previous,
             currentSnapshot: snapshot,
+            directChanges: AutomationUpdateChangeAnalyzer.changes(in: input),
             evidencePath: rolloutURL.path
         )
+    }
+
+    private static func matchesAutomationID(_ automationID: String, in input: String) -> Bool {
+        if quotedValue(for: "id", in: input) == automationID {
+            return true
+        }
+        let escapedID = NSRegularExpression.escapedPattern(for: automationID)
+        let hasConfigReference = input.range(
+            of: #"\bid\s*:\s*cfg\.id\b"#,
+            options: .regularExpression
+        ) != nil
+        let hasExactConfigPath = input.range(
+            of: #"\.codex/automations/"# + escapedID + #"/automation\.toml"#,
+            options: [.regularExpression, .caseInsensitive]
+        ) != nil
+        return hasConfigReference && hasExactConfigPath
     }
 
     private static func strings(in value: Any?) -> [String] {
@@ -173,22 +193,166 @@ public struct AutomationSessionEvidenceCollector: Sendable {
     }
 }
 
+enum AutomationUpdateChangeAnalyzer {
+    static func changes(in input: String) -> [EventChange] {
+        guard let replacement = replacementOperands(in: input) else { return [] }
+        let before = replacement.before
+        let after = replacement.after
+        var result: [EventChange] = []
+
+        if let oldLimit = listThreadsLimit(in: before),
+           let newLimit = listThreadsLimit(in: after),
+           oldLimit != newLimit {
+            result.append(EventChange(
+                label: "任务扫描范围",
+                summary: "对话候选扫描上限由 \(oldLimit) 调整为 \(newLimit)",
+                before: oldLimit,
+                after: newLimit
+            ))
+        }
+
+        if isActivityCleanupMovedAfterRead(before: before, after: after) {
+            result.append(EventChange(
+                label: "活动记录重建顺序",
+                summary: "改为先完成候选任务读取，再清空并重建活动记录；读取失败时保留现有记录"
+            ))
+        }
+
+        let oldCapabilities = Set(AutomationCapabilityClassifier.labels(in: before))
+        let newCapabilities = Set(AutomationCapabilityClassifier.labels(in: after))
+        for capability in newCapabilities.subtracting(oldCapabilities).sorted() {
+            result.append(EventChange(label: "新增能力", summary: capability, after: capability))
+        }
+        for capability in oldCapabilities.subtracting(newCapabilities).sorted() {
+            result.append(EventChange(label: "移除能力", summary: capability, before: capability))
+        }
+        if result.isEmpty {
+            result.append(EventChange(
+                label: "指令段落",
+                summary: "Automation 的一段执行指令已替换；未识别到可安全概括的结构变化"
+            ))
+        }
+        return result
+    }
+
+    private static func replacementOperands(in input: String) -> (before: String, after: String)? {
+        if let values = captures(
+            pattern: #"\.replace\(\s*\"((?:\\.|[^\"\\])*)\"\s*,\s*\"((?:\\.|[^\"\\])*)\"\s*\)"#,
+            in: input,
+            groups: 2
+        ) {
+            return (decodeJSONString(values[0]), decodeJSONString(values[1]))
+        }
+        guard let names = captures(
+            pattern: #"\.replace\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*,\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)"#,
+            in: input,
+            groups: 2
+        ) else {
+            return nil
+        }
+        let literals = namedLiterals(in: input)
+        guard let before = literals[names[0]], let after = literals[names[1]] else { return nil }
+        return (before, after)
+    }
+
+    private static func namedLiterals(in input: String) -> [String: String] {
+        var result: [String: String] = [:]
+        if let expression = try? NSRegularExpression(
+            pattern: #"\b(?:const|let|var)\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*`([\s\S]*?)`;"#
+        ) {
+            for match in expression.matches(in: input, range: NSRange(input.startIndex..., in: input)) {
+                guard
+                    let nameRange = Range(match.range(at: 1), in: input),
+                    let valueRange = Range(match.range(at: 2), in: input)
+                else { continue }
+                result[String(input[nameRange])] = String(input[valueRange])
+            }
+        }
+        return result
+    }
+
+    private static func listThreadsLimit(in value: String) -> String? {
+        captures(
+            pattern: #"list_threads\s*\(\s*limit\s*=\s*(\d+)\s*\)"#,
+            in: value,
+            groups: 1
+        )?.first
+    }
+
+    private static func isActivityCleanupMovedAfterRead(before: String, after: String) -> Bool {
+        guard
+            let oldClear = before.range(of: "clear-activity")?.lowerBound,
+            let oldRead = before.range(of: "list_threads")?.lowerBound,
+            let newClear = after.range(of: "clear-activity")?.lowerBound,
+            let newRead = after.range(of: "list_threads")?.lowerBound
+        else {
+            return false
+        }
+        return oldClear < oldRead
+            && newRead < newClear
+            && after.contains("读取失败时保留")
+    }
+
+    private static func captures(
+        pattern: String,
+        in text: String,
+        groups: Int
+    ) -> [String]? {
+        guard
+            let expression = try? NSRegularExpression(pattern: pattern),
+            let match = expression.firstMatch(in: text, range: NSRange(text.startIndex..., in: text))
+        else {
+            return nil
+        }
+        var result: [String] = []
+        for index in 1...groups {
+            guard let range = Range(match.range(at: index), in: text) else { return nil }
+            result.append(String(text[range]))
+        }
+        return result
+    }
+
+    private static func decodeJSONString(_ value: String) -> String {
+        let literal = "\"\(value)\""
+        guard let data = literal.data(using: .utf8) else { return value }
+        return (try? JSONDecoder().decode(String.self, from: data)) ?? value
+    }
+}
+
 public struct WorkflowEventHistoryEnricher: Sendable {
     public init() {}
 
     public func revisions(
         events: [OperationEvent],
         catalog: CodexMetadataCatalog,
+        currentWorkflowFiles: [WorkflowFileFingerprint] = [],
         recordedAt: Date
     ) -> [OperationEvent] {
-        events.compactMap { event in
-            guard
-                event.action == "automation_updated",
-                let automationID = automationID(from: event),
-                let path = event.evidence.first(where: { $0.kind == "file_fingerprint" })?.path
-            else {
-                return nil
+        let currentByPath = Dictionary(uniqueKeysWithValues: currentWorkflowFiles.map { ($0.path, $0) })
+        return events.compactMap { event in
+            if let revision = automationRevision(event: event, catalog: catalog, recordedAt: recordedAt) {
+                return revision
             }
+            return currentSnapshotRevision(
+                event: event,
+                currentByPath: currentByPath,
+                recordedAt: recordedAt
+            )
+        }
+    }
+
+    private func automationRevision(
+        event: OperationEvent,
+        catalog: CodexMetadataCatalog,
+        recordedAt: Date
+    ) -> OperationEvent? {
+        guard
+            event.action == "automation_updated",
+            let automationID = automationID(from: event),
+            let path = event.evidence.first(where: { $0.kind == "file_fingerprint" })?.path
+        else {
+            return nil
+        }
             let matches = AutomationSessionEvidenceCollector().evidence(
                 automationID: automationID,
                 occurredAt: event.occurredAt,
@@ -221,6 +385,8 @@ public struct WorkflowEventHistoryEnricher: Sendable {
             ).first else {
                 return nil
             }
+            let changes = match.directChanges.isEmpty ? (semantic.changes ?? []) : match.directChanges
+            let summary = listSummary(label: automationID, changes: changes)
 
             let source = match.sourceThread
             var related = [EventRelatedThread(
@@ -266,7 +432,7 @@ public struct WorkflowEventHistoryEnricher: Sendable {
                 category: event.category,
                 action: event.action,
                 title: event.title,
-                summary: semantic.summary,
+                summary: summary,
                 status: event.status,
                 importance: event.importance,
                 certainty: .confirmed,
@@ -275,7 +441,7 @@ public struct WorkflowEventHistoryEnricher: Sendable {
                 project: EventProject(name: source.projectName, path: source.projectPath),
                 account: event.account,
                 scope: .globalWorkflow,
-                changes: semantic.changes,
+                changes: changes,
                 relatedThreads: related,
                 sourceChain: sourceChain,
                 before: event.before,
@@ -283,7 +449,91 @@ public struct WorkflowEventHistoryEnricher: Sendable {
                 evidence: evidence
             )
             return isSemanticallyEquivalent(revision, to: event) ? nil : revision
+    }
+
+    private func currentSnapshotRevision(
+        event: OperationEvent,
+        currentByPath: [String: WorkflowFileFingerprint],
+        recordedAt: Date
+    ) -> OperationEvent? {
+        guard
+            needsCurrentSnapshotExplanation(event),
+            let rawPath = event.evidence.first(where: { $0.kind == "file_fingerprint" })?.path
+        else {
+            return nil
         }
+        let path = URL(fileURLWithPath: rawPath).standardizedFileURL.path
+        guard let current = currentByPath[path], current.semanticSnapshot != nil else { return nil }
+        let previous: [String: WorkflowFileFingerprint]
+        if event.action.hasSuffix("_added") {
+            previous = [:]
+        } else {
+            let old = WorkflowFileFingerprint(
+                path: path,
+                kind: current.kind,
+                label: current.label,
+                modifiedAt: event.occurredAt,
+                fingerprint: fingerprint(in: event.before) ?? "legacy-before",
+                semanticSnapshot: nil
+            )
+            previous = [path: old]
+        }
+        guard let semantic = WorkflowChangeEventFactory().events(
+            previous: previous,
+            current: [current],
+            observedAt: recordedAt
+        ).first else {
+            return nil
+        }
+        var evidence = event.evidence
+        if !evidence.contains(where: { $0.kind == "current_workflow_snapshot" && $0.path == path }) {
+            evidence.append(EventEvidence(
+                kind: "current_workflow_snapshot",
+                label: "当前工作流安全语义快照",
+                path: path
+            ))
+        }
+        let revision = OperationEvent(
+            schemaVersion: event.schemaVersion,
+            id: event.id,
+            occurredAt: event.occurredAt,
+            recordedAt: recordedAt,
+            category: event.category,
+            action: event.action,
+            title: event.title,
+            summary: semantic.summary,
+            status: event.status,
+            importance: event.importance,
+            certainty: event.certainty,
+            actor: event.actor,
+            thread: event.thread,
+            project: event.project,
+            account: event.account,
+            scope: event.scope ?? .globalWorkflow,
+            changes: semantic.changes,
+            relatedThreads: event.relatedThreads,
+            sourceChain: event.sourceChain,
+            before: event.before,
+            after: event.after,
+            evidence: evidence
+        )
+        return isSemanticallyEquivalent(revision, to: event) ? nil : revision
+    }
+
+    private func needsCurrentSnapshotExplanation(_ event: OperationEvent) -> Bool {
+        let supported = [
+            "automation_added", "automation_updated",
+            "hook_added", "hook_updated",
+            "skill_added", "skill_updated",
+        ].contains(event.action)
+        guard supported else { return false }
+        return event.changes?.isEmpty != false
+            || event.summary.contains("全局工作流定义已更新")
+    }
+
+    private func listSummary(label: String, changes: [EventChange]) -> String {
+        let readable = changes.prefix(3).map(\.summary).joined(separator: "；")
+        return readable.isEmpty ? "\(label) 的全局工作流定义已更新。" : "\(label)：\(readable)。"
     }
 
     private func isSemanticallyEquivalent(_ lhs: OperationEvent, to rhs: OperationEvent) -> Bool {

@@ -517,13 +517,13 @@ private struct EventChangeRow: View {
     var body: some View {
         HStack(alignment: .top, spacing: WorkbenchSpacing.xs) {
             Circle()
-                .fill(Color.accentColor)
+                .fill(tint)
                 .frame(width: 5, height: 5)
                 .padding(.top, 5)
             VStack(alignment: .leading, spacing: 2) {
                 Text(change.label)
                     .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(isEvidenceBoundary ? tint : .primary)
                 Text(change.summary)
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
@@ -538,7 +538,15 @@ private struct EventChangeRow: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(WorkbenchSpacing.xs)
-        .background(Color.accentColor.opacity(0.055), in: RoundedRectangle(cornerRadius: 7))
+        .background(tint.opacity(isEvidenceBoundary ? 0.075 : 0.055), in: RoundedRectangle(cornerRadius: 7))
+    }
+
+    private var isEvidenceBoundary: Bool {
+        change.label == "证据边界"
+    }
+
+    private var tint: Color {
+        isEvidenceBoundary ? .orange : .accentColor
     }
 
     private var changeTransition: String {

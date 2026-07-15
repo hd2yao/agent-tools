@@ -137,4 +137,127 @@ func runWorkflowEvidenceTests(_ runner: inout TestRunner) {
             "Full automation prompts must never enter the operation ledger"
         )
     }
+
+    let skillURL = temporaryDirectory
+        .appendingPathComponent("skills/task-continuity/SKILL.md")
+    try? FileManager.default.createDirectory(
+        at: skillURL.deletingLastPathComponent(),
+        withIntermediateDirectories: true
+    )
+    let oldSkillContent = """
+    ---
+    name: task-continuity
+    description: 管理 Codex 待办、每日摘要和仓库收尾。
+    ---
+
+    # 任务连续性
+
+    使用 task-ledger.py 与 repository-closure-audit.py。
+    private skill body marker
+    """
+    try? oldSkillContent.write(to: skillURL, atomically: true, encoding: .utf8)
+    let oldSkillSnapshot = WorkflowFileCollector().collect(roots: [skillURL]).first
+
+    let newSkillContent = """
+    ---
+    name: task-continuity
+    description: 管理 Codex 待办、每日摘要、周期任务健康和仓库收尾。
+    ---
+
+    # 任务连续性
+
+    使用 task-ledger.py、repository-closure-audit.py 与 recurring-task-audit.py。
+    private skill body marker
+    """
+    try? newSkillContent.write(to: skillURL, atomically: true, encoding: .utf8)
+    let newSkillSnapshot = WorkflowFileCollector().collect(roots: [skillURL]).first
+
+    runner.expect(
+        oldSkillSnapshot?.semanticSnapshot?.purpose == "管理 Codex 待办、每日摘要和仓库收尾。",
+        "Skill snapshots should retain the public purpose instead of only a fingerprint"
+    )
+    runner.expect(
+        newSkillSnapshot?.semanticSnapshot?.capabilities.contains("周期任务健康审计") == true,
+        "Skill snapshots should derive readable workflow capabilities"
+    )
+    if let oldSkillSnapshot, let newSkillSnapshot {
+        let event = WorkflowChangeEventFactory().events(
+            previous: [oldSkillSnapshot.path: oldSkillSnapshot],
+            current: [newSkillSnapshot],
+            observedAt: now
+        ).first
+        runner.expect(
+            event?.changes?.contains { $0.label == "新增能力" && $0.summary == "周期任务健康审计" } == true,
+            "Skill updates should explain newly added capabilities"
+        )
+        runner.expect(
+            event?.summary.contains("周期任务健康审计") == true,
+            "Skill list summaries should say what changed"
+        )
+        let encoded = try? LedgerWriter.encoder().encode(event)
+        let encodedText = encoded.map { String(decoding: $0, as: UTF8.self) } ?? ""
+        runner.expect(
+            encodedText.contains("private skill body marker") == false,
+            "Skill bodies must never enter the operation ledger"
+        )
+
+        let legacy = WorkflowFileFingerprint(
+            path: oldSkillSnapshot.path,
+            kind: .skill,
+            label: oldSkillSnapshot.label,
+            modifiedAt: now,
+            fingerprint: "legacy-skill",
+            semanticSnapshot: nil
+        )
+        let fallback = WorkflowChangeEventFactory().events(
+            previous: [legacy.path: legacy],
+            current: [newSkillSnapshot],
+            observedAt: now
+        ).first
+        runner.expect(
+            fallback?.changes?.contains { $0.label == "更新后职责" } == true,
+            "Legacy workflow updates should explain the confirmed current responsibility"
+        )
+        runner.expect(
+            fallback?.changes?.contains { $0.label == "证据边界" } == true,
+            "Legacy workflow updates must admit that the old semantic snapshot is missing"
+        )
+    }
+
+    let hookURL = temporaryDirectory.appendingPathComponent("hooks/recurring-task-audit.py")
+    try? FileManager.default.createDirectory(
+        at: hookURL.deletingLastPathComponent(),
+        withIntermediateDirectories: true
+    )
+    let hookContent = """
+    \"\"\"审计项目声明的周期任务是否按计划产生新鲜成功证据。\"\"\"
+
+    MANIFEST = ".codex/continuity.json"
+    private hook body marker
+    """
+    try? hookContent.write(to: hookURL, atomically: true, encoding: .utf8)
+    let hookSnapshot = WorkflowFileCollector().collect(roots: [hookURL]).first
+    runner.expect(
+        hookSnapshot?.semanticSnapshot?.purpose == "审计项目声明的周期任务是否按计划产生新鲜成功证据。",
+        "Hook snapshots should retain a concise module responsibility"
+    )
+    runner.expect(
+        hookSnapshot?.semanticSnapshot?.capabilities.contains("周期任务健康审计") == true,
+        "Hook snapshots should expose readable capabilities"
+    )
+    if let hookSnapshot {
+        let hookEvent = WorkflowChangeEventFactory().events(
+            previous: [:],
+            current: [hookSnapshot],
+            observedAt: now
+        ).first
+        runner.expect(
+            hookEvent?.changes?.contains { $0.label == "用途" } == true,
+            "New hooks should explain their purpose"
+        )
+        runner.expect(
+            hookEvent?.summary.contains("周期任务") == true,
+            "New hook list summaries should describe what the hook does"
+        )
+    }
 }

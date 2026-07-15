@@ -210,6 +210,191 @@ func runWorkflowEventEnrichmentTests(_ runner: inout TestRunner) {
         ).isEmpty,
         "Multiple exact session matches must degrade instead of inventing a source conversation"
     )
+
+    let variableRolloutURL = temporaryDirectory.appendingPathComponent("rollout-variable-update.jsonl")
+    let variableInput = """
+    const cfgResult = await tools.exec_command({
+      cmd:"read /Users/dysania/.codex/automations/codex/automation.toml"
+    });
+    const cfg = JSON.parse(cfgResult.output);
+    const updatedPrompt = cfg.prompt.replace("list_threads(limit=100)", "list_threads(limit=50)");
+    const result = await tools.codex_app__automation_update({
+      id:cfg.id,
+      mode:"update",
+      prompt:updatedPrompt,
+      status:cfg.status
+    });
+    """
+    let variableLines = [sessionLine(
+        timestamp: "1970-01-01T00:03:20.000Z",
+        payload: [
+            "type": "custom_tool_call",
+            "name": "exec",
+            "input": variableInput,
+        ]
+    )]
+    try? variableLines.joined(separator: "\n").write(
+        to: variableRolloutURL,
+        atomically: true,
+        encoding: .utf8
+    )
+    let variableThread = CodexThreadMetadata(
+        id: "thread-variable-source",
+        rawTitle: "缩小每日任务扫描范围",
+        projectPath: "/Users/dysania/program/codex-workflow-skills",
+        createdAt: Date(timeIntervalSince1970: 100),
+        updatedAt: Date(timeIntervalSince1970: 210),
+        sourceThreadID: nil,
+        rolloutPath: variableRolloutURL.path
+    )
+    let variableRevision = WorkflowEventHistoryEnricher().revisions(
+        events: [legacyEvent],
+        catalog: CodexMetadataCatalog(records: [variableThread]),
+        recordedAt: Date(timeIntervalSince1970: 220)
+    ).first
+    runner.expect(
+        variableRevision?.thread?.id == "thread-variable-source",
+        "Variable-style automation updates should still resolve their source thread"
+    )
+    runner.expect(
+        variableRevision?.changes?.contains {
+            $0.label == "任务扫描范围"
+                && $0.before == "100"
+                && $0.after == "50"
+        } == true,
+        "Replacement-style automation updates should explain the concrete old and new values"
+    )
+
+    let reorderedInput = """
+    const cfgResult = await tools.exec_command({
+      cmd:"read /Users/dysania/.codex/automations/codex/automation.toml"
+    });
+    const cfg = JSON.parse(cfgResult.output);
+    const oldBlock = `先运行 clear-activity 清理旧记录，再使用 list_threads(limit=50) 读取候选任务。`;
+    const newBlock = `先使用 list_threads(limit=50) 读取候选任务；读取成功后再运行 clear-activity 重建，读取失败时保留现有记录。`;
+    const updatedPrompt = cfg.prompt.replace(oldBlock, newBlock);
+    const result = await tools.codex_app__automation_update({
+      id:cfg.id,
+      mode:"update",
+      prompt:updatedPrompt,
+      status:cfg.status
+    });
+    """
+    let reorderedLine = sessionLine(
+        timestamp: "1970-01-01T00:04:00.000Z",
+        payload: [
+            "type": "custom_tool_call",
+            "name": "exec",
+            "input": reorderedInput,
+        ]
+    )
+    try? (variableLines + [reorderedLine]).joined(separator: "\n").write(
+        to: variableRolloutURL,
+        atomically: true,
+        encoding: .utf8
+    )
+    let reorderedEvidence = AutomationSessionEvidenceCollector().evidence(
+        automationID: "codex",
+        occurredAt: Date(timeIntervalSince1970: 240),
+        catalog: CodexMetadataCatalog(records: [variableThread])
+    ).first
+    runner.expect(
+        reorderedEvidence?.directChanges.contains {
+            $0.label == "活动记录重建顺序"
+                && $0.summary.contains("读取失败时保留")
+        } == true,
+        "Named replacement blocks should explain the safer read-before-clear order"
+    )
+
+    let skillURL = temporaryDirectory.appendingPathComponent("skills/task-continuity/SKILL.md")
+    try? FileManager.default.createDirectory(
+        at: skillURL.deletingLastPathComponent(),
+        withIntermediateDirectories: true
+    )
+    try? """
+    ---
+    name: task-continuity
+    description: 管理每日任务摘要并审计周期任务运行状态。
+    ---
+    recurring-task-audit.py
+    """.write(to: skillURL, atomically: true, encoding: .utf8)
+    let currentSkill = WorkflowFileCollector().collect(roots: [skillURL]).first
+    let legacySkill = OperationEvent(
+        schemaVersion: 1,
+        id: "evt-skill-legacy",
+        occurredAt: Date(timeIntervalSince1970: 200),
+        recordedAt: Date(timeIntervalSince1970: 205),
+        category: .skill,
+        action: "skill_updated",
+        title: "Skill已更新",
+        summary: "task-continuity 的全局工作流定义已更新。",
+        status: .success,
+        importance: .important,
+        certainty: .confirmed,
+        actor: EventActor(type: .skill, id: "workflow-file-monitor", label: "task-continuity"),
+        before: .object(["fingerprint": .string("skill-v1")]),
+        after: .object(["fingerprint": .string("skill-v2")]),
+        evidence: [EventEvidence(kind: "file_fingerprint", label: "受控工作流文件指纹", path: skillURL.path)]
+    )
+    if let currentSkill {
+        let fallbackRevision = WorkflowEventHistoryEnricher().revisions(
+            events: [legacySkill],
+            catalog: CodexMetadataCatalog(),
+            currentWorkflowFiles: [currentSkill],
+            recordedAt: Date(timeIntervalSince1970: 220)
+        ).first
+        runner.expect(
+            fallbackRevision?.changes?.contains { $0.label == "更新后职责" } == true,
+            "Existing generic Skill events should be backfilled from the current safe snapshot"
+        )
+        runner.expect(
+            fallbackRevision?.changes?.contains { $0.label == "证据边界" } == true,
+            "Historic Skill backfill should not pretend the current snapshot is an exact diff"
+        )
+    }
+
+    let hookURL = temporaryDirectory.appendingPathComponent("hooks/recurring-task-audit.py")
+    try? FileManager.default.createDirectory(
+        at: hookURL.deletingLastPathComponent(),
+        withIntermediateDirectories: true
+    )
+    try? """
+    \"\"\"审计项目声明的周期任务是否按计划产生新鲜成功证据。\"\"\"
+    MANIFEST = ".codex/continuity.json"
+    """.write(to: hookURL, atomically: true, encoding: .utf8)
+    let currentHook = WorkflowFileCollector().collect(roots: [hookURL]).first
+    let legacyHookAdded = OperationEvent(
+        schemaVersion: 1,
+        id: "evt-hook-added-legacy",
+        occurredAt: Date(timeIntervalSince1970: 200),
+        recordedAt: Date(timeIntervalSince1970: 205),
+        category: .hook,
+        action: "hook_added",
+        title: "Hook已新增",
+        summary: "recurring-task-audit 的全局工作流定义已新增。",
+        status: .success,
+        importance: .important,
+        certainty: .confirmed,
+        actor: EventActor(type: .hook, id: "workflow-file-monitor", label: "recurring-task-audit"),
+        after: .object(["fingerprint": .string("hook-v1")]),
+        evidence: [EventEvidence(kind: "file_fingerprint", label: "受控工作流文件指纹", path: hookURL.path)]
+    )
+    if let currentHook {
+        let addedRevision = WorkflowEventHistoryEnricher().revisions(
+            events: [legacyHookAdded],
+            catalog: CodexMetadataCatalog(),
+            currentWorkflowFiles: [currentHook],
+            recordedAt: Date(timeIntervalSince1970: 220)
+        ).first
+        runner.expect(
+            addedRevision?.changes?.contains { $0.label == "用途" } == true,
+            "Historic added Hook events should explain what the new hook does"
+        )
+        runner.expect(
+            addedRevision?.changes?.contains { $0.label == "证据边界" } == false,
+            "A confirmed added file should not be described as a missing-old-snapshot update"
+        )
+    }
 }
 
 private func sessionLine(timestamp: String, payload: [String: Any]) -> String {

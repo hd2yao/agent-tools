@@ -92,6 +92,8 @@ public struct WorkflowSemanticSnapshot: Codable, Equatable, Sendable {
     public let status: String?
     public let schedule: String?
     public let targetThreadID: String?
+    public let purpose: String?
+    public let interfaces: [String]
     public let capabilities: [String]
 
     public init(
@@ -99,13 +101,40 @@ public struct WorkflowSemanticSnapshot: Codable, Equatable, Sendable {
         status: String? = nil,
         schedule: String? = nil,
         targetThreadID: String? = nil,
+        purpose: String? = nil,
+        interfaces: [String] = [],
         capabilities: [String] = []
     ) {
         self.name = name
         self.status = status
         self.schedule = schedule
         self.targetThreadID = targetThreadID
+        self.purpose = purpose
+        self.interfaces = Array(Set(interfaces)).sorted()
         self.capabilities = Array(Set(capabilities)).sorted()
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case name
+        case status
+        case schedule
+        case targetThreadID
+        case purpose
+        case interfaces
+        case capabilities
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            name: try container.decodeIfPresent(String.self, forKey: .name),
+            status: try container.decodeIfPresent(String.self, forKey: .status),
+            schedule: try container.decodeIfPresent(String.self, forKey: .schedule),
+            targetThreadID: try container.decodeIfPresent(String.self, forKey: .targetThreadID),
+            purpose: try container.decodeIfPresent(String.self, forKey: .purpose),
+            interfaces: try container.decodeIfPresent([String].self, forKey: .interfaces) ?? [],
+            capabilities: try container.decodeIfPresent([String].self, forKey: .capabilities) ?? []
+        )
     }
 
     public static func automation(content: String) -> Self {
@@ -118,12 +147,30 @@ public struct WorkflowSemanticSnapshot: Codable, Equatable, Sendable {
             capabilities: AutomationCapabilityClassifier.labels(in: prompt)
         )
     }
+
+    public static func skill(content: String) -> Self {
+        Self(
+            purpose: WorkflowTextSummaryReader.skillDescription(in: content),
+            interfaces: WorkflowTextSummaryReader.skillSections(in: content),
+            capabilities: AutomationCapabilityClassifier.labels(in: content)
+        )
+    }
+
+    public static func hook(content: String) -> Self {
+        Self(
+            purpose: WorkflowTextSummaryReader.pythonModuleDocstring(in: content),
+            capabilities: AutomationCapabilityClassifier.labels(in: content)
+        )
+    }
 }
 
 enum AutomationCapabilityClassifier {
     private static let rules: [(label: String, markers: [String])] = [
         ("每日摘要生成", ["DailyDigest"]),
-        ("前一日工作采集", ["clear-activity", "record-activity"]),
+        ("前一日工作采集", ["clear-activity", "record-activity", "previous_day_activities"]),
+        ("周期任务健康审计", ["recurring-task-audit", "recurring_task_audit", ".codex/continuity.json"]),
+        ("任务台账管理", ["task-ledger.py"]),
+        ("上下文压缩摘要", ["PreCompact", "pre_compact"]),
         ("动态仓库操作预算", ["repository-action-budget.py"]),
         ("已合并工作区清理", ["git worktree remove"]),
         ("未集成提交远端保护", ["codex/preserve/"]),
@@ -140,6 +187,56 @@ enum AutomationCapabilityClassifier {
                 ? rule.label
                 : nil
         }
+    }
+}
+
+enum WorkflowTextSummaryReader {
+    private static let genericSkillSections: Set<String> = [
+        "何时使用", "核心原则", "使用方式", "安全约束", "资源", "输入", "输出",
+    ]
+
+    static func skillDescription(in content: String) -> String? {
+        guard content.hasPrefix("---") else { return nil }
+        for rawLine in content.split(separator: "\n", omittingEmptySubsequences: false).dropFirst() {
+            let line = String(rawLine).trimmingCharacters(in: .whitespacesAndNewlines)
+            if line == "---" { break }
+            guard line.hasPrefix("description:") else { continue }
+            return normalized(String(line.dropFirst("description:".count)))
+        }
+        return nil
+    }
+
+    static func skillSections(in content: String) -> [String] {
+        content.split(separator: "\n", omittingEmptySubsequences: false).compactMap { rawLine in
+            let line = String(rawLine).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard line.hasPrefix("## "), !line.hasPrefix("### ") else { return nil }
+            let section = String(line.dropFirst(3)).trimmingCharacters(in: .whitespaces)
+            guard !section.isEmpty, !genericSkillSections.contains(section) else { return nil }
+            return section
+        }
+    }
+
+    static func pythonModuleDocstring(in content: String) -> String? {
+        var candidate = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        if candidate.hasPrefix("#!"), let newline = candidate.firstIndex(of: "\n") {
+            candidate = String(candidate[candidate.index(after: newline)...])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        for delimiter in ["\"\"\"", "'''"] where candidate.hasPrefix(delimiter) {
+            let start = candidate.index(candidate.startIndex, offsetBy: delimiter.count)
+            guard let end = candidate.range(of: delimiter, range: start..<candidate.endIndex)?.lowerBound else {
+                return nil
+            }
+            return normalized(String(candidate[start..<end]))
+        }
+        return nil
+    }
+
+    private static func normalized(_ value: String) -> String? {
+        let unquoted = value.trimmingCharacters(in: CharacterSet(charactersIn: " \\t\\r\\n\\\"'"))
+        let compact = unquoted.split(whereSeparator: \Character.isWhitespace).joined(separator: " ")
+        guard !compact.isEmpty else { return nil }
+        return compact.count <= 180 ? compact : String(compact.prefix(177)) + "…"
     }
 }
 
@@ -197,15 +294,25 @@ public struct WorkflowFileCollector: Sendable {
         else {
             return nil
         }
+        let content = String(decoding: data, as: UTF8.self)
+        let semanticSnapshot: WorkflowSemanticSnapshot?
+        switch descriptor.kind {
+        case .automation:
+            semanticSnapshot = .automation(content: content)
+        case .skill:
+            semanticSnapshot = .skill(content: content)
+        case .hook:
+            semanticSnapshot = .hook(content: content)
+        case .configuration, .plugin, .rule:
+            semanticSnapshot = nil
+        }
         return WorkflowFileFingerprint(
             path: url.path,
             kind: descriptor.kind,
             label: descriptor.label,
             modifiedAt: values.contentModificationDate ?? .distantPast,
             fingerprint: StableEventID.make(parts: ["workflow-file", data.base64EncodedString()]),
-            semanticSnapshot: descriptor.kind == .automation
-                ? WorkflowSemanticSnapshot.automation(content: String(decoding: data, as: UTF8.self))
-                : nil
+            semanticSnapshot: semanticSnapshot
         )
     }
 }
@@ -325,13 +432,37 @@ public struct WorkflowChangeEventFactory: Sendable {
         previous: WorkflowSemanticSnapshot?,
         current: WorkflowSemanticSnapshot?
     ) -> [EventChange] {
-        guard change == "updated" else {
-            return [EventChange(label: "工作流定义", summary: "\(noun)「\(label)」已\(verb(for: change))")]
+        if change == "added" {
+            return presenceChanges(prefix: "", snapshot: current) ?? [
+                EventChange(label: "工作流定义", summary: "\(noun)「\(label)」已新增"),
+            ]
+        }
+        if change == "deleted" {
+            return presenceChanges(prefix: "移除", snapshot: previous) ?? [
+                EventChange(label: "工作流定义", summary: "\(noun)「\(label)」已删除"),
+            ]
         }
         guard let previous, let current else {
-            return [EventChange(label: "工作流定义", summary: "\(noun)「\(label)」内容已调整")]
+            let snapshot = current ?? previous
+            var result = presenceChanges(prefix: "更新后", snapshot: snapshot) ?? [
+                EventChange(label: "工作流定义", summary: "\(noun)「\(label)」内容已调整"),
+            ]
+            result.append(EventChange(
+                label: "证据边界",
+                summary: "未保留更新前语义快照，无法确认以上职责是否均由本次更新新增"
+            ))
+            return result
         }
         var result: [EventChange] = []
+        if previous.purpose != current.purpose {
+            let summary = current.purpose.map { "用途说明已调整：\($0)" } ?? "用途说明已移除"
+            result.append(EventChange(
+                label: "用途调整",
+                summary: summary,
+                before: previous.purpose,
+                after: current.purpose
+            ))
+        }
         appendFieldChange(label: "名称", before: previous.name, after: current.name, to: &result)
         appendFieldChange(label: "状态", before: previous.status, after: current.status, to: &result)
         appendFieldChange(label: "执行计划", before: previous.schedule, after: current.schedule, to: &result)
@@ -345,13 +476,42 @@ public struct WorkflowChangeEventFactory: Sendable {
         for capability in oldCapabilities.subtracting(newCapabilities).sorted() {
             result.append(EventChange(label: "移除能力", summary: capability, before: capability))
         }
+        let oldInterfaces = Set(previous.interfaces)
+        let newInterfaces = Set(current.interfaces)
+        for item in newInterfaces.subtracting(oldInterfaces).sorted() {
+            result.append(EventChange(label: "新增模块", summary: item, after: item))
+        }
+        for item in oldInterfaces.subtracting(newInterfaces).sorted() {
+            result.append(EventChange(label: "移除模块", summary: item, before: item))
+        }
         if result.isEmpty {
             result.append(EventChange(
-                label: "工作流指令",
-                summary: "Automation 指令内容已调整；未检测到可安全展示的结构变化"
+                label: "实现细节",
+                summary: "\(noun)「\(label)」实现内容已调整；用途与可识别能力未变化"
             ))
         }
         return result
+    }
+
+    private func presenceChanges(
+        prefix: String,
+        snapshot: WorkflowSemanticSnapshot?
+    ) -> [EventChange]? {
+        guard let snapshot else { return nil }
+        var result: [EventChange] = []
+        if let purpose = snapshot.purpose {
+            let label = prefix.isEmpty ? "用途" : "\(prefix)职责"
+            result.append(EventChange(label: label, summary: purpose, after: purpose))
+        }
+        let capabilityLabel = prefix.isEmpty ? "主要能力" : "\(prefix)包含"
+        for capability in snapshot.capabilities.prefix(5) {
+            result.append(EventChange(label: capabilityLabel, summary: capability, after: capability))
+        }
+        let interfaceLabel = prefix.isEmpty ? "包含模块" : "\(prefix)包含"
+        for item in snapshot.interfaces.prefix(max(0, 5 - snapshot.capabilities.count)) {
+            result.append(EventChange(label: interfaceLabel, summary: item, after: item))
+        }
+        return result.isEmpty ? nil : result
     }
 
     private func appendFieldChange(
