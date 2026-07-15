@@ -158,17 +158,34 @@ final class WorkbenchAppModel: ObservableObject {
             let writeResult = LedgerWriter().append(events: reconciliation.events, to: ledgerURL)
             let didSave = store.save(reconciliation.state, to: observationStateURL)
             let loaded = LedgerRepository().load(from: ledgerURL)
-            var warnings = ledger.warnings + writeResult.warnings + loaded.warnings.map(\.message)
+            let workflowRevisions = WorkflowEventHistoryEnricher().revisions(
+                events: loaded.events,
+                catalog: ledger.snapshot.threadCatalog,
+                recordedAt: observedAt
+            )
+            let revisionWriteResult = LedgerWriter().appendRevisions(
+                events: workflowRevisions,
+                to: ledgerURL
+            )
+            let finalLedger = revisionWriteResult.appendedCount > 0
+                ? LedgerRepository().load(from: ledgerURL)
+                : loaded
+            var warnings = ledger.warnings
+                + writeResult.warnings
+                + revisionWriteResult.warnings
+                + finalLedger.warnings.map(\.message)
             if !didSave {
                 warnings.append("无法保存操作日志观察基线。")
             }
             return LedgerRefreshResult(
                 events: EventContextEnricher().enrich(
-                    events: loaded.events,
+                    events: finalLedger.events,
                     catalog: ledger.snapshot.threadCatalog
                 ),
                 warnings: warnings,
-                appendedCount: ledger.appendedCount + writeResult.appendedCount,
+                appendedCount: ledger.appendedCount
+                    + writeResult.appendedCount
+                    + revisionWriteResult.appendedCount,
                 snapshot: ledger.snapshot
             )
         }.value

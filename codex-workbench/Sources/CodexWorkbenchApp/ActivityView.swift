@@ -35,7 +35,7 @@ struct ActivityView: View {
                                 QuietEmptyState(
                                     systemImage: "sidebar.right",
                                     title: "选择一条操作",
-                                    message: "这里会显示任务关系、来源链、前后状态和证据。"
+                                    message: "这里会显示具体改动、关联对话、来源链和技术证据。"
                                 )
                             }
                         }
@@ -275,7 +275,22 @@ private struct ActivityTimelineRow: View {
         )
         .onHover { isHovering = $0 }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(event.title)，\(event.status.displayName)，来源 \(event.actor.label)，\(event.certainty.displayName)")
+        .accessibilityLabel(accessibilitySummary)
+    }
+
+    private var accessibilitySummary: String {
+        let changes = event.changes?.prefix(2).map(\.summary).joined(separator: "；")
+        let source = event.relatedThreads?.first { $0.role == .modificationSource }
+        return [
+            event.title,
+            event.status.displayName,
+            changes,
+            source?.title.map { "修改来源对话 \($0)" },
+            "来源 \(event.actor.label)",
+            event.certainty.displayName,
+        ]
+        .compactMap { $0 }
+        .joined(separator: "，")
     }
 }
 
@@ -283,8 +298,11 @@ private struct ActivityScopeLine: View {
     let event: OperationEvent
 
     var body: some View {
-        if event.project != nil || event.thread != nil || event.account != nil {
+        if event.scope != nil || event.project != nil || event.thread != nil || event.account != nil {
             HStack(spacing: 6) {
+                if event.scope == .globalWorkflow {
+                    ScopePill(text: "全局工作流", systemImage: "globe")
+                }
                 if let project = event.project {
                     ScopePill(
                         text: project.name ?? project.path ?? "未知项目",
@@ -366,17 +384,39 @@ struct ActivityInspector: View {
                     }
                 }
 
-                if event.thread != nil || event.project != nil || event.account != nil {
-                    InspectorSection(title: "定位") {
+                if let changes = event.changes, !changes.isEmpty {
+                    InspectorSection(title: "本次改动") {
+                        VStack(alignment: .leading, spacing: WorkbenchSpacing.xs) {
+                            ForEach(Array(changes.enumerated()), id: \.offset) { _, change in
+                                EventChangeRow(change: change)
+                            }
+                        }
+                    }
+                }
+
+                if event.scope != nil
+                    || event.thread != nil
+                    || event.project != nil
+                    || event.account != nil
+                    || event.relatedThreads?.isEmpty == false {
+                    InspectorSection(title: "归属与关联") {
+                        if event.scope == .globalWorkflow {
+                            InspectorValue(label: "作用域", value: "全局工作流")
+                        }
                         if let project = event.project {
-                            InspectorValue(label: "项目", value: project.name ?? "未知项目")
+                            InspectorValue(label: "来源项目", value: project.name ?? "未知项目")
                             if let path = project.path {
-                                InspectorValue(label: "路径", value: path, monospaced: true)
+                                InspectorValue(label: "项目路径", value: path, monospaced: true)
                             }
                         }
                         if let thread = event.thread {
-                            InspectorValue(label: "对话", value: thread.title ?? "未命名对话")
-                            InspectorValue(label: "关系", value: thread.relation.displayName)
+                            InspectorValue(
+                                label: isWorkflowChange ? "修改来源对话" : "对话",
+                                value: thread.title ?? "未命名对话"
+                            )
+                            if !isWorkflowChange {
+                                InspectorValue(label: "关系", value: thread.relation.displayName)
+                            }
                             if let threadID = thread.id {
                                 InspectorValue(label: "对话 ID", value: threadID, monospaced: true)
                             }
@@ -390,6 +430,14 @@ struct ActivityInspector: View {
                                 .buttonStyle(.bordered)
                                 .controlSize(.small)
                             }
+                        } else if isWorkflowChange {
+                            InspectorValue(label: "修改来源对话", value: "未定位到唯一对话")
+                        }
+                        ForEach(deliveryTargets, id: \.id) { related in
+                            RelatedThreadView(
+                                label: "投递目标对话",
+                                thread: related
+                            )
                         }
                         if let account = event.account {
                             InspectorValue(label: "账号", value: account.profile ?? account.label ?? "全局账号")
@@ -405,7 +453,7 @@ struct ActivityInspector: View {
                     }
                 }
 
-                if event.before != nil || event.after != nil {
+                if event.before != nil || event.after != nil, !isWorkflowChange {
                     InspectorSection(title: "状态变化") {
                         if let before = event.before {
                             InspectorValue(label: "之前", value: before.displayText)
@@ -414,6 +462,22 @@ struct ActivityInspector: View {
                             InspectorValue(label: "之后", value: after.displayText)
                         }
                     }
+                }
+
+                if event.before != nil || event.after != nil, isWorkflowChange {
+                    DisclosureGroup("技术状态") {
+                        VStack(alignment: .leading, spacing: WorkbenchSpacing.xs) {
+                            if let before = event.before {
+                                InspectorValue(label: "之前", value: before.displayText)
+                            }
+                            if let after = event.after {
+                                InspectorValue(label: "之后", value: after.displayText)
+                            }
+                        }
+                        .padding(.top, WorkbenchSpacing.xs)
+                    }
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.tertiary)
                 }
 
                 if !event.evidence.isEmpty {
@@ -435,6 +499,73 @@ struct ActivityInspector: View {
                 }
             }
             .padding(inline ? WorkbenchSpacing.md : WorkbenchSpacing.lg)
+        }
+    }
+
+    private var isWorkflowChange: Bool {
+        event.scope == .globalWorkflow
+    }
+
+    private var deliveryTargets: [EventRelatedThread] {
+        event.relatedThreads?.filter { $0.role == .deliveryTarget } ?? []
+    }
+}
+
+private struct EventChangeRow: View {
+    let change: EventChange
+
+    var body: some View {
+        HStack(alignment: .top, spacing: WorkbenchSpacing.xs) {
+            Circle()
+                .fill(Color.accentColor)
+                .frame(width: 5, height: 5)
+                .padding(.top, 5)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(change.label)
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.primary)
+                Text(change.summary)
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if change.before != nil || change.after != nil {
+                    Text(changeTransition)
+                        .font(.system(size: 9, design: .monospaced))
+                        .foregroundStyle(.tertiary)
+                        .textSelection(.enabled)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(WorkbenchSpacing.xs)
+        .background(Color.accentColor.opacity(0.055), in: RoundedRectangle(cornerRadius: 7))
+    }
+
+    private var changeTransition: String {
+        [change.before ?? "—", change.after ?? "—"].joined(separator: " → ")
+    }
+}
+
+private struct RelatedThreadView: View {
+    let label: String
+    let thread: EventRelatedThread
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: WorkbenchSpacing.xs) {
+            InspectorValue(label: label, value: thread.title ?? "未命名对话")
+            if let projectName = thread.projectName {
+                InspectorValue(label: "目标项目", value: projectName)
+            }
+            InspectorValue(label: "对话 ID", value: thread.id, monospaced: true)
+            if CodexIntegration.threadURL(for: thread.id) != nil {
+                Button {
+                    CodexIntegrationService.openThread(thread.id)
+                } label: {
+                    Label("打开投递目标对话", systemImage: "arrow.up.forward.app")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
         }
     }
 }
