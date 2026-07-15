@@ -194,5 +194,9 @@
 - `activity-dark-1160x780.png`
 - `accounts-light-1160x780.png`
 - `menubar-dark.png`
+- V1.2 `workflow-event-minimum.png`：`900×640` 行内展开。
+- V1.2 `workflow-event-default.png`：`1160×780` 行内详情与改动优先层级。
+- V1.2 `workflow-event-wide.png`：宽屏列表 + inspector。
+- V1.2 `workflow-event-associations.png`：来源项目、修改来源对话与投递目标对话。
 
 任何文字重叠、内容越界、根窗口横向滚动、关键字段缺失、推断被当事实或截图产物身份不明，直接判 `FAIL`。

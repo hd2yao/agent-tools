@@ -113,7 +113,7 @@ Design Lock 详见项目根目录 `DESIGN.md`。核心是“Calm Operations Cons
 | Session 关联误配 | 时间窗口 + Automation ID + 结构化工具名三重约束；无法唯一匹配则不关联 | 停用 Session 回填，仅保留文件语义差异 |
 | 旧观察状态不兼容 | 新字段全部可选，fixture 覆盖旧 JSON 解码 | 删除新可选字段，继续读取 fingerprint |
 | 能力摘要误导 | 只使用显式命令/关键词映射；无法识别时显示降级文案 | 仅显示字段变化和文件路径 |
-| revision 重复增长 | 仅当最新事件缺少增强字段时追加，同一增强结果幂等 | 停用 revision 写入，内存展示不落盘 |
+| revision 重复增长 | 追加前比较可见语义、关联关系与证据；完全等价时不生成新 revision | 停用 revision 写入，内存展示不落盘 |
 
 ## 执行契约
 
