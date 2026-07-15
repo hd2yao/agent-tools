@@ -132,6 +132,13 @@ Design Lock 详见项目根目录 `DESIGN.md`。核心是“Calm Operations Cons
 | 变量式调用误配 | 时间窗 + 更新工具名 + Automation ID 字面量或已读取配置引用 | 保持不关联并显示未定位来源 |
 | 快照泄露源码 | 编码测试断言正文 marker 不进入 ledger/state | 删除扩展字段并重建观察基线 |
 
+### V1.3 实施结果
+
+- Skill、Hook 与 Automation 已统一生成脱敏语义快照；列表摘要优先显示能力变化，详情保留用途和模块差异。
+- 历史 Skill/Hook 先用 after fingerprint 匹配本地 Git blob 并恢复真实父版本；只有无精确版本时才显示“更新后职责 / 证据边界”。
+- 变量式 Automation 更新已覆盖 `cfg.id`、内联 `.replace` 与命名替换块，真实 11:18、11:19 事件完成幂等回填。
+- 最终安装包 commit 为 `20d4f56`；最小与宽屏截图位于 `screenshots/v1.3/`，事件按钮 AX 树具备按钮角色、可读摘要值和详情提示。
+
 ## 执行契约
 
 ### Intent Lock
