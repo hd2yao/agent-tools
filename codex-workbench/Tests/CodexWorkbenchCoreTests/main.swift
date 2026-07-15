@@ -26,6 +26,7 @@ runCodexMetadataCatalogTests(&runner)
 runWorkflowEvidenceTests(&runner)
 runObservationStateTests(&runner)
 runAppServerNotificationTests(&runner)
+runLedgerMaintenanceTests(&runner)
 runAccountGatewayTests(&runner)
 runCodexIntegrationTests(&runner)
 

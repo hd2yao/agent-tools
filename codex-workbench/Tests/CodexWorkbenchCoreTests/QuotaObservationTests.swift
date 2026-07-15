@@ -140,8 +140,31 @@ func runQuotaObservationTests(_ runner: inout TestRunner) {
         )
     )
     runner.expect(
-        usageChanged.contains { $0.action == "quota_usage_updated" && $0.importance == .diagnostic },
-        "Ordinary quota consumption should be retained as a diagnostic state change"
+        usageChanged.isEmpty,
+        "Ordinary quota consumption should update the baseline without creating timeline noise"
+    )
+
+    let exhausted = factory.events(
+        previous: QuotaObservation(
+            profile: "hd-master",
+            observedAt: Date(timeIntervalSince1970: 14_100),
+            remainingPercent: 2,
+            resetsAt: resetAt,
+            resetCredits: 3,
+            reachedType: nil
+        ),
+        current: QuotaObservation(
+            profile: "hd-master",
+            observedAt: Date(timeIntervalSince1970: 14_160),
+            remainingPercent: 0,
+            resetsAt: resetAt,
+            resetCredits: 3,
+            reachedType: nil
+        )
+    )
+    runner.expect(
+        exhausted.contains { $0.action == "quota_limit_reached" && $0.status == .failure },
+        "Reaching zero remaining quota should be logged even when the official reached type is absent"
     )
 
     let rollingResetTime = factory.events(

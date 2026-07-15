@@ -102,18 +102,6 @@ public struct QuotaEventFactory: Sendable {
                     evidenceLabel: "官方额度快照差异"
                 ))
             }
-        } else if previous.remainingPercent != current.remainingPercent {
-            result.append(makeEvent(
-                action: "quota_usage_updated",
-                title: "额度使用状态已更新",
-                summary: "\(current.profile) 的剩余额度由 \(Self.percentText(previous.remainingPercent)) 变为 \(Self.percentText(current.remainingPercent))。",
-                status: .success,
-                importance: .diagnostic,
-                certainty: .confirmed,
-                previous: previous,
-                current: current,
-                evidenceLabel: "官方额度快照差异"
-            ))
         }
 
         if previous.resetCredits != current.resetCredits,
@@ -152,16 +140,17 @@ public struct QuotaEventFactory: Sendable {
             ))
         }
 
-        if !recovered, previous.reachedType != current.reachedType {
-            let reached = current.reachedType != nil
+        let wasExhausted = previous.reachedType != nil || (previous.remainingPercent ?? 1) <= 0
+        let isExhausted = current.reachedType != nil || (current.remainingPercent ?? 1) <= 0
+        if !recovered, wasExhausted != isExhausted {
             result.append(makeEvent(
-                action: reached ? "quota_limit_reached" : "quota_limit_cleared",
-                title: reached ? "额度已达到限制" : "额度限制已解除",
-                summary: reached
+                action: isExhausted ? "quota_limit_reached" : "quota_limit_cleared",
+                title: isExhausted ? "额度已用完" : "额度限制已解除",
+                summary: isExhausted
                     ? "\(current.profile) 已达到 \(current.reachedType ?? "额度") 限制。"
                     : "\(current.profile) 的额度限制状态已解除。",
-                status: reached ? .failure : .success,
-                importance: reached ? .critical : .routine,
+                status: isExhausted ? .failure : .success,
+                importance: isExhausted ? .critical : .routine,
                 certainty: .confirmed,
                 previous: previous,
                 current: current,
