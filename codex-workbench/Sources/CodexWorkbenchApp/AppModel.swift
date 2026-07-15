@@ -144,6 +144,7 @@ final class WorkbenchAppModel: ObservableObject {
                 previous: previous,
                 evidence: ledger.snapshot,
                 accountPayload: account.payload,
+                accountError: account.errorMessage,
                 existingEvents: ledger.events,
                 observedAt: observedAt
             )

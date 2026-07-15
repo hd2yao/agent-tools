@@ -7,6 +7,7 @@ public struct ObservationState: Codable, Equatable, Sendable {
     public let threadIDs: Set<String>
     public let workflowFiles: [String: WorkflowFileFingerprint]
     public let quotaByProfile: [String: QuotaObservation]
+    public let accountErrorFingerprint: String?
 
     public init(
         schemaVersion: Int = 1,
@@ -14,7 +15,8 @@ public struct ObservationState: Codable, Equatable, Sendable {
         projectPaths: Set<String>,
         threadIDs: Set<String>,
         workflowFiles: [String: WorkflowFileFingerprint],
-        quotaByProfile: [String: QuotaObservation]
+        quotaByProfile: [String: QuotaObservation],
+        accountErrorFingerprint: String? = nil
     ) {
         self.schemaVersion = schemaVersion
         self.updatedAt = updatedAt
@@ -22,6 +24,7 @@ public struct ObservationState: Codable, Equatable, Sendable {
         self.threadIDs = threadIDs
         self.workflowFiles = workflowFiles
         self.quotaByProfile = quotaByProfile
+        self.accountErrorFingerprint = accountErrorFingerprint
     }
 }
 
@@ -67,6 +70,7 @@ public struct ObservationStateReconciler: Sendable {
         previous: ObservationState?,
         evidence: EvidenceSnapshot,
         accountPayload: AccountDashboardPayload?,
+        accountError: String? = nil,
         existingEvents: [OperationEvent],
         observedAt: Date
     ) -> ObservationReconciliation {
@@ -102,6 +106,27 @@ public struct ObservationStateReconciler: Sendable {
             }
         }
 
+        let currentErrorFingerprint = accountError.map {
+            StableEventID.make(parts: ["account-data-source-error", $0])
+        }
+        if let previous {
+            events += Self.accountDataSourceEvents(
+                previousFingerprint: previous.accountErrorFingerprint,
+                currentFingerprint: currentErrorFingerprint,
+                hasCurrentPayload: accountPayload != nil,
+                observedAt: observedAt
+            )
+        }
+
+        let nextErrorFingerprint: String?
+        if accountPayload != nil {
+            nextErrorFingerprint = nil
+        } else if currentErrorFingerprint != nil {
+            nextErrorFingerprint = currentErrorFingerprint
+        } else {
+            nextErrorFingerprint = previous?.accountErrorFingerprint
+        }
+
         let hasThreadSnapshot = !evidence.threadCatalog.records.isEmpty
         let hasWorkflowSnapshot = !evidence.workflowFiles.isEmpty
         let state = ObservationState(
@@ -115,7 +140,8 @@ public struct ObservationStateReconciler: Sendable {
             workflowFiles: hasWorkflowSnapshot
                 ? Dictionary(uniqueKeysWithValues: evidence.workflowFiles.map { ($0.path, $0) })
                 : (previous?.workflowFiles ?? [:]),
-            quotaByProfile: quotaByProfile
+            quotaByProfile: quotaByProfile,
+            accountErrorFingerprint: nextErrorFingerprint
         )
         return ObservationReconciliation(
             events: events.sorted { $0.occurredAt > $1.occurredAt },
@@ -149,5 +175,57 @@ public struct ObservationStateReconciler: Sendable {
                 reachedType: reachedType
             )
         }
+    }
+
+    private static func accountDataSourceEvents(
+        previousFingerprint: String?,
+        currentFingerprint: String?,
+        hasCurrentPayload: Bool,
+        observedAt: Date
+    ) -> [OperationEvent] {
+        let action: String
+        let title: String
+        let summary: String
+        let status: EventStatus
+        if let currentFingerprint, currentFingerprint != previousFingerprint {
+            action = "account_data_source_failed"
+            title = "账号数据源读取失败"
+            summary = "Codex 观测站未能读取账号状态；已保留上一次成功数据。"
+            status = .failure
+        } else if previousFingerprint != nil, currentFingerprint == nil, hasCurrentPayload {
+            action = "account_data_source_recovered"
+            title = "账号数据源已恢复"
+            summary = "Codex 观测站已重新读取账号与额度状态。"
+            status = .success
+        } else {
+            return []
+        }
+
+        return [OperationEvent(
+            schemaVersion: 1,
+            id: StableEventID.make(parts: [
+                "account-data-source",
+                action,
+                String(format: "%.6f", observedAt.timeIntervalSince1970),
+            ]),
+            occurredAt: observedAt,
+            recordedAt: observedAt,
+            category: .system,
+            action: action,
+            title: title,
+            summary: summary,
+            status: status,
+            importance: .important,
+            certainty: .confirmed,
+            actor: EventActor(type: .app, id: "codex-observatory", label: "Codex 观测站"),
+            sourceChain: [
+                EventActor(type: .app, id: "account-gateway", label: "账号数据适配器"),
+            ],
+            before: .object(["source_state": .string(previousFingerprint == nil ? "healthy" : "failed")]),
+            after: .object(["source_state": .string(status == .failure ? "failed" : "healthy")]),
+            evidence: [
+                EventEvidence(kind: "data_source_transition", label: "脱敏的数据源状态变化"),
+            ]
+        )]
     }
 }

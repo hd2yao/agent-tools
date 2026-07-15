@@ -99,6 +99,41 @@ func runObservationStateTests(_ runner: inout TestRunner) {
         observedAt: Date(timeIntervalSince1970: 1_120)
     )
     runner.expect(unchanged.events.isEmpty, "An unchanged combined state should not append duplicate events")
+
+    let failedSource = reconciler.reconcile(
+        previous: changed.state,
+        evidence: EvidenceSnapshot(threadCatalog: changedCatalog, workflowFiles: [ruleV2]),
+        accountPayload: nil,
+        accountError: "backend timed out at /private/path",
+        existingEvents: changed.events,
+        observedAt: Date(timeIntervalSince1970: 1_180)
+    )
+    runner.expect(
+        failedSource.events.contains { $0.action == "account_data_source_failed" && $0.status == .failure },
+        "A new account data-source failure should be an important ledger event"
+    )
+    runner.expect(
+        failedSource.state.accountErrorFingerprint?.contains("private") == false,
+        "Observation state should retain only an error fingerprint, not raw details"
+    )
+
+    let recoveredSource = reconciler.reconcile(
+        previous: failedSource.state,
+        evidence: EvidenceSnapshot(threadCatalog: changedCatalog, workflowFiles: [ruleV2]),
+        accountPayload: makeAccountPayload(
+            generatedAt: Date(timeIntervalSince1970: 1_240),
+            remainingPercent: 100,
+            resetsAt: Date(timeIntervalSince1970: 20_000),
+            resetCredits: 4
+        ),
+        accountError: nil,
+        existingEvents: failedSource.events,
+        observedAt: Date(timeIntervalSince1970: 1_240)
+    )
+    runner.expect(
+        recoveredSource.events.contains { $0.action == "account_data_source_recovered" && $0.status == .success },
+        "Account data-source recovery should close the error transition"
+    )
 }
 
 private func makeAccountPayload(
