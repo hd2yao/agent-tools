@@ -35,7 +35,8 @@ public struct AutomationSessionEvidenceCollector: Sendable {
     public func evidence(
         automationID: String,
         occurredAt: Date,
-        catalog: CodexMetadataCatalog
+        catalog: CodexMetadataCatalog,
+        rolloutCache: WorkflowRolloutTextCache = WorkflowRolloutTextCache()
     ) -> [AutomationUpdateEvidence] {
         catalog.records.compactMap { thread in
             guard
@@ -50,7 +51,8 @@ public struct AutomationSessionEvidenceCollector: Sendable {
                 automationID: automationID,
                 occurredAt: occurredAt,
                 thread: thread,
-                rolloutURL: URL(fileURLWithPath: rolloutPath)
+                rolloutURL: URL(fileURLWithPath: rolloutPath),
+                rolloutCache: rolloutCache
             )
         }
     }
@@ -59,9 +61,10 @@ public struct AutomationSessionEvidenceCollector: Sendable {
         automationID: String,
         occurredAt: Date,
         thread: CodexThreadMetadata,
-        rolloutURL: URL
+        rolloutURL: URL,
+        rolloutCache: WorkflowRolloutTextCache
     ) -> AutomationUpdateEvidence? {
-        guard let text = try? String(contentsOf: rolloutURL, encoding: .utf8) else { return nil }
+        guard let text = rolloutCache.text(at: rolloutURL.path) else { return nil }
         var previousSnapshot: WorkflowSemanticSnapshot?
         var matches: [(Date, String, WorkflowSemanticSnapshot?)] = []
 
@@ -330,11 +333,22 @@ public struct WorkflowEventHistoryEnricher: Sendable {
         recordedAt: Date
     ) -> [OperationEvent] {
         let currentByPath = Dictionary(uniqueKeysWithValues: currentWorkflowFiles.map { ($0.path, $0) })
+        let rolloutCache = WorkflowRolloutTextCache()
         return events.compactMap { event in
-            if let revision = automationRevision(event: event, catalog: catalog, recordedAt: recordedAt) {
+            if let revision = automationRevision(
+                event: event,
+                catalog: catalog,
+                rolloutCache: rolloutCache,
+                recordedAt: recordedAt
+            ) {
                 return revision
             }
-            if let revision = patchRevision(event: event, catalog: catalog, recordedAt: recordedAt) {
+            if let revision = patchRevision(
+                event: event,
+                catalog: catalog,
+                rolloutCache: rolloutCache,
+                recordedAt: recordedAt
+            ) {
                 return revision
             }
             if let revision = gitHistoryRevision(
@@ -355,6 +369,7 @@ public struct WorkflowEventHistoryEnricher: Sendable {
     private func patchRevision(
         event: OperationEvent,
         catalog: CodexMetadataCatalog,
+        rolloutCache: WorkflowRolloutTextCache,
         recordedAt: Date
     ) -> OperationEvent? {
         guard
@@ -369,7 +384,8 @@ public struct WorkflowEventHistoryEnricher: Sendable {
             label: event.actor.label,
             path: rawPath,
             occurredAt: event.occurredAt,
-            catalog: catalog
+            catalog: catalog,
+            rolloutCache: rolloutCache
         )
         guard matches.count == 1, let match = matches.first, !match.changes.isEmpty else { return nil }
 
@@ -519,6 +535,7 @@ public struct WorkflowEventHistoryEnricher: Sendable {
     private func automationRevision(
         event: OperationEvent,
         catalog: CodexMetadataCatalog,
+        rolloutCache: WorkflowRolloutTextCache,
         recordedAt: Date
     ) -> OperationEvent? {
         guard
@@ -531,7 +548,8 @@ public struct WorkflowEventHistoryEnricher: Sendable {
             let matches = AutomationSessionEvidenceCollector().evidence(
                 automationID: automationID,
                 occurredAt: event.occurredAt,
-                catalog: catalog
+                catalog: catalog,
+                rolloutCache: rolloutCache
             )
             guard matches.count == 1, let match = matches.first else { return nil }
 
@@ -705,6 +723,10 @@ public struct WorkflowEventHistoryEnricher: Sendable {
             "skill_added", "skill_updated",
         ].contains(event.action)
         guard supported else { return false }
+        if workflowKind(for: event) == .rule,
+           event.changes?.contains(where: { ["新增规则", "移除规则"].contains($0.label) }) != true {
+            return true
+        }
         return event.changes?.isEmpty != false
             || event.summary.contains("全局工作流定义已更新")
             || event.summary.contains("内容已调整")

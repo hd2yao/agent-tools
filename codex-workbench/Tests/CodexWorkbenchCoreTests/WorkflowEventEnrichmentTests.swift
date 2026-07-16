@@ -9,6 +9,31 @@ func runWorkflowEventEnrichmentTests(_ runner: inout TestRunner) {
     defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
     try? FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
 
+    let boundedRolloutURL = temporaryDirectory.appendingPathComponent("bounded-rollout.jsonl")
+    let privatePrefix = "private-prefix-marker-" + String(repeating: "x", count: 16_384)
+    let visibleSuffix = "\n{\"timestamp\":\"1970-01-01T00:03:20.000Z\",\"payload\":\"visible-suffix\"}\n"
+    try? (privatePrefix + visibleSuffix).write(
+        to: boundedRolloutURL,
+        atomically: true,
+        encoding: .utf8
+    )
+    let rolloutCache = WorkflowRolloutTextCache(maximumBytesPerFile: 4_096)
+    let firstTail = rolloutCache.text(at: boundedRolloutURL.path)
+    runner.expect(
+        firstTail?.contains("visible-suffix") == true
+            && firstTail?.contains("private-prefix-marker") == false,
+        "Workflow evidence should inspect only a bounded rollout tail"
+    )
+    try? "changed-after-first-read".write(
+        to: boundedRolloutURL,
+        atomically: true,
+        encoding: .utf8
+    )
+    runner.expect(
+        rolloutCache.text(at: boundedRolloutURL.path) == firstTail,
+        "Workflow evidence should reuse one rollout read during a refresh"
+    )
+
     let oldAutomation = """
     version = 1
     id = "codex"
@@ -482,7 +507,7 @@ func runWorkflowEventEnrichmentTests(_ runner: inout TestRunner) {
 
     let ruleRolloutURL = temporaryDirectory.appendingPathComponent("rollout-rule-source.jsonl")
     let rulePatchInput = """
-    const patch = "*** Begin Patch\\n*** Update File: /Users/dysania/.codex/AGENTS.md\\n@@\\n - 如果任务明显匹配已有 skill，先读取并使用相关 skill。\\n+- 当目标因定时任务、CI 或审批等待时，登记等待条件、恢复动作和安全并行工作。\\n*** End Patch";
+    const patch = "*** Begin Patch\\n*** Update File: /Users/dysania/.codex/AGENTS.md\\n@@\\n - 如果任务明显匹配已有 skill，先读取并使用相关 skill。\\n+- 当目标因定时任务、CI、审批或其他外部条件等待时，使用 `codex-task-continuity` 登记等待条件、监控、恢复动作和安全并行工作；有可推进轨道时不要把整个目标标记为 `blocked`，确定性条件默认绑定原线程自动续作。\\n*** End Patch";
     text(await tools.apply_patch(patch));
     """
     try? sessionLine(
@@ -534,7 +559,9 @@ func runWorkflowEventEnrichmentTests(_ runner: inout TestRunner) {
     ).first
     runner.expect(
         rulePatchRevision?.changes?.contains {
-            $0.label == "新增规则" && $0.summary.contains("登记等待条件、恢复动作")
+            $0.label == "新增规则"
+                && $0.summary.contains("登记等待条件")
+                && $0.summary.contains("恢复动作")
         } == true,
         "Structured patch evidence should recover the exact added global rule"
     )
@@ -554,6 +581,44 @@ func runWorkflowEventEnrichmentTests(_ runner: inout TestRunner) {
             "The full structured patch must never enter the operation ledger"
         )
     }
+
+    let capabilityOnlyRuleEvent = OperationEvent(
+        schemaVersion: legacyRuleEvent.schemaVersion,
+        id: legacyRuleEvent.id,
+        occurredAt: legacyRuleEvent.occurredAt,
+        recordedAt: Date(timeIntervalSince1970: 260),
+        category: legacyRuleEvent.category,
+        action: legacyRuleEvent.action,
+        title: legacyRuleEvent.title,
+        summary: "Codex 全局规则：安全并行轨道；自动恢复动作。",
+        status: legacyRuleEvent.status,
+        importance: legacyRuleEvent.importance,
+        certainty: legacyRuleEvent.certainty,
+        actor: legacyRuleEvent.actor,
+        scope: legacyRuleEvent.scope,
+        changes: [
+            EventChange(label: "新增能力", summary: "安全并行轨道", after: "安全并行轨道"),
+            EventChange(label: "新增能力", summary: "自动恢复动作", after: "自动恢复动作"),
+        ],
+        before: legacyRuleEvent.before,
+        after: legacyRuleEvent.after,
+        evidence: legacyRuleEvent.evidence + [EventEvidence(
+            kind: "structured_workflow_patch",
+            label: "结构化工作流修改调用",
+            path: ruleRolloutURL.path
+        )]
+    )
+    let correctedCapabilityOnlyRule = WorkflowEventHistoryEnricher().revisions(
+        events: [capabilityOnlyRuleEvent],
+        catalog: CodexMetadataCatalog(records: [ruleSourceThread]),
+        currentWorkflowFiles: [],
+        workflowSourceRoots: [],
+        recordedAt: Date(timeIntervalSince1970: 280)
+    ).first
+    runner.expect(
+        correctedCapabilityOnlyRule?.changes?.contains { $0.label == "新增规则" } == true,
+        "A capability-only rule revision should be upgraded to the concrete added directive"
+    )
 }
 
 private func runGit(_ arguments: [String], in directory: URL) -> Bool {

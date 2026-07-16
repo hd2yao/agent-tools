@@ -301,7 +301,13 @@ enum SafeWorkflowText {
 
     static func containsSensitiveValue(_ value: String) -> Bool {
         let normalized = value.lowercased()
-        if normalized.contains("bearer ") || normalized.contains("sk-") { return true }
+        if normalized.contains("bearer ") { return true }
+        if normalized.range(
+            of: #"(?:^|[^a-z0-9])sk-[a-z0-9_-]{12,}"#,
+            options: .regularExpression
+        ) != nil {
+            return true
+        }
         let sensitiveKeys = ["api_key", "apikey", "token", "password", "secret", "cookie"]
         return sensitiveKeys.contains { key in
             normalized.range(

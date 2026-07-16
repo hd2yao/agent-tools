@@ -26,14 +26,15 @@ public struct WorkflowSessionPatchEvidenceCollector: Sendable {
         label: String,
         path: String,
         occurredAt: Date,
-        catalog: CodexMetadataCatalog
+        catalog: CodexMetadataCatalog,
+        rolloutCache: WorkflowRolloutTextCache = WorkflowRolloutTextCache()
     ) -> [WorkflowPatchEvidence] {
         catalog.records.compactMap { thread in
             guard
                 thread.createdAt <= occurredAt.addingTimeInterval(lookahead),
                 thread.updatedAt >= occurredAt.addingTimeInterval(-lookback),
                 let rolloutPath = thread.rolloutPath,
-                let text = try? String(contentsOfFile: rolloutPath, encoding: .utf8)
+                let text = rolloutCache.text(at: rolloutPath)
             else {
                 return nil
             }
