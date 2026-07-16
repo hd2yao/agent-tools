@@ -113,7 +113,7 @@
 - [x] **T023 上下文卡片结构化摘要与历史回填**
   映射：AC-025、AC-028
   验收：列表与详情展示真实压缩后保留内容，旧事件幂等增强，系统注入与完整 transcript 不进入 ledger。
-  验证：context card fixture RED/GREEN、长度/过滤/隐私断言、真实 13:29 事件回填。
+  验证：context card fixture RED/GREEN、长度/过滤/隐私断言、截图附件清单与 AGENTS 指令过滤、真实 13:29 事件回填。
 
 - [x] **T024 全局规则、配置与 Plugin 安全语义快照**
   映射：AC-026、AC-028

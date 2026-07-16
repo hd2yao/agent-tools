@@ -23,12 +23,14 @@ func runEvidenceReconcilerTests(_ runner: inout TestRunner) {
 
     ## 当前主题
 
-    - 嗯，可以
+    - # Files mentioned by the user: ## codex-clipboard-example.png
 
     ## 最近用户请求
 
     - `2026-07-16T05:20:00Z` **用户**: <recommended_plugins>这不是对话摘要内容</recommended_plugins>
     - `2026-07-16T05:27:51Z` **用户**: 等待外部条件时继续推进安全的并行工作，并持续监听恢复条件。
+    - `2026-07-16T05:28:00Z` **用户**: # AGENTS.md instructions <INSTRUCTIONS>这不是对话摘要内容</INSTRUCTIONS>
+    - `2026-07-16T05:28:01Z` **用户**: # Files mentioned by the user: ## codex-clipboard-example.png: /tmp/codex-clipboard-example.png
 
     ## 最近助手进展
 
@@ -100,6 +102,14 @@ func runEvidenceReconcilerTests(_ runner: inout TestRunner) {
     runner.expect(
         contextEvent?.changes?.contains { $0.summary.contains("recommended_plugins") } == false,
         "Injected plugin recommendations must not enter the context preview"
+    )
+    runner.expect(
+        contextEvent?.changes?.contains { $0.summary.contains("codex-clipboard") } == false,
+        "Attachment metadata must not replace the actual user request"
+    )
+    runner.expect(
+        contextEvent?.changes?.contains { $0.summary.contains("AGENTS.md instructions") } == false,
+        "Injected workspace instructions must not replace the actual user request"
     )
     let legacyContextEvent = OperationEvent(
         schemaVersion: 1,

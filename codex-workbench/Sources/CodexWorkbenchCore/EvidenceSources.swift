@@ -56,6 +56,7 @@ public struct ContextCardSummary: Equatable, Sendable {
         return [
             "<recommended_plugins", "<codex_internal_context", "<heartbeat",
             "<automation_id", "<current_time_iso", "<instructions>",
+            "# files mentioned by the user:", "# agents.md instructions",
         ].contains { normalized.hasPrefix($0) }
     }
 

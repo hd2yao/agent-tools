@@ -159,7 +159,7 @@ Design Lock 详见项目根目录 `DESIGN.md`。核心是“Calm Operations Cons
 
 ### V1.4 实施结果
 
-- 上下文压缩事件从 context card 提取最近有效用户要求与至多两条压缩前进展；系统注入内容被过滤，列表和详情不再只显示“摘要卡片已生成”。
+- 上下文压缩事件从 context card 提取最近有效用户要求与至多两条压缩前进展；系统注入、AGENTS 指令和截图附件清单被过滤，列表和详情不再只显示“摘要卡片已生成”。
 - 全局规则、Codex 配置、Plugin、Skill、Hook 与 Automation 均生成安全语义变化；`hooks.json` 会显示 `SessionStart / PreCompact` 对应的具体 Hook 命令。
 - 结构化 patch 支持重复重试的语义合并：完全相同的重复调用视为同一份证据，不同改动仍拒绝猜测；历史事件继续以相同 ID 追加 revision。
 - rollout 证据读取限制为单文件尾部 8 MiB、单轮复用并只保留 Automation/patch/旧配置证据行；正式 App 刷新后的稳定 RSS 由约 846 MiB 降至约 277 MiB。
