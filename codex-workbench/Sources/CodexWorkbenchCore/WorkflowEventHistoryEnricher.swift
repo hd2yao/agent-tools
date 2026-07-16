@@ -641,8 +641,9 @@ public struct WorkflowEventHistoryEnricher: Sendable {
                 after: event.after,
                 evidence: evidence
             )
+            guard !hasGenericExplanation(revision) else { return nil }
             return isSemanticallyEquivalent(revision, to: event) ? nil : revision
-    }
+        }
 
     private func currentSnapshotRevision(
         event: OperationEvent,
@@ -735,6 +736,15 @@ public struct WorkflowEventHistoryEnricher: Sendable {
                 ["工作流定义", "实现细节", "指令段落", "证据边界"].contains($0.label)
             } == true
             || event.evidence.contains { $0.kind == "current_workflow_snapshot" }
+    }
+
+    private func hasGenericExplanation(_ event: OperationEvent) -> Bool {
+        event.summary.contains("全局工作流定义已更新")
+            || event.summary.contains("内容已调整")
+            || event.summary.contains("实现内容已调整")
+            || event.changes?.contains {
+                ["工作流定义", "实现细节"].contains($0.label)
+            } == true
     }
 
     private func workflowKind(for event: OperationEvent) -> WorkflowFileKind? {

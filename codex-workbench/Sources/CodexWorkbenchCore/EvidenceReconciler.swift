@@ -98,9 +98,12 @@ public struct ContextEventHistoryEnricher: Sendable {
             candidates[event.id] = event
         }
         return events.compactMap { event in
+            let existingChanges = event.changes ?? []
+            let needsRevision = existingChanges.isEmpty
+                || existingChanges.contains { ContextCardSummary.isInjectedPreview($0.summary) }
             guard
                 event.action == "context_compacted",
-                event.changes?.isEmpty != false,
+                needsRevision,
                 let revision = candidates[event.id],
                 revision.changes?.isEmpty == false,
                 !isSemanticallyEquivalent(revision, to: event)

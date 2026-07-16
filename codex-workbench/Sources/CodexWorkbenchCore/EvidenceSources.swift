@@ -46,16 +46,26 @@ public struct ContextCardSummary: Equatable, Sendable {
                 break
             }
         }
+        if value.lowercased().hasPrefix("# files mentioned by the user:") {
+            guard let requestRange = value.range(
+                of: "## My request for Codex:",
+                options: [.caseInsensitive]
+            ) else {
+                return nil
+            }
+            value = String(value[requestRange.upperBound...])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
         let compact = value.split(whereSeparator: \Character.isWhitespace).joined(separator: " ")
-        guard !compact.isEmpty, !isInjected(compact) else { return nil }
+        guard !compact.isEmpty, !isInjectedPreview(compact) else { return nil }
         return compact.count <= 360 ? compact : String(compact.prefix(357)) + "…"
     }
 
-    private static func isInjected(_ value: String) -> Bool {
+    static func isInjectedPreview(_ value: String) -> Bool {
         let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         return [
             "<recommended_plugins", "<codex_internal_context", "<heartbeat",
-            "<automation_id", "<current_time_iso", "<instructions>",
+            "<automation_id", "<current_time_iso", "<instructions>", "<codex_delegation",
             "# files mentioned by the user:", "# agents.md instructions",
         ].contains { normalized.hasPrefix($0) }
     }
@@ -66,6 +76,7 @@ public struct ContextCardSummary: Equatable, Sendable {
             .lowercased()
         let acknowledgements: Set<String> = [
             "嗯", "嗯可以", "可以", "好的", "好", "行", "ok", "okay", "继续",
+            "那你做迭代更新吧", "做迭代更新吧",
         ]
         return normalized.count >= 6 && !acknowledgements.contains(normalized)
     }

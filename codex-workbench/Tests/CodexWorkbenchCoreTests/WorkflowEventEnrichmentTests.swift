@@ -204,6 +204,80 @@ func runWorkflowEventEnrichmentTests(_ runner: inout TestRunner) {
         )
     }
 
+    let wordingOnlyRolloutURL = temporaryDirectory.appendingPathComponent("rollout-wording-only.jsonl")
+    let wordingOnlyUpdate = """
+    const prompt = `DailyDigest
+    gh pr merge
+    wording changed without a recognized capability change`;
+    const result = await tools.codex_app__automation_update({
+      id:"codex",
+      mode:"update",
+      prompt,
+      targetThreadId:"thread-target"
+    });
+    """
+    try? [
+        sessionLine(
+            timestamp: "1970-01-01T00:03:10.000Z",
+            payload: [
+                "type": "custom_tool_call_output",
+                "output": [["type": "input_text", "text": oldAutomation]],
+            ]
+        ),
+        sessionLine(
+            timestamp: "1970-01-01T00:03:20.000Z",
+            payload: [
+                "type": "custom_tool_call",
+                "name": "exec",
+                "input": wordingOnlyUpdate,
+            ]
+        ),
+    ].joined(separator: "\n").write(to: wordingOnlyRolloutURL, atomically: true, encoding: .utf8)
+    let wordingOnlyThread = CodexThreadMetadata(
+        id: "thread-wording-only",
+        rawTitle: "调整自动化措辞",
+        projectPath: "/Users/dysania/program/codex-workflow-skills",
+        createdAt: Date(timeIntervalSince1970: 100),
+        updatedAt: Date(timeIntervalSince1970: 210),
+        sourceThreadID: nil,
+        rolloutPath: wordingOnlyRolloutURL.path
+    )
+    let explainedAutomationEvent = OperationEvent(
+        schemaVersion: legacyEvent.schemaVersion,
+        id: "evt-automation-no-downgrade",
+        occurredAt: legacyEvent.occurredAt,
+        recordedAt: legacyEvent.recordedAt,
+        category: legacyEvent.category,
+        action: legacyEvent.action,
+        title: legacyEvent.title,
+        summary: "codex：前一日工作采集；仓库收尾。",
+        status: legacyEvent.status,
+        importance: legacyEvent.importance,
+        certainty: legacyEvent.certainty,
+        actor: legacyEvent.actor,
+        scope: .globalWorkflow,
+        changes: [
+            EventChange(label: "更新后包含", summary: "前一日工作采集", after: "前一日工作采集"),
+            EventChange(label: "更新后包含", summary: "仓库收尾", after: "仓库收尾"),
+            EventChange(label: "证据边界", summary: "未保留更新前语义快照"),
+        ],
+        before: legacyEvent.before,
+        after: legacyEvent.after,
+        evidence: legacyEvent.evidence + [EventEvidence(
+            kind: "current_workflow_snapshot",
+            label: "当前工作流安全语义快照",
+            path: "/Users/dysania/.codex/automations/codex/automation.toml"
+        )]
+    )
+    runner.expect(
+        WorkflowEventHistoryEnricher().revisions(
+            events: [explainedAutomationEvent],
+            catalog: CodexMetadataCatalog(records: [wordingOnlyThread, targetThread]),
+            recordedAt: Date(timeIntervalSince1970: 220)
+        ).isEmpty,
+        "A concrete current-snapshot explanation must not be downgraded to a generic Automation revision"
+    )
+
     _ = LedgerWriter().append(events: [legacyEvent], to: ledgerURL)
     let firstRevision = LedgerWriter().appendRevisions(events: revisions, to: ledgerURL)
     let repeatedRevision = LedgerWriter().appendRevisions(events: revisions, to: ledgerURL)

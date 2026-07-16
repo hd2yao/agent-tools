@@ -145,6 +145,37 @@ func runEvidenceReconcilerTests(_ runner: inout TestRunner) {
         ).isEmpty,
         "An already enriched context event should not create another revision"
     )
+    let attachmentMetadataEvent = OperationEvent(
+        schemaVersion: legacyContextEvent.schemaVersion,
+        id: legacyContextEvent.id,
+        occurredAt: legacyContextEvent.occurredAt,
+        recordedAt: recordedAt,
+        category: legacyContextEvent.category,
+        action: legacyContextEvent.action,
+        title: legacyContextEvent.title,
+        summary: "压缩后保留：# Files mentioned by the user: ## codex-clipboard-example.png",
+        status: legacyContextEvent.status,
+        importance: legacyContextEvent.importance,
+        certainty: legacyContextEvent.certainty,
+        actor: legacyContextEvent.actor,
+        changes: [
+            EventChange(label: "当前主题", summary: "# Files mentioned by the user: ## codex-clipboard-example.png"),
+            EventChange(label: "最近用户要求", summary: "# Files mentioned by the user: ## codex-clipboard-example.png: /tmp/example.png"),
+        ],
+        evidence: legacyContextEvent.evidence
+    )
+    let cleanedContextRevision = ContextEventHistoryEnricher().revisions(
+        events: [attachmentMetadataEvent],
+        cards: card.map { [$0] } ?? [],
+        catalog: threadCatalog,
+        recordedAt: recordedAt.addingTimeInterval(2)
+    ).first
+    runner.expect(
+        cleanedContextRevision?.changes?.contains {
+            $0.label == "最近用户要求" && $0.summary.contains("安全的并行工作")
+        } == true,
+        "Historic context revisions polluted by attachment metadata should be upgraded again"
+    )
 
     let resetEvent = events.first { $0.action == "reset_credit_consumed" }
     runner.expect(resetEvent?.category == .quota, "Reset outcome should become a quota event")
