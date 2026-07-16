@@ -99,13 +99,24 @@ public struct ContextEventHistoryEnricher: Sendable {
         }
         return events.compactMap { event in
             let existingChanges = event.changes ?? []
-            let needsRevision = existingChanges.isEmpty
-                || existingChanges.contains { ContextCardSummary.isInjectedPreview($0.summary) }
             guard
                 event.action == "context_compacted",
-                needsRevision,
                 let revision = candidates[event.id],
-                revision.changes?.isEmpty == false,
+                let revisionChanges = revision.changes,
+                !revisionChanges.isEmpty
+            else {
+                return nil
+            }
+            let existingLabels = Set(existingChanges.map(\.label))
+            let addsMissingSummary = revisionChanges.contains {
+                ["当前主题", "最近用户要求"].contains($0.label)
+                    && !existingLabels.contains($0.label)
+            }
+            let needsRevision = existingChanges.isEmpty
+                || existingChanges.contains { ContextCardSummary.isInjectedPreview($0.summary) }
+                || addsMissingSummary
+            guard
+                needsRevision,
                 !isSemanticallyEquivalent(revision, to: event)
             else {
                 return nil

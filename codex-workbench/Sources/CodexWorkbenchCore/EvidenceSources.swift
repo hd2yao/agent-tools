@@ -46,6 +46,7 @@ public struct ContextCardSummary: Equatable, Sendable {
                 break
             }
         }
+        value = value.trimmingCharacters(in: .whitespacesAndNewlines)
         if value.lowercased().hasPrefix("# files mentioned by the user:") {
             guard let requestRange = value.range(
                 of: "## My request for Codex:",

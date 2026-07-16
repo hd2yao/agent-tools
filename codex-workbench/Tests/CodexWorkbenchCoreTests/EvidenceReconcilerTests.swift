@@ -42,6 +42,22 @@ func runEvidenceReconcilerTests(_ runner: inout TestRunner) {
         sourcePath: "/Users/dysania/.codex/context-cards/card.md"
     )
     runner.expect(card != nil, "A real context card header should parse")
+    let attachmentRequestCard = ContextCardEvidence.parse(
+        markdown: """
+        - 生成时间: 2026-07-16T15:03:53+08:00
+        - 触发事件: PreCompact (auto)
+        - 会话 ID: `019f6067-342c-7b22-a9fc-cd50ded08d86`
+
+        ## 最近用户请求
+
+        - `2026-07-15T03:08:58.932Z` **用户**: # Files mentioned by the user: ## codex-clipboard-example.png: /tmp/codex-clipboard-example.png ## My request for Codex: 我看不出来具体调整在哪里，点开详情也没有介绍。
+        """,
+        sourcePath: "/Users/dysania/.codex/context-cards/attachment-request-card.md"
+    )
+    runner.expect(
+        attachmentRequestCard?.summary.recentUserRequest == "我看不出来具体调整在哪里，点开详情也没有介绍。",
+        "Attachment preambles should be removed while retaining an inline user request"
+    )
 
     let preferences: [String: JSONValue] = [
         "automatic-reset.last-attempt.hd-master.rate_limit_reached.1784515205": .number(1_784_027_580.6553841),
@@ -175,6 +191,31 @@ func runEvidenceReconcilerTests(_ runner: inout TestRunner) {
             $0.label == "最近用户要求" && $0.summary.contains("安全的并行工作")
         } == true,
         "Historic context revisions polluted by attachment metadata should be upgraded again"
+    )
+    let progressOnlyEvent = OperationEvent(
+        schemaVersion: attachmentMetadataEvent.schemaVersion,
+        id: attachmentMetadataEvent.id,
+        occurredAt: attachmentMetadataEvent.occurredAt,
+        recordedAt: attachmentMetadataEvent.recordedAt,
+        category: attachmentMetadataEvent.category,
+        action: attachmentMetadataEvent.action,
+        title: attachmentMetadataEvent.title,
+        summary: "压缩后保留：已建立隔离 worktree，接下来按 TDD 实现前端。",
+        status: attachmentMetadataEvent.status,
+        importance: attachmentMetadataEvent.importance,
+        certainty: attachmentMetadataEvent.certainty,
+        actor: attachmentMetadataEvent.actor,
+        changes: [EventChange(label: "压缩前进展", summary: "已建立隔离 worktree，接下来按 TDD 实现前端。")],
+        evidence: attachmentMetadataEvent.evidence
+    )
+    runner.expect(
+        ContextEventHistoryEnricher().revisions(
+            events: [progressOnlyEvent],
+            cards: card.map { [$0] } ?? [],
+            catalog: threadCatalog,
+            recordedAt: recordedAt.addingTimeInterval(3)
+        ).first?.changes?.contains { $0.label == "最近用户要求" } == true,
+        "A progress-only context revision should be upgraded when the card exposes a user request"
     )
 
     let resetEvent = events.first { $0.action == "reset_credit_consumed" }
