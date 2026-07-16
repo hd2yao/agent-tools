@@ -512,14 +512,24 @@ func runWorkflowEventEnrichmentTests(_ runner: inout TestRunner) {
     const patch = "*** Begin Patch\\n*** Update File: /Users/dysania/.codex/AGENTS.md\\n@@\\n - 如果任务明显匹配已有 skill，先读取并使用相关 skill。\\n+- 当目标因定时任务、CI、审批或其他外部条件等待时，使用 `codex-task-continuity` 登记等待条件、监控、恢复动作和安全并行工作；有可推进轨道时不要把整个目标标记为 `blocked`，确定性条件默认绑定原线程自动续作。\\n*** End Patch";
     text(await tools.apply_patch(patch));
     """
-    try? sessionLine(
-        timestamp: "1970-01-01T00:03:50.000Z",
-        payload: [
-            "type": "custom_tool_call",
-            "name": "exec",
-            "input": rulePatchInput,
-        ]
-    ).write(to: ruleRolloutURL, atomically: true, encoding: .utf8)
+    try? [
+        sessionLine(
+            timestamp: "1970-01-01T00:03:50.000Z",
+            payload: [
+                "type": "custom_tool_call",
+                "name": "exec",
+                "input": rulePatchInput,
+            ]
+        ),
+        sessionLine(
+            timestamp: "1970-01-01T00:03:51.000Z",
+            payload: [
+                "type": "custom_tool_call",
+                "name": "exec",
+                "input": rulePatchInput,
+            ]
+        ),
+    ].joined(separator: "\n").write(to: ruleRolloutURL, atomically: true, encoding: .utf8)
     let ruleSourceThread = CodexThreadMetadata(
         id: "thread-rule-source",
         rawTitle: "完善等待任务续作规则",
@@ -620,6 +630,65 @@ func runWorkflowEventEnrichmentTests(_ runner: inout TestRunner) {
     runner.expect(
         correctedCapabilityOnlyRule?.changes?.contains { $0.label == "新增规则" } == true,
         "A capability-only rule revision should be upgraded to the concrete added directive"
+    )
+
+    let hooksRolloutURL = temporaryDirectory.appendingPathComponent("rollout-hooks-source.jsonl")
+    let hooksPatchInput = """
+    const patch = "*** Begin Patch\\n*** Update File: /Users/dysania/.codex/hooks.json\\n@@\\n           \\"hooks\\": [\\n+            {\\n+              \\"type\\": \\"command\\",\\n+              \\"command\\": \\"/Users/dysania/.codex/hooks/thread-health-guard-hook.py\\"\\n+            },\\n             {\\n*** End Patch";
+    text(await tools.apply_patch(patch));
+    """
+    try? sessionLine(
+        timestamp: "1970-01-01T00:03:55.000Z",
+        payload: [
+            "type": "custom_tool_call",
+            "name": "exec",
+            "input": hooksPatchInput,
+        ]
+    ).write(to: hooksRolloutURL, atomically: true, encoding: .utf8)
+    let hooksSourceThread = CodexThreadMetadata(
+        id: "thread-hooks-source",
+        rawTitle: "接入线程健康提醒 Hook",
+        projectPath: "/Users/dysania/program/codex-workflow-skills",
+        createdAt: Date(timeIntervalSince1970: 100),
+        updatedAt: Date(timeIntervalSince1970: 260),
+        sourceThreadID: nil,
+        rolloutPath: hooksRolloutURL.path
+    )
+    let legacyHooksEvent = OperationEvent(
+        schemaVersion: 1,
+        id: "evt-hooks-patch-history",
+        occurredAt: Date(timeIntervalSince1970: 240),
+        recordedAt: Date(timeIntervalSince1970: 245),
+        category: .system,
+        action: "workflow_config_updated",
+        title: "Codex 配置已更新",
+        summary: "hooks.json：Codex 配置内容已调整。",
+        status: .success,
+        importance: .important,
+        certainty: .confirmed,
+        actor: EventActor(type: .system, id: "workflow-file-monitor", label: "hooks.json"),
+        scope: .globalWorkflow,
+        changes: [EventChange(label: "工作流定义", summary: "Codex 配置内容已调整")],
+        before: .object(["fingerprint": .string("hooks-old")]),
+        after: .object(["fingerprint": .string("hooks-new")]),
+        evidence: [EventEvidence(
+            kind: "file_fingerprint",
+            label: "受控工作流文件指纹",
+            path: "/Users/dysania/.codex/hooks.json"
+        )]
+    )
+    let hooksPatchRevision = WorkflowEventHistoryEnricher().revisions(
+        events: [legacyHooksEvent],
+        catalog: CodexMetadataCatalog(records: [hooksSourceThread]),
+        currentWorkflowFiles: [],
+        workflowSourceRoots: [],
+        recordedAt: Date(timeIntervalSince1970: 280)
+    ).first
+    runner.expect(
+        hooksPatchRevision?.changes?.contains {
+            $0.summary.contains("thread-health-guard-hook.py")
+        } == true,
+        "Hook JSON patch history should name the newly registered command"
     )
 }
 

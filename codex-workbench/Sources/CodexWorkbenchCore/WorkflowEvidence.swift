@@ -179,7 +179,7 @@ public struct WorkflowSemanticSnapshot: Codable, Equatable, Sendable {
     public static func configuration(content: String) -> Self {
         Self(
             interfaces: SafeWorkflowManifestReader.tomlSections(in: content),
-            statements: SafeWorkflowManifestReader.tomlStatements(in: content)
+            statements: SafeWorkflowManifestReader.configurationStatements(in: content)
         )
     }
 
@@ -355,6 +355,52 @@ enum SafeWorkflowManifestReader {
             guard let statement = SafeWorkflowText.normalized("\(qualifiedKey) = \(value)") else { continue }
             result.append(statement)
             if result.count == 96 { break }
+        }
+        return result
+    }
+
+    static func configurationStatements(in content: String) -> [String] {
+        if let hookStatements = hookStatements(in: content) {
+            return hookStatements
+        }
+        return tomlStatements(in: content)
+    }
+
+    private static func hookStatements(in content: String) -> [String]? {
+        guard
+            let data = content.data(using: .utf8),
+            let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let hooks = root["hooks"] as? [String: Any]
+        else {
+            return nil
+        }
+        var result: [String] = []
+        for trigger in hooks.keys.sorted() {
+            guard let registrations = hooks[trigger] as? [[String: Any]] else { continue }
+            for registration in registrations {
+                let matcher = SafeWorkflowText.normalized(
+                    registration["matcher"] as? String ?? "*",
+                    limit: 80
+                ) ?? "*"
+                guard let commands = registration["hooks"] as? [[String: Any]] else { continue }
+                for command in commands where command["type"] as? String == "command" {
+                    guard
+                        let rawPath = command["command"] as? String,
+                        let commandName = SafeWorkflowText.normalized(
+                            URL(fileURLWithPath: rawPath).lastPathComponent,
+                            limit: 160
+                        ),
+                        let statement = SafeWorkflowText.normalized(
+                            "\(trigger)：\(commandName)（匹配 \(matcher)）",
+                            limit: 280
+                        )
+                    else {
+                        continue
+                    }
+                    result.append(statement)
+                    if result.count == 96 { return result }
+                }
+            }
         }
         return result
     }

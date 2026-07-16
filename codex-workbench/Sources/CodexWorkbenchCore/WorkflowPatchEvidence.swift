@@ -39,8 +39,7 @@ public struct WorkflowSessionPatchEvidenceCollector: Sendable {
                 return nil
             }
 
-            var matchedChanges: [EventChange] = []
-            var matchedCalls = 0
+            var matchedCallChanges: [[EventChange]] = []
             for rawLine in text.split(separator: "\n") {
                 guard
                     let data = String(rawLine).data(using: .utf8),
@@ -69,13 +68,15 @@ public struct WorkflowSessionPatchEvidenceCollector: Sendable {
                     added: added
                 )
                 guard !changes.isEmpty else { continue }
-                matchedCalls += 1
-                matchedChanges.append(contentsOf: changes)
+                matchedCallChanges.append(Self.uniqued(changes))
             }
-            guard matchedCalls == 1 else { return nil }
+            let semanticGroups = Dictionary(grouping: matchedCallChanges, by: Self.changeSignature)
+            guard semanticGroups.count == 1, let matchedChanges = semanticGroups.values.first?.first else {
+                return nil
+            }
             return WorkflowPatchEvidence(
                 sourceThread: thread,
-                changes: Self.uniqued(matchedChanges),
+                changes: matchedChanges,
                 evidencePath: rolloutPath
             )
         }
@@ -178,6 +179,12 @@ public struct WorkflowSessionPatchEvidenceCollector: Sendable {
             seen.insert([$0.label, $0.summary, $0.before ?? "", $0.after ?? ""].joined(separator: "\u{1F}"))
                 .inserted
         }
+    }
+
+    private static func changeSignature(_ changes: [EventChange]) -> String {
+        changes.map {
+            [$0.label, $0.summary, $0.before ?? "", $0.after ?? ""].joined(separator: "\u{1F}")
+        }.sorted().joined(separator: "\u{1E}")
     }
 
     private static func date(from value: String) -> Date? {
@@ -324,7 +331,7 @@ enum WorkflowPatchChangeAnalyzer {
 
     private static func setting(_ line: String) -> (String, String)? {
         let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let separator = trimmed.firstIndex(of: "=") else { return nil }
+        guard let separator = trimmed.firstIndex(where: { $0 == "=" || $0 == ":" }) else { return nil }
         let key = String(trimmed[..<separator]).trimmingCharacters(in: CharacterSet(charactersIn: " \t\"'"))
         let rawValue = String(trimmed[trimmed.index(after: separator)...])
             .trimmingCharacters(in: CharacterSet(charactersIn: " \t,\"'"))

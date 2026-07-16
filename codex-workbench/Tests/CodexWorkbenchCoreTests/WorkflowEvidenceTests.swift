@@ -149,6 +149,50 @@ func runWorkflowEvidenceTests(_ runner: inout TestRunner) {
         )
     }
 
+    let hooksConfigURL = temporaryDirectory.appendingPathComponent("hooks.json")
+    let oldHooksConfig = """
+    {
+      "hooks": {
+        "SessionStart": [{
+          "matcher": "*",
+          "hooks": [{"type": "command", "command": "/Users/dysania/.codex/hooks/task-continuity-hook.py"}]
+        }]
+      }
+    }
+    """
+    let newHooksConfig = """
+    {
+      "hooks": {
+        "SessionStart": [{
+          "matcher": "*",
+          "hooks": [
+            {"type": "command", "command": "/Users/dysania/.codex/hooks/thread-health-guard-hook.py"},
+            {"type": "command", "command": "/Users/dysania/.codex/hooks/task-continuity-hook.py"}
+          ]
+        }]
+      }
+    }
+    """
+    try? oldHooksConfig.write(to: hooksConfigURL, atomically: true, encoding: .utf8)
+    let oldHooksSnapshot = WorkflowFileCollector().collect(roots: [hooksConfigURL]).first
+    try? newHooksConfig.write(to: hooksConfigURL, atomically: true, encoding: .utf8)
+    let newHooksSnapshot = WorkflowFileCollector().collect(roots: [hooksConfigURL]).first
+    if let oldHooksSnapshot, let newHooksSnapshot {
+        let hooksEvent = WorkflowChangeEventFactory().events(
+            previous: [oldHooksSnapshot.path: oldHooksSnapshot],
+            current: [newHooksSnapshot],
+            observedAt: now
+        ).first
+        runner.expect(
+            hooksEvent?.changes?.contains {
+                $0.label == "新增设置"
+                    && $0.summary.contains("SessionStart")
+                    && $0.summary.contains("thread-health-guard-hook.py")
+            } == true,
+            "Hook JSON updates should name the trigger and newly registered command"
+        )
+    }
+
     let pluginURL = temporaryDirectory.appendingPathComponent("plugins/personal/example/plugin.json")
     try? FileManager.default.createDirectory(
         at: pluginURL.deletingLastPathComponent(),
