@@ -81,6 +81,103 @@ func runWorkflowEvidenceTests(_ runner: inout TestRunner) {
         withIntermediateDirectories: true
     )
 
+    let ruleURL = temporaryDirectory.appendingPathComponent("AGENTS.md")
+    let oldRuleContent = """
+    # Codex 全局规则
+
+    ## 工作方式
+    - 优先小步、可审查的改动。
+    """
+    let newRuleContent = """
+    # Codex 全局规则
+
+    ## 工作方式
+    - 优先小步、可审查的改动。
+    - 等待外部条件时登记监控、恢复动作和安全并行工作。
+    """
+    try? oldRuleContent.write(to: ruleURL, atomically: true, encoding: .utf8)
+    let oldRuleSnapshot = WorkflowFileCollector().collect(roots: [ruleURL]).first
+    try? newRuleContent.write(to: ruleURL, atomically: true, encoding: .utf8)
+    let newRuleSnapshot = WorkflowFileCollector().collect(roots: [ruleURL]).first
+    runner.expect(oldRuleSnapshot?.semanticSnapshot != nil, "Global rules should retain a safe semantic snapshot")
+    if let oldRuleSnapshot, let newRuleSnapshot {
+        let ruleEvent = WorkflowChangeEventFactory().events(
+            previous: [oldRuleSnapshot.path: oldRuleSnapshot],
+            current: [newRuleSnapshot],
+            observedAt: now
+        ).first
+        runner.expect(
+            ruleEvent?.changes?.contains {
+                $0.label == "新增规则" && $0.summary.contains("登记监控、恢复动作")
+            } == true,
+            "Global rule updates should say which rule was added"
+        )
+        runner.expect(
+            ruleEvent?.summary.contains("登记监控、恢复动作") == true,
+            "Global rule list summaries should lead with the concrete rule change"
+        )
+    }
+
+    let configURL = temporaryDirectory.appendingPathComponent("config.toml")
+    try? "model = \"gpt-old\"\napi_key = \"private-config-marker\"\n".write(
+        to: configURL,
+        atomically: true,
+        encoding: .utf8
+    )
+    let oldConfigSnapshot = WorkflowFileCollector().collect(roots: [configURL]).first
+    try? "model = \"gpt-new\"\napi_key = \"private-config-marker\"\n".write(
+        to: configURL,
+        atomically: true,
+        encoding: .utf8
+    )
+    let newConfigSnapshot = WorkflowFileCollector().collect(roots: [configURL]).first
+    if let oldConfigSnapshot, let newConfigSnapshot {
+        let configEvent = WorkflowChangeEventFactory().events(
+            previous: [oldConfigSnapshot.path: oldConfigSnapshot],
+            current: [newConfigSnapshot],
+            observedAt: now
+        ).first
+        runner.expect(
+            configEvent?.changes?.contains { $0.summary.contains("model") && $0.summary.contains("gpt-new") } == true,
+            "Codex configuration updates should expose safe setting changes"
+        )
+        let encoded = configEvent.flatMap { try? LedgerWriter.encoder().encode($0) }
+        let encodedText = encoded.map { String(decoding: $0, as: UTF8.self) } ?? ""
+        runner.expect(
+            encodedText.contains("private-config-marker") == false,
+            "Sensitive configuration values must never enter semantic snapshots"
+        )
+    }
+
+    let pluginURL = temporaryDirectory.appendingPathComponent("plugins/personal/example/plugin.json")
+    try? FileManager.default.createDirectory(
+        at: pluginURL.deletingLastPathComponent(),
+        withIntermediateDirectories: true
+    )
+    try? #"{"name":"Example","description":"管理本地任务"}"#.write(
+        to: pluginURL,
+        atomically: true,
+        encoding: .utf8
+    )
+    let oldPluginSnapshot = WorkflowFileCollector().collect(roots: [pluginURL]).first
+    try? #"{"name":"Example","description":"管理本地任务与续作监控"}"#.write(
+        to: pluginURL,
+        atomically: true,
+        encoding: .utf8
+    )
+    let newPluginSnapshot = WorkflowFileCollector().collect(roots: [pluginURL]).first
+    if let oldPluginSnapshot, let newPluginSnapshot {
+        let pluginEvent = WorkflowChangeEventFactory().events(
+            previous: [oldPluginSnapshot.path: oldPluginSnapshot],
+            current: [newPluginSnapshot],
+            observedAt: now
+        ).first
+        runner.expect(
+            pluginEvent?.changes?.contains { $0.label == "用途调整" && $0.summary.contains("续作监控") } == true,
+            "Plugin updates should explain their public-purpose change"
+        )
+    }
+
     let oldAutomation = """
     version = 1
     id = "codex"

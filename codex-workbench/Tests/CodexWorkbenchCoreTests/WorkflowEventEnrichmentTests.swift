@@ -479,6 +479,81 @@ func runWorkflowEventEnrichmentTests(_ runner: inout TestRunner) {
             "Exact Git enrichment should identify its evidence source"
         )
     }
+
+    let ruleRolloutURL = temporaryDirectory.appendingPathComponent("rollout-rule-source.jsonl")
+    let rulePatchInput = """
+    const patch = "*** Begin Patch\\n*** Update File: /Users/dysania/.codex/AGENTS.md\\n@@\\n - 如果任务明显匹配已有 skill，先读取并使用相关 skill。\\n+- 当目标因定时任务、CI 或审批等待时，登记等待条件、恢复动作和安全并行工作。\\n*** End Patch";
+    text(await tools.apply_patch(patch));
+    """
+    try? sessionLine(
+        timestamp: "1970-01-01T00:03:50.000Z",
+        payload: [
+            "type": "custom_tool_call",
+            "name": "exec",
+            "input": rulePatchInput,
+        ]
+    ).write(to: ruleRolloutURL, atomically: true, encoding: .utf8)
+    let ruleSourceThread = CodexThreadMetadata(
+        id: "thread-rule-source",
+        rawTitle: "完善等待任务续作规则",
+        projectPath: "/Users/dysania/program/codex-workflow-skills",
+        createdAt: Date(timeIntervalSince1970: 100),
+        updatedAt: Date(timeIntervalSince1970: 260),
+        sourceThreadID: nil,
+        rolloutPath: ruleRolloutURL.path
+    )
+    let legacyRuleEvent = OperationEvent(
+        schemaVersion: 1,
+        id: "evt-rule-patch-history",
+        occurredAt: Date(timeIntervalSince1970: 240),
+        recordedAt: Date(timeIntervalSince1970: 245),
+        category: .system,
+        action: "workflow_rule_updated",
+        title: "全局规则已更新",
+        summary: "Codex 全局规则：全局规则内容已调整。",
+        status: .success,
+        importance: .important,
+        certainty: .confirmed,
+        actor: EventActor(type: .system, id: "workflow-file-monitor", label: "Codex 全局规则"),
+        scope: .globalWorkflow,
+        changes: [EventChange(label: "工作流定义", summary: "全局规则内容已调整")],
+        before: .object(["fingerprint": .string("rule-old")]),
+        after: .object(["fingerprint": .string("rule-new")]),
+        evidence: [EventEvidence(
+            kind: "file_fingerprint",
+            label: "受控工作流文件指纹",
+            path: "/Users/dysania/.codex/AGENTS.md"
+        )]
+    )
+    let rulePatchRevision = WorkflowEventHistoryEnricher().revisions(
+        events: [legacyRuleEvent],
+        catalog: CodexMetadataCatalog(records: [ruleSourceThread]),
+        currentWorkflowFiles: [],
+        workflowSourceRoots: [],
+        recordedAt: Date(timeIntervalSince1970: 270)
+    ).first
+    runner.expect(
+        rulePatchRevision?.changes?.contains {
+            $0.label == "新增规则" && $0.summary.contains("登记等待条件、恢复动作")
+        } == true,
+        "Structured patch evidence should recover the exact added global rule"
+    )
+    runner.expect(
+        rulePatchRevision?.thread?.id == "thread-rule-source",
+        "Structured patch evidence should identify the modification-source thread"
+    )
+    runner.expect(
+        rulePatchRevision?.evidence.contains { $0.kind == "structured_workflow_patch" } == true,
+        "Global rule enrichment should identify its structured patch evidence"
+    )
+    if let rulePatchRevision {
+        let encoded = try? LedgerWriter.encoder().encode(rulePatchRevision)
+        let encodedText = encoded.map { String(decoding: $0, as: UTF8.self) } ?? ""
+        runner.expect(
+            encodedText.contains("*** Begin Patch") == false,
+            "The full structured patch must never enter the operation ledger"
+        )
+    }
 }
 
 private func runGit(_ arguments: [String], in directory: URL) -> Bool {

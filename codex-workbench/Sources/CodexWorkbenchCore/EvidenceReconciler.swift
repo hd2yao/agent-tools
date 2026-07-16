@@ -12,12 +12,120 @@ public enum StableEventID {
     }
 }
 
+public struct ContextCardEventFactory: Sendable {
+    public init() {}
+
+    public func event(
+        from evidence: ContextCardEvidence,
+        catalog: CodexMetadataCatalog,
+        recordedAt: Date
+    ) -> OperationEvent {
+        let metadata = catalog.thread(id: evidence.threadID)
+        let projectPath = metadata?.projectPath ?? evidence.projectPath
+        let project = projectPath.map {
+            EventProject(name: URL(fileURLWithPath: $0).lastPathComponent, path: $0)
+        }
+        let changes = summaryChanges(from: evidence.summary)
+        let listSummary = evidence.summary.recentUserRequest
+            ?? evidence.summary.topic
+            ?? evidence.summary.recentAssistantProgress.last
+        return OperationEvent(
+            schemaVersion: 1,
+            id: StableEventID.make(parts: [
+                "context-card",
+                evidence.threadID,
+                String(format: "%.6f", evidence.generatedAt.timeIntervalSince1970),
+            ]),
+            occurredAt: evidence.generatedAt,
+            recordedAt: recordedAt,
+            category: .context,
+            action: "context_compacted",
+            title: "上下文已压缩",
+            summary: listSummary.map { "压缩后保留：\(Self.listExcerpt($0))" }
+                ?? "PreCompact 已生成中文摘要卡片，但卡片中没有可显示的主题或进展。",
+            status: .success,
+            importance: .routine,
+            certainty: .confirmed,
+            actor: EventActor(type: .hook, id: "codex-context-summary-hook", label: "PreCompact Hook"),
+            thread: EventThread(id: evidence.threadID, title: metadata?.title, relation: .triggeredBy),
+            project: project,
+            changes: changes,
+            sourceChain: [
+                EventActor(type: .system, id: "pre-compact", label: evidence.trigger),
+                EventActor(type: .hook, id: "codex-context-summary-hook", label: "上下文摘要 Hook"),
+            ],
+            evidence: [
+                EventEvidence(kind: "context_card", label: "上下文摘要卡片", path: evidence.sourcePath),
+            ]
+        )
+    }
+
+    private func summaryChanges(from summary: ContextCardSummary) -> [EventChange] {
+        var result: [EventChange] = []
+        if let topic = summary.topic {
+            result.append(EventChange(label: "当前主题", summary: topic))
+        }
+        if let request = summary.recentUserRequest {
+            result.append(EventChange(label: "最近用户要求", summary: request))
+        }
+        for progress in summary.recentAssistantProgress {
+            result.append(EventChange(label: "压缩前进展", summary: progress))
+        }
+        return result
+    }
+
+    private static func listExcerpt(_ value: String) -> String {
+        value.count <= 150 ? value : String(value.prefix(147)) + "…"
+    }
+}
+
+public struct ContextEventHistoryEnricher: Sendable {
+    public init() {}
+
+    public func revisions(
+        events: [OperationEvent],
+        cards: [ContextCardEvidence],
+        catalog: CodexMetadataCatalog,
+        recordedAt: Date
+    ) -> [OperationEvent] {
+        var candidates: [String: OperationEvent] = [:]
+        for card in cards {
+            let event = ContextCardEventFactory().event(
+                from: card,
+                catalog: catalog,
+                recordedAt: recordedAt
+            )
+            candidates[event.id] = event
+        }
+        return events.compactMap { event in
+            guard
+                event.action == "context_compacted",
+                event.changes?.isEmpty != false,
+                let revision = candidates[event.id],
+                revision.changes?.isEmpty == false,
+                !isSemanticallyEquivalent(revision, to: event)
+            else {
+                return nil
+            }
+            return revision
+        }
+    }
+
+    private func isSemanticallyEquivalent(_ lhs: OperationEvent, to rhs: OperationEvent) -> Bool {
+        lhs.summary == rhs.summary
+            && lhs.thread == rhs.thread
+            && lhs.project == rhs.project
+            && lhs.changes == rhs.changes
+            && lhs.evidence == rhs.evidence
+    }
+}
+
 public struct EvidenceReconciler: Sendable {
     public init() {}
 
     public func events(from snapshot: EvidenceSnapshot, recordedAt: Date = Date()) -> [OperationEvent] {
         let contextEvents = snapshot.contextCards.map {
-            contextEvent(from: $0, catalog: snapshot.threadCatalog, recordedAt: recordedAt)
+            ContextCardEventFactory().event(from: $0, catalog: snapshot.threadCatalog, recordedAt: recordedAt)
         }
         let resetEvents = snapshot.automaticResets.map { resetEvent(from: $0, recordedAt: recordedAt) }
         let lifecycleEvents = snapshot.lifecycleRecords.map {
@@ -28,45 +136,6 @@ public struct EvidenceReconciler: Sendable {
         }
         return (contextEvents + resetEvents + lifecycleEvents + digestEvents)
             .sorted { $0.occurredAt > $1.occurredAt }
-    }
-
-    private func contextEvent(
-        from evidence: ContextCardEvidence,
-        catalog: CodexMetadataCatalog,
-        recordedAt: Date
-    ) -> OperationEvent {
-        let metadata = catalog.thread(id: evidence.threadID)
-        let projectPath = metadata?.projectPath ?? evidence.projectPath
-        let project = projectPath.map {
-            EventProject(name: URL(fileURLWithPath: $0).lastPathComponent, path: $0)
-        }
-        return OperationEvent(
-            schemaVersion: 1,
-            id: StableEventID.make(parts: [
-                "context-card",
-                evidence.threadID,
-                Self.timestamp(evidence.generatedAt),
-            ]),
-            occurredAt: evidence.generatedAt,
-            recordedAt: recordedAt,
-            category: .context,
-            action: "context_compacted",
-            title: "上下文已压缩",
-            summary: "PreCompact 已生成中文摘要卡片，供压缩后继续使用。",
-            status: .success,
-            importance: .routine,
-            certainty: .confirmed,
-            actor: EventActor(type: .hook, id: "codex-context-summary-hook", label: "PreCompact Hook"),
-            thread: EventThread(id: evidence.threadID, title: metadata?.title, relation: .triggeredBy),
-            project: project,
-            sourceChain: [
-                EventActor(type: .system, id: "pre-compact", label: evidence.trigger),
-                EventActor(type: .hook, id: "codex-context-summary-hook", label: "上下文摘要 Hook"),
-            ],
-            evidence: [
-                EventEvidence(kind: "context_card", label: "上下文摘要卡片", path: evidence.sourcePath),
-            ]
-        )
     }
 
     private func resetEvent(from evidence: AutomaticResetEvidence, recordedAt: Date) -> OperationEvent {

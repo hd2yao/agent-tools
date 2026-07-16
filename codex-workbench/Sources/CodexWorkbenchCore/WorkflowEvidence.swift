@@ -95,6 +95,7 @@ public struct WorkflowSemanticSnapshot: Codable, Equatable, Sendable {
     public let purpose: String?
     public let interfaces: [String]
     public let capabilities: [String]
+    public let statements: [String]
 
     public init(
         name: String? = nil,
@@ -103,7 +104,8 @@ public struct WorkflowSemanticSnapshot: Codable, Equatable, Sendable {
         targetThreadID: String? = nil,
         purpose: String? = nil,
         interfaces: [String] = [],
-        capabilities: [String] = []
+        capabilities: [String] = [],
+        statements: [String] = []
     ) {
         self.name = name
         self.status = status
@@ -112,6 +114,7 @@ public struct WorkflowSemanticSnapshot: Codable, Equatable, Sendable {
         self.purpose = purpose
         self.interfaces = Array(Set(interfaces)).sorted()
         self.capabilities = Array(Set(capabilities)).sorted()
+        self.statements = Array(Set(statements)).sorted()
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -122,6 +125,7 @@ public struct WorkflowSemanticSnapshot: Codable, Equatable, Sendable {
         case purpose
         case interfaces
         case capabilities
+        case statements
     }
 
     public init(from decoder: Decoder) throws {
@@ -133,7 +137,8 @@ public struct WorkflowSemanticSnapshot: Codable, Equatable, Sendable {
             targetThreadID: try container.decodeIfPresent(String.self, forKey: .targetThreadID),
             purpose: try container.decodeIfPresent(String.self, forKey: .purpose),
             interfaces: try container.decodeIfPresent([String].self, forKey: .interfaces) ?? [],
-            capabilities: try container.decodeIfPresent([String].self, forKey: .capabilities) ?? []
+            capabilities: try container.decodeIfPresent([String].self, forKey: .capabilities) ?? [],
+            statements: try container.decodeIfPresent([String].self, forKey: .statements) ?? []
         )
     }
 
@@ -162,6 +167,31 @@ public struct WorkflowSemanticSnapshot: Codable, Equatable, Sendable {
             capabilities: AutomationCapabilityClassifier.labels(in: content)
         )
     }
+
+    public static func rule(content: String) -> Self {
+        Self(
+            interfaces: WorkflowTextSummaryReader.markdownSections(in: content),
+            capabilities: AutomationCapabilityClassifier.labels(in: content),
+            statements: WorkflowTextSummaryReader.markdownDirectives(in: content)
+        )
+    }
+
+    public static func configuration(content: String) -> Self {
+        Self(
+            interfaces: SafeWorkflowManifestReader.tomlSections(in: content),
+            statements: SafeWorkflowManifestReader.tomlStatements(in: content)
+        )
+    }
+
+    public static func plugin(content: String) -> Self {
+        let manifest = SafeWorkflowManifestReader.pluginManifest(in: content)
+        return Self(
+            name: manifest.name,
+            purpose: manifest.description,
+            capabilities: AutomationCapabilityClassifier.labels(in: content),
+            statements: manifest.statements
+        )
+    }
 }
 
 enum AutomationCapabilityClassifier {
@@ -182,6 +212,9 @@ enum AutomationCapabilityClassifier {
         ("远端状态刷新", ["--refresh-remotes"]),
         ("提交等价性判定", ["patch_equivalent", "tree_equivalent", "patch-id"]),
         ("默认分支与上游分离判断", ["upstream_ahead", "default_ahead"]),
+        ("等待条件与续作监控", ["track-follow-up", "track_follow_up", "follow_ups", "续作监控"]),
+        ("安全并行轨道", ["parallel_action", "并行前端轨道", "安全并行"]),
+        ("自动恢复动作", ["resume_action", "resume_mode", "自动续作"]),
     ]
 
     static func labels(in prompt: String) -> [String] {
@@ -219,6 +252,22 @@ enum WorkflowTextSummaryReader {
         }
     }
 
+    static func markdownSections(in content: String) -> [String] {
+        content.split(separator: "\n", omittingEmptySubsequences: false).compactMap { rawLine in
+            let line = String(rawLine).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard line.hasPrefix("## "), !line.hasPrefix("### ") else { return nil }
+            return normalized(String(line.dropFirst(3)))
+        }
+    }
+
+    static func markdownDirectives(in content: String) -> [String] {
+        Array(content.split(separator: "\n", omittingEmptySubsequences: false).compactMap { rawLine in
+            let line = String(rawLine)
+            guard line.hasPrefix("- ") else { return nil }
+            return SafeWorkflowText.normalized(String(line.dropFirst(2)), limit: 360)
+        }.prefix(96))
+    }
+
     static func pythonModuleDocstring(in content: String) -> String? {
         var candidate = content.trimmingCharacters(in: .whitespacesAndNewlines)
         if candidate.hasPrefix("#!"), let newline = candidate.firstIndex(of: "\n") {
@@ -240,6 +289,94 @@ enum WorkflowTextSummaryReader {
         let compact = unquoted.split(whereSeparator: \Character.isWhitespace).joined(separator: " ")
         guard !compact.isEmpty else { return nil }
         return compact.count <= 180 ? compact : String(compact.prefix(177)) + "…"
+    }
+}
+
+enum SafeWorkflowText {
+    static func normalized(_ value: String, limit: Int = 240) -> String? {
+        let compact = value.split(whereSeparator: \Character.isWhitespace).joined(separator: " ")
+        guard !compact.isEmpty, !containsSensitiveValue(compact) else { return nil }
+        return compact.count <= limit ? compact : String(compact.prefix(max(0, limit - 1))) + "…"
+    }
+
+    static func containsSensitiveValue(_ value: String) -> Bool {
+        let normalized = value.lowercased()
+        if normalized.contains("bearer ") || normalized.contains("sk-") { return true }
+        let sensitiveKeys = ["api_key", "apikey", "token", "password", "secret", "cookie"]
+        return sensitiveKeys.contains { key in
+            normalized.range(
+                of: #"\b"# + NSRegularExpression.escapedPattern(for: key) + #"\s*[:=]\s*[^\s]+"#,
+                options: .regularExpression
+            ) != nil
+        }
+    }
+}
+
+enum SafeWorkflowManifestReader {
+    struct PluginManifest {
+        let name: String?
+        let description: String?
+        let statements: [String]
+    }
+
+    static func tomlSections(in content: String) -> [String] {
+        content.split(separator: "\n", omittingEmptySubsequences: false).compactMap { rawLine in
+            let line = String(rawLine).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard line.hasPrefix("["), line.hasSuffix("]"), !line.hasPrefix("[[") else { return nil }
+            return SafeWorkflowText.normalized(String(line.dropFirst().dropLast()), limit: 120)
+        }
+    }
+
+    static func tomlStatements(in content: String) -> [String] {
+        var section: String?
+        var result: [String] = []
+        for rawLine in content.split(separator: "\n", omittingEmptySubsequences: false) {
+            let line = String(rawLine).trimmingCharacters(in: .whitespacesAndNewlines)
+            if line.hasPrefix("["), line.hasSuffix("]") {
+                section = String(line.dropFirst().dropLast())
+                continue
+            }
+            guard
+                !line.isEmpty,
+                !line.hasPrefix("#"),
+                let separator = line.firstIndex(of: "=")
+            else {
+                continue
+            }
+            let key = String(line[..<separator]).trimmingCharacters(in: .whitespaces)
+            let value = String(line[line.index(after: separator)...]).trimmingCharacters(in: .whitespaces)
+            let qualifiedKey = section.map { "\($0).\(key)" } ?? key
+            guard let statement = SafeWorkflowText.normalized("\(qualifiedKey) = \(value)") else { continue }
+            result.append(statement)
+            if result.count == 96 { break }
+        }
+        return result
+    }
+
+    static func pluginManifest(in content: String) -> PluginManifest {
+        if
+            let data = content.data(using: .utf8),
+            let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        {
+            let name = SafeWorkflowText.normalized(object["name"] as? String ?? "", limit: 160)
+            let description = SafeWorkflowText.normalized(object["description"] as? String ?? "", limit: 360)
+            let statements = ["version", "kind", "status"].compactMap { key -> String? in
+                guard let value = object[key] else { return nil }
+                return SafeWorkflowText.normalized("\(key) = \(value)", limit: 200)
+            }
+            return PluginManifest(name: name, description: description, statements: statements)
+        }
+        let name = TOMLScalarReader.string(for: "name", in: content)
+            .flatMap { SafeWorkflowText.normalized($0, limit: 160) }
+        let description = TOMLScalarReader.string(for: "description", in: content)
+            .flatMap { SafeWorkflowText.normalized($0, limit: 360) }
+        return PluginManifest(
+            name: name,
+            description: description,
+            statements: tomlStatements(in: content).filter {
+                $0.hasPrefix("version =") || $0.hasPrefix("kind =") || $0.hasPrefix("status =")
+            }
+        )
     }
 }
 
@@ -306,8 +443,12 @@ public struct WorkflowFileCollector: Sendable {
             semanticSnapshot = .skill(content: content)
         case .hook:
             semanticSnapshot = .hook(content: content)
-        case .configuration, .plugin, .rule:
-            semanticSnapshot = nil
+        case .configuration:
+            semanticSnapshot = .configuration(content: content)
+        case .plugin:
+            semanticSnapshot = .plugin(content: content)
+        case .rule:
+            semanticSnapshot = .rule(content: content)
         }
         return WorkflowFileFingerprint(
             path: url.path,
@@ -487,6 +628,15 @@ public struct WorkflowChangeEventFactory: Sendable {
         for item in oldInterfaces.subtracting(newInterfaces).sorted() {
             result.append(EventChange(label: "移除模块", summary: item, before: item))
         }
+        let oldStatements = Set(previous.statements)
+        let newStatements = Set(current.statements)
+        let statementLabels = statementChangeLabels(noun: noun)
+        for item in newStatements.subtracting(oldStatements).sorted() {
+            result.append(EventChange(label: statementLabels.added, summary: item, after: item))
+        }
+        for item in oldStatements.subtracting(newStatements).sorted() {
+            result.append(EventChange(label: statementLabels.removed, summary: item, before: item))
+        }
         if result.isEmpty {
             result.append(EventChange(
                 label: "实现细节",
@@ -514,7 +664,20 @@ public struct WorkflowChangeEventFactory: Sendable {
         for item in snapshot.interfaces.prefix(max(0, 5 - snapshot.capabilities.count)) {
             result.append(EventChange(label: interfaceLabel, summary: item, after: item))
         }
+        let statementLabel = prefix.isEmpty ? "主要内容" : "\(prefix)包含"
+        for item in snapshot.statements.prefix(max(0, 5 - result.count)) {
+            result.append(EventChange(label: statementLabel, summary: item, after: item))
+        }
         return result.isEmpty ? nil : result
+    }
+
+    private func statementChangeLabels(noun: String) -> (added: String, removed: String) {
+        switch noun {
+        case "全局规则": ("新增规则", "移除规则")
+        case "Codex 配置": ("新增设置", "移除设置")
+        case "Plugin": ("新增声明", "移除声明")
+        default: ("新增说明", "移除说明")
+        }
     }
 
     private func appendFieldChange(

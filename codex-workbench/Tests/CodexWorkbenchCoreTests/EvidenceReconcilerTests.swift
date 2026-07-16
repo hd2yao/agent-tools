@@ -20,6 +20,20 @@ func runEvidenceReconcilerTests(_ runner: inout TestRunner) {
     - 会话 ID: `019f6067-342c-7b22-a9fc-cd50ded08d86`
     - 项目路径: `/Users/dysania/program/tools`
     - 卡片路径: `/Users/dysania/.codex/context-cards/card.md`
+
+    ## 当前主题
+
+    - 嗯，可以
+
+    ## 最近用户请求
+
+    - `2026-07-16T05:20:00Z` **用户**: <recommended_plugins>这不是对话摘要内容</recommended_plugins>
+    - `2026-07-16T05:27:51Z` **用户**: 等待外部条件时继续推进安全的并行工作，并持续监听恢复条件。
+
+    ## 最近助手进展
+
+    - `2026-07-16T05:28:39Z` **助手**: 已把 RC 观察与产品化前端拆成两条互不污染的执行轨道。
+    - `2026-07-16T05:29:55Z` **助手**: 已建立隔离 worktree，接下来按 TDD 实现前端。
     """
     let card = ContextCardEvidence.parse(
         markdown: cardMarkdown,
@@ -69,6 +83,58 @@ func runEvidenceReconcilerTests(_ runner: inout TestRunner) {
     runner.expect(contextEvent?.thread?.id == "019f6067-342c-7b22-a9fc-cd50ded08d86", "Context event should retain thread id")
     runner.expect(contextEvent?.thread?.title == "Add 操作时间轴日志", "Context event should resolve conversation title")
     runner.expect(contextEvent?.importance == .routine, "Context compaction should be a routine event")
+    runner.expect(
+        contextEvent?.summary.contains("等待外部条件时继续推进") == true,
+        "Context list summaries should expose what the compacted context retained"
+    )
+    runner.expect(
+        contextEvent?.changes?.contains {
+            $0.label == "最近用户要求" && $0.summary.contains("安全的并行工作")
+        } == true,
+        "Context details should expose the latest meaningful user request"
+    )
+    runner.expect(
+        contextEvent?.changes?.filter { $0.label == "压缩前进展" }.count == 2,
+        "Context details should retain the two latest assistant progress summaries"
+    )
+    runner.expect(
+        contextEvent?.changes?.contains { $0.summary.contains("recommended_plugins") } == false,
+        "Injected plugin recommendations must not enter the context preview"
+    )
+    let legacyContextEvent = OperationEvent(
+        schemaVersion: 1,
+        id: contextEvent?.id ?? "evt-context-legacy",
+        occurredAt: card?.generatedAt ?? recordedAt,
+        recordedAt: Date(timeIntervalSince1970: recordedAt.timeIntervalSince1970 - 1),
+        category: .context,
+        action: "context_compacted",
+        title: "上下文已压缩",
+        summary: "PreCompact 已生成中文摘要卡片，供压缩后继续使用。",
+        status: .success,
+        importance: .routine,
+        certainty: .confirmed,
+        actor: EventActor(type: .hook, id: "codex-context-summary-hook", label: "PreCompact Hook"),
+        evidence: [EventEvidence(kind: "context_card", label: "上下文摘要卡片", path: card?.sourcePath)]
+    )
+    let contextRevision = ContextEventHistoryEnricher().revisions(
+        events: [legacyContextEvent],
+        cards: card.map { [$0] } ?? [],
+        catalog: threadCatalog,
+        recordedAt: recordedAt
+    ).first
+    runner.expect(
+        contextRevision?.changes?.contains { $0.label == "最近用户要求" } == true,
+        "Historic context events should be revised from their existing summary card"
+    )
+    runner.expect(
+        ContextEventHistoryEnricher().revisions(
+            events: contextRevision.map { [$0] } ?? [],
+            cards: card.map { [$0] } ?? [],
+            catalog: threadCatalog,
+            recordedAt: recordedAt.addingTimeInterval(1)
+        ).isEmpty,
+        "An already enriched context event should not create another revision"
+    )
 
     let resetEvent = events.first { $0.action == "reset_credit_consumed" }
     runner.expect(resetEvent?.category == .quota, "Reset outcome should become a quota event")
@@ -93,6 +159,7 @@ func runEvidenceReconcilerTests(_ runner: inout TestRunner) {
     let rawLedger = (try? String(contentsOf: ledgerURL, encoding: .utf8)) ?? ""
     runner.expect(rawLedger.contains("schema_version"), "Persisted ledger should use snake_case")
     runner.expect(rawLedger.contains("secret-idempotency-key") == false, "Idempotency values must never reach the ledger")
+    runner.expect(rawLedger.contains("recommended_plugins") == false, "Injected context wrappers must not reach the ledger")
 
     let fixtureRoot = temporaryDirectory.appendingPathComponent("evidence", isDirectory: true)
     let cardsDirectory = fixtureRoot.appendingPathComponent("context-cards", isDirectory: true)

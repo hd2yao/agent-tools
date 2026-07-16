@@ -334,6 +334,9 @@ public struct WorkflowEventHistoryEnricher: Sendable {
             if let revision = automationRevision(event: event, catalog: catalog, recordedAt: recordedAt) {
                 return revision
             }
+            if let revision = patchRevision(event: event, catalog: catalog, recordedAt: recordedAt) {
+                return revision
+            }
             if let revision = gitHistoryRevision(
                 event: event,
                 sourceRoots: workflowSourceRoots,
@@ -347,6 +350,83 @@ public struct WorkflowEventHistoryEnricher: Sendable {
                 recordedAt: recordedAt
             )
         }
+    }
+
+    private func patchRevision(
+        event: OperationEvent,
+        catalog: CodexMetadataCatalog,
+        recordedAt: Date
+    ) -> OperationEvent? {
+        guard
+            needsCurrentSnapshotExplanation(event),
+            let rawPath = event.evidence.first(where: { $0.kind == "file_fingerprint" })?.path,
+            let kind = workflowKind(for: event)
+        else {
+            return nil
+        }
+        let matches = WorkflowSessionPatchEvidenceCollector().evidence(
+            kind: kind,
+            label: event.actor.label,
+            path: rawPath,
+            occurredAt: event.occurredAt,
+            catalog: catalog
+        )
+        guard matches.count == 1, let match = matches.first, !match.changes.isEmpty else { return nil }
+
+        let source = match.sourceThread
+        var relatedThreads = event.relatedThreads ?? []
+        if !relatedThreads.contains(where: { $0.role == .modificationSource && $0.id == source.id }) {
+            relatedThreads.insert(EventRelatedThread(
+                role: .modificationSource,
+                id: source.id,
+                title: source.title,
+                projectName: source.projectName,
+                projectPath: source.projectPath
+            ), at: 0)
+        }
+        var sourceChain = event.sourceChain
+        if !sourceChain.contains(where: { $0.id == "structured-workflow-patch" }) {
+            sourceChain.append(EventActor(
+                type: .system,
+                id: "structured-workflow-patch",
+                label: "工作流结构化修改"
+            ))
+        }
+        var evidence = event.evidence.filter { $0.kind != "current_workflow_snapshot" }
+        if !evidence.contains(where: {
+            $0.kind == "structured_workflow_patch" && $0.path == match.evidencePath
+        }) {
+            evidence.append(EventEvidence(
+                kind: "structured_workflow_patch",
+                label: "结构化工作流修改调用",
+                path: match.evidencePath
+            ))
+        }
+        let revision = OperationEvent(
+            schemaVersion: event.schemaVersion,
+            id: event.id,
+            occurredAt: event.occurredAt,
+            recordedAt: recordedAt,
+            category: event.category,
+            action: event.action,
+            title: event.title,
+            summary: listSummary(label: event.actor.label, changes: match.changes),
+            status: event.status,
+            importance: event.importance,
+            certainty: .confirmed,
+            actor: event.actor,
+            thread: EventThread(id: source.id, title: source.title, relation: .triggeredBy),
+            project: EventProject(name: source.projectName, path: source.projectPath),
+            account: event.account,
+            scope: event.scope ?? .globalWorkflow,
+            changes: match.changes,
+            relatedThreads: relatedThreads,
+            sourceChain: sourceChain,
+            before: event.before,
+            after: event.after,
+            evidence: evidence
+        )
+        return isSemanticallyEquivalent(revision, to: event) ? nil : revision
     }
 
     private func gitHistoryRevision(
@@ -618,16 +698,30 @@ public struct WorkflowEventHistoryEnricher: Sendable {
     private func needsCurrentSnapshotExplanation(_ event: OperationEvent) -> Bool {
         let supported = [
             "automation_added", "automation_updated",
+            "workflow_config_added", "workflow_config_updated",
+            "workflow_rule_added", "workflow_rule_updated",
             "hook_added", "hook_updated",
+            "plugin_added", "plugin_updated",
             "skill_added", "skill_updated",
         ].contains(event.action)
         guard supported else { return false }
         return event.changes?.isEmpty != false
             || event.summary.contains("全局工作流定义已更新")
+            || event.summary.contains("内容已调整")
+            || event.summary.contains("实现内容已调整")
+            || event.changes?.contains {
+                ["工作流定义", "实现细节", "指令段落", "证据边界"].contains($0.label)
+            } == true
             || event.evidence.contains { $0.kind == "current_workflow_snapshot" }
     }
 
     private func workflowKind(for event: OperationEvent) -> WorkflowFileKind? {
+        if event.action.hasPrefix("workflow_rule_") { return .rule }
+        if event.action.hasPrefix("workflow_config_") { return .configuration }
+        if event.action.hasPrefix("plugin_") { return .plugin }
+        if event.action.hasPrefix("skill_") { return .skill }
+        if event.action.hasPrefix("hook_") { return .hook }
+        if event.action.hasPrefix("automation_") { return .automation }
         switch event.category {
         case .skill:
             return .skill

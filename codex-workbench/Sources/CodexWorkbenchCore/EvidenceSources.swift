@@ -1,24 +1,97 @@
 import Foundation
 
+public struct ContextCardSummary: Equatable, Sendable {
+    public let topic: String?
+    public let recentUserRequest: String?
+    public let recentAssistantProgress: [String]
+
+    public init(
+        topic: String? = nil,
+        recentUserRequest: String? = nil,
+        recentAssistantProgress: [String] = []
+    ) {
+        self.topic = topic
+        self.recentUserRequest = recentUserRequest
+        self.recentAssistantProgress = recentAssistantProgress
+    }
+
+    fileprivate static func parse(markdown: String) -> Self {
+        var currentSection: String?
+        var sections: [String: [String]] = [:]
+        for rawLine in markdown.split(separator: "\n", omittingEmptySubsequences: false) {
+            let line = String(rawLine).trimmingCharacters(in: .whitespacesAndNewlines)
+            if line.hasPrefix("## ") {
+                currentSection = String(line.dropFirst(3)).trimmingCharacters(in: .whitespaces)
+                continue
+            }
+            guard let currentSection, line.hasPrefix("- ") else { continue }
+            sections[currentSection, default: []].append(String(line.dropFirst(2)))
+        }
+
+        let topics = (sections["当前主题"] ?? []).compactMap(normalizedContent)
+        let userRequests = (sections["最近用户请求"] ?? []).compactMap(normalizedContent)
+        let assistantProgress = (sections["最近助手进展"] ?? []).compactMap(normalizedContent)
+        return Self(
+            topic: topics.reversed().first(where: isMeaningful),
+            recentUserRequest: userRequests.reversed().first(where: isMeaningful),
+            recentAssistantProgress: Array(assistantProgress.suffix(2))
+        )
+    }
+
+    private static func normalizedContent(_ rawValue: String) -> String? {
+        var value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        for role in ["**用户**:", "**助手**:"] {
+            if let range = value.range(of: role) {
+                value = String(value[range.upperBound...])
+                break
+            }
+        }
+        let compact = value.split(whereSeparator: \Character.isWhitespace).joined(separator: " ")
+        guard !compact.isEmpty, !isInjected(compact) else { return nil }
+        return compact.count <= 360 ? compact : String(compact.prefix(357)) + "…"
+    }
+
+    private static func isInjected(_ value: String) -> Bool {
+        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return [
+            "<recommended_plugins", "<codex_internal_context", "<heartbeat",
+            "<automation_id", "<current_time_iso", "<instructions>",
+        ].contains { normalized.hasPrefix($0) }
+    }
+
+    private static func isMeaningful(_ value: String) -> Bool {
+        let normalized = value
+            .trimmingCharacters(in: CharacterSet(charactersIn: " 。！？!?，,"))
+            .lowercased()
+        let acknowledgements: Set<String> = [
+            "嗯", "嗯可以", "可以", "好的", "好", "行", "ok", "okay", "继续",
+        ]
+        return normalized.count >= 6 && !acknowledgements.contains(normalized)
+    }
+}
+
 public struct ContextCardEvidence: Equatable, Sendable {
     public let generatedAt: Date
     public let trigger: String
     public let threadID: String
     public let projectPath: String?
     public let sourcePath: String
+    public let summary: ContextCardSummary
 
     public init(
         generatedAt: Date,
         trigger: String,
         threadID: String,
         projectPath: String?,
-        sourcePath: String
+        sourcePath: String,
+        summary: ContextCardSummary = ContextCardSummary()
     ) {
         self.generatedAt = generatedAt
         self.trigger = trigger
         self.threadID = threadID
         self.projectPath = projectPath
         self.sourcePath = sourcePath
+        self.summary = summary
     }
 
     public static func parse(markdown: String, sourcePath: String) -> ContextCardEvidence? {
@@ -48,7 +121,8 @@ public struct ContextCardEvidence: Equatable, Sendable {
             trigger: trigger,
             threadID: threadID,
             projectPath: values["项目路径"],
-            sourcePath: sourcePath
+            sourcePath: sourcePath,
+            summary: ContextCardSummary.parse(markdown: markdown)
         )
     }
 }
