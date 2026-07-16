@@ -49,9 +49,25 @@ public final class WorkflowRolloutTextCache: @unchecked Sendable {
                 guard let firstNewline = text.firstIndex(of: "\n") else { return "" }
                 text = String(text[text.index(after: firstNewline)...])
             }
-            return text
+            return evidenceLines(in: text)
         } catch {
             return nil
         }
+    }
+
+    private static func evidenceLines(in text: String) -> String {
+        text.split(separator: "\n", omittingEmptySubsequences: false).compactMap { rawLine in
+            let line = String(rawLine)
+            if line.contains("custom_tool_call_output") {
+                return line.contains("id =") && line.contains("prompt =") ? line : nil
+            }
+            if line.contains("custom_tool_call") {
+                return line.contains("codex_app__automation_update")
+                    || line.contains("*** Begin Patch")
+                    ? line
+                    : nil
+            }
+            return nil
+        }.joined(separator: "\n")
     }
 }

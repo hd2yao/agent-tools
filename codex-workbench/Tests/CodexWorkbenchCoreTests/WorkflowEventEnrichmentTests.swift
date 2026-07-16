@@ -11,8 +11,9 @@ func runWorkflowEventEnrichmentTests(_ runner: inout TestRunner) {
 
     let boundedRolloutURL = temporaryDirectory.appendingPathComponent("bounded-rollout.jsonl")
     let privatePrefix = "private-prefix-marker-" + String(repeating: "x", count: 16_384)
-    let visibleSuffix = "\n{\"timestamp\":\"1970-01-01T00:03:20.000Z\",\"payload\":\"visible-suffix\"}\n"
-    try? (privatePrefix + visibleSuffix).write(
+    let irrelevantTail = "\n{\"payload\":{\"type\":\"message\",\"text\":\"irrelevant-tail-payload\"}}\n"
+    let visibleSuffix = "{\"timestamp\":\"1970-01-01T00:03:20.000Z\",\"payload\":{\"type\":\"custom_tool_call\",\"input\":\"*** Begin Patch visible-suffix\"}}\n"
+    try? (privatePrefix + irrelevantTail + visibleSuffix).write(
         to: boundedRolloutURL,
         atomically: true,
         encoding: .utf8
@@ -21,8 +22,9 @@ func runWorkflowEventEnrichmentTests(_ runner: inout TestRunner) {
     let firstTail = rolloutCache.text(at: boundedRolloutURL.path)
     runner.expect(
         firstTail?.contains("visible-suffix") == true
-            && firstTail?.contains("private-prefix-marker") == false,
-        "Workflow evidence should inspect only a bounded rollout tail"
+            && firstTail?.contains("private-prefix-marker") == false
+            && firstTail?.contains("irrelevant-tail-payload") == false,
+        "Workflow evidence should retain only relevant lines from a bounded rollout tail"
     )
     try? "changed-after-first-read".write(
         to: boundedRolloutURL,
