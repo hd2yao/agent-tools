@@ -158,6 +158,12 @@ final class WorkbenchAppModel: ObservableObject {
             let writeResult = LedgerWriter().append(events: reconciliation.events, to: ledgerURL)
             let didSave = store.save(reconciliation.state, to: observationStateURL)
             let loaded = LedgerRepository().load(from: ledgerURL)
+            let contextRevisions = ContextEventHistoryEnricher().revisions(
+                events: loaded.events,
+                cards: ledger.snapshot.contextCards,
+                catalog: ledger.snapshot.threadCatalog,
+                recordedAt: observedAt
+            )
             let workflowRevisions = WorkflowEventHistoryEnricher().revisions(
                 events: loaded.events,
                 catalog: ledger.snapshot.threadCatalog,
@@ -165,7 +171,7 @@ final class WorkbenchAppModel: ObservableObject {
                 recordedAt: observedAt
             )
             let revisionWriteResult = LedgerWriter().appendRevisions(
-                events: workflowRevisions,
+                events: contextRevisions + workflowRevisions,
                 to: ledgerURL
             )
             let finalLedger = revisionWriteResult.appendedCount > 0

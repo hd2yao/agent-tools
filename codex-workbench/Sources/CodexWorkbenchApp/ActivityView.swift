@@ -1,3 +1,4 @@
+import AppKit
 import CodexWorkbenchCore
 import SwiftUI
 
@@ -386,7 +387,7 @@ struct ActivityInspector: View {
                 }
 
                 if let changes = event.changes, !changes.isEmpty {
-                    InspectorSection(title: "本次改动") {
+                    InspectorSection(title: event.action == "context_compacted" ? "压缩后摘要" : "本次改动") {
                         VStack(alignment: .leading, spacing: WorkbenchSpacing.xs) {
                             ForEach(Array(changes.enumerated()), id: \.offset) { _, change in
                                 EventChangeRow(change: change)
@@ -493,6 +494,16 @@ struct ActivityInspector: View {
                                         .foregroundStyle(.tertiary)
                                         .lineLimit(2)
                                         .truncationMode(.middle)
+                                    if evidence.kind == "context_card" {
+                                        Button {
+                                            NSWorkspace.shared.open(URL(fileURLWithPath: path))
+                                        } label: {
+                                            Label("打开完整摘要卡片", systemImage: "doc.text.magnifyingglass")
+                                        }
+                                        .buttonStyle(.bordered)
+                                        .controlSize(.small)
+                                        .accessibilityHint("使用默认应用打开 PreCompact 生成的完整上下文摘要卡片")
+                                    }
                                 }
                             }
                         }
