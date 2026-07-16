@@ -206,7 +206,7 @@
 - V1.3 `workflow-event-skill.png`：Skill 更新的列表摘要、用途和能力变化。
 - V1.3 `workflow-event-hook.png`：Hook 新增/更新的职责、主要能力与证据边界。
 - V1.3 `workflow-event-automation-variable.png`：变量式 Automation 更新调用的历史回填。
-- V1.4 `context-summary-minimum.png`：最小窗口中的压缩后摘要与完整卡片入口。
+- V1.4 `context-summary-wide.png`：宽屏中的压缩后摘要、最近用户要求和压缩前进展。
 - V1.4 `workflow-rule-wide.png`：宽屏中全局规则的具体增删与修改来源对话。
 
 任何文字重叠、内容越界、根窗口横向滚动、关键字段缺失、推断被当事实或截图产物身份不明，直接判 `FAIL`。

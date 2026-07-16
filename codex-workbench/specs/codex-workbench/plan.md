@@ -157,6 +157,15 @@ Design Lock 详见项目根目录 `DESIGN.md`。核心是“Calm Operations Cons
 | 规则快照过大或包含敏感值 | 只保存顶层规则与安全设置，限制条数/长度并过滤赋值型敏感字段 | 退回章节/能力标签快照 |
 | 通用事件反复追加 revision | 可见语义与证据完全等价时不追加 | 停用历史增强写入，仅内存显示 |
 
+### V1.4 实施结果
+
+- 上下文压缩事件从 context card 提取最近有效用户要求与至多两条压缩前进展；系统注入内容被过滤，列表和详情不再只显示“摘要卡片已生成”。
+- 全局规则、Codex 配置、Plugin、Skill、Hook 与 Automation 均生成安全语义变化；`hooks.json` 会显示 `SessionStart / PreCompact` 对应的具体 Hook 命令。
+- 结构化 patch 支持重复重试的语义合并：完全相同的重复调用视为同一份证据，不同改动仍拒绝猜测；历史事件继续以相同 ID 追加 revision。
+- rollout 证据读取限制为单文件尾部 8 MiB、单轮复用并只保留 Automation/patch/旧配置证据行；正式 App 刷新后的稳定 RSS 由约 846 MiB 降至约 277 MiB。
+- 真实台账收敛检查中，受控工作流最新事件命中“内容已调整 / 实现内容已调整 / 无说明已新增 / 全局工作流定义已更新”为 0；上下文压缩最新事件缺少摘要明细为 0。
+- 安装产物的定向截图位于 `screenshots/v1.4/context-summary-wide.png` 与 `screenshots/v1.4/workflow-rule-wide.png`。
+
 ## 执行契约
 
 ### Intent Lock
