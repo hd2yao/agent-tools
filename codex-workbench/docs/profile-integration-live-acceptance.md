@@ -11,9 +11,10 @@
 - 工作台：`/Users/dysania/Applications/Codex 观测站.app`
 - Bundle ID：`com.hd2yao.codex-workbench`
 - 版本：`0.2.0`
-- 源码提交：`32b107d`
+- 源码提交：`bf4181e`
 - 账号后端指纹：`35e6b086f32fd6e97791e658b1662d8e0daca2517322aef1644dccd0656d67c5`
 - verifier：通过；内置 Login Helper 与账号后端 freshness 测试通过。
+- 最终门禁曾发现一次人工状态检查漏带 `PYTHONDONTWRITEBYTECODE=1`，在已签名包内生成 `.pyc` 并使验签失败；已用原子安装器重装，确认包内无 `__pycache__`、codesign 再次通过。工作台正常网关本身始终会设置该环境变量。
 - 冷备：`/Users/dysania/Applications/Codex Profile Switcher.app`，`com.hd2yao.codex-profile-switcher`，`0.10.1`；仍安装，验收时未运行。
 
 ## 真实账号快照
