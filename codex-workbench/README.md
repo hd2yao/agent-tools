@@ -2,7 +2,7 @@
 
 一个原生 macOS Codex 工作台，用同一个 App 承载账号管理、操作日志、项目分析、工具 / Skill 统计和后续 Codex 小工具。
 
-`Codex 观测站.app` 是唯一日常入口。成熟的 Profile Switcher Python 账号引擎作为工作台内置后端继续提供额度、重置卡、切换和运行状态，不再形成第二套 UI 或状态源。迁移验收期间，旧 `Codex Profile Switcher.app` 只作为退出工作台后手动启用的冷备份保留。
+`Codex 观测站.app` 是唯一日常入口。成熟的 Profile Switcher Python 账号引擎作为工作台内置后端继续提供额度、重置卡、切换和运行状态，不再形成第二套 UI 或状态源。迁移验收已经通过；用户确认正式退役前，旧 `Codex Profile Switcher.app` 只作为退出工作台后手动启用的冷备份保留。
 
 ## 功能
 
@@ -27,7 +27,7 @@ open "$HOME/Applications/Codex 观测站.app"
 
 安装后可以直接从 Finder、Spotlight 或菜单栏打开，不需要手动运行 Python 命令或启动本地服务。手动打开会显示主窗口；可选的登录启动由内置 Login Helper 提供，只驻留菜单栏。
 
-迁移期不要同时运行工作台和旧 Profile Switcher。若工作台账号链路出现问题，应先退出工作台，再手动打开旧 App；用户验收完成前不会删除冷备安装产物。
+不要同时运行工作台和旧 Profile Switcher。若工作台账号链路出现问题，应先退出工作台，再手动打开旧 App；没有用户新的明确确认，不会删除冷备安装产物。
 
 ## 数据位置与隐私
 

@@ -66,6 +66,8 @@ git commit -m "test: define visual acceptance fixture contract"
 - Modify: `Sources/CodexWorkbenchApp/WorkbenchAppDelegate.swift`
 - Modify: `Sources/CodexWorkbenchApp/AccountsView.swift`
 - Modify: `Sources/CodexWorkbenchApp/MenuBarView.swift`
+- Modify: `Sources/CodexWorkbenchApp/CodexWorkbenchApp.swift`
+- Modify: `Sources/CodexWorkbenchApp/WorkbenchShell.swift`
 
 **Step 1: 扩展失败测试**
 
@@ -83,6 +85,7 @@ Expected: 新状态断言失败。
 - fixture 模式的 `bootstrap`、`refreshAll`、`switchProfile` 立即返回，不启动观察器或自动化。
 - AppDelegate 只为当前进程设置 `.darkAqua` / `.aqua`。
 - 账号页和菜单栏显示可见 fixture 标识。
+- fixture 使用独立 window scene ID；`CODEX_WORKBENCH_VISUAL_SURFACE=menu` 只在 fixture 中复用同一 `MenuBarView` 生成菜单证据。
 
 **Step 4: 验证 GREEN**
 

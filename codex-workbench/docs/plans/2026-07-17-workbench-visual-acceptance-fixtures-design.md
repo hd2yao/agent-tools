@@ -12,8 +12,10 @@
 
 - `CODEX_WORKBENCH_VISUAL_FIXTURE=stale|error|switching`
 - `CODEX_WORKBENCH_VISUAL_APPEARANCE=dark|light`
+- `CODEX_WORKBENCH_VISUAL_SURFACE=menu`，仅在 fixture 有效时启用同一菜单视图的截图表面。
 - 缺失或未知值全部忽略，应用按正常模式启动。
 - 外观可以独立于 fixture 使用；仅指定 `dark` 时仍读取真实账号数据。
+- fixture 使用独立的 `visual-acceptance` window scene ID，不复用普通 `main` 窗口的持久几何状态。
 
 ## 架构
 
@@ -26,6 +28,7 @@
 - `WorkbenchAppDelegate` 只在显式外观配置有效时给当前进程设置 `NSAppearance`。
 - `WorkbenchAppModel` 只在 fixture 有效时应用 Core 快照，并跳过 bootstrap、轮询、通知、自动重置、刷新和真实切换。
 - fixture 模式公开只读标识，账号页和菜单栏显示“视觉验收模式 · 不执行真实账号操作”。
+- 菜单截图表面复用正式 `MenuBarView`，只改变承载窗口，不复制第二套菜单 UI。
 - 普通启动路径保持现有账号网关、台账、观察器和自动化行为。
 
 ## 固定展示数据
@@ -51,6 +54,7 @@ fixture 使用无认证内容的脱敏样例：当前账号 `hd-sarah-blackwell`
 
 - fixture 模式不调用 Python 后端，不写 `~/.codex/operation-ledger/`，不启动自动重置协调器或官方额度观察器。
 - fixture 模式下刷新和切换入口不执行真实操作。
+- 菜单截图表面不能脱离 fixture 单独启用，fixture 退出后不会覆盖普通主窗口大小。
 - 不输出 token、Cookie、认证内容或重置卡原始 ID。
 - 截图必须显示 fixture 标识；真实双向切换证据仍来自正式后端和台账。
 
