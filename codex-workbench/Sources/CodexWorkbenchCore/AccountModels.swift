@@ -70,6 +70,97 @@ public struct AccountDesktopStatus: Codable, Equatable, Sendable {
     }
 }
 
+public struct AccountRuntimeStatus: Codable, Equatable, Sendable {
+    public let state: String
+    public let light: String
+    public let label: String
+    public let activeProcessCount: Int
+    public let recentProcessCount: Int
+    public let latestActivityAgeMs: Int?
+
+    public init(
+        state: String,
+        light: String,
+        label: String,
+        activeProcessCount: Int,
+        recentProcessCount: Int,
+        latestActivityAgeMs: Int? = nil
+    ) {
+        self.state = state
+        self.light = light
+        self.label = label
+        self.activeProcessCount = activeProcessCount
+        self.recentProcessCount = recentProcessCount
+        self.latestActivityAgeMs = latestActivityAgeMs
+    }
+}
+
+public struct AccountAttributionSummary: Codable, Equatable, Sendable {
+    public let activeProfile: String?
+    public let managed: Bool?
+
+    public init(activeProfile: String? = nil, managed: Bool? = nil) {
+        self.activeProfile = activeProfile
+        self.managed = managed
+    }
+}
+
+public struct AccountTokenUsageTotals: Codable, Equatable, Sendable {
+    public let inputTokens: Int
+    public let cachedInputTokens: Int
+    public let outputTokens: Int
+    public let reasoningOutputTokens: Int
+    public let totalTokens: Int
+}
+
+public struct AccountTokenUsageByDate: Codable, Equatable, Sendable {
+    public let date: String
+    public let inputTokens: Int
+    public let cachedInputTokens: Int
+    public let outputTokens: Int
+    public let reasoningOutputTokens: Int
+    public let totalTokens: Int
+}
+
+public struct AccountTokenUsageByModel: Codable, Equatable, Sendable {
+    public let model: String
+    public let inputTokens: Int
+    public let cachedInputTokens: Int
+    public let outputTokens: Int
+    public let reasoningOutputTokens: Int
+    public let totalTokens: Int
+}
+
+public struct AccountLocalTokenSnapshot: Codable, Equatable, Sendable {
+    public let eventCount: Int
+    public let latestTimestamp: String?
+    public let total: AccountTokenUsageTotals
+    public let daily: [AccountTokenUsageByDate]?
+    public let byModel: [AccountTokenUsageByModel]?
+}
+
+public struct AccountStatusSummary: Codable, Equatable, Sendable {
+    public let available: Bool?
+    public let type: String?
+    public let planType: String?
+    public let emailPresent: Bool?
+    public let requiresOpenAIAuth: Bool?
+
+    public init(
+        available: Bool? = nil,
+        type: String? = nil,
+        planType: String? = nil,
+        emailPresent: Bool? = nil,
+        requiresOpenAIAuth: Bool? = nil
+    ) {
+        self.available = available
+        self.type = type
+        self.planType = planType
+        self.emailPresent = emailPresent
+        self.requiresOpenAIAuth = requiresOpenAIAuth
+    }
+}
+
 public struct AccountQuotaWindow: Codable, Equatable, Sendable {
     public let usedPercent: Double?
     public let remainingPercent: Double?
@@ -142,14 +233,181 @@ public struct AccountRateLimits: Codable, Equatable, Sendable {
     }
 }
 
+public struct AccountResetCreditReminder: Codable, Equatable, Sendable {
+    public let kind: String
+    public let at: TimeInterval
+
+    public init(kind: String, at: TimeInterval) {
+        self.kind = kind
+        self.at = at
+    }
+}
+
+public struct AccountResetCreditCard: Codable, Equatable, Sendable {
+    public let id: String?
+    public let status: String?
+    public let used: Bool?
+    public let resetType: String?
+    public let title: String?
+    public let description: String?
+    public let grantedAt: TimeInterval?
+    public let expiresAt: TimeInterval?
+    public let reminders: [AccountResetCreditReminder]?
+
+    public init(
+        id: String? = nil,
+        status: String? = nil,
+        used: Bool? = nil,
+        resetType: String? = nil,
+        title: String? = nil,
+        description: String? = nil,
+        grantedAt: TimeInterval? = nil,
+        expiresAt: TimeInterval? = nil,
+        reminders: [AccountResetCreditReminder]? = nil
+    ) {
+        self.id = id
+        self.status = status
+        self.used = used
+        self.resetType = resetType
+        self.title = title
+        self.description = description
+        self.grantedAt = grantedAt
+        self.expiresAt = expiresAt
+        self.reminders = reminders
+    }
+
+    public var stableID: String {
+        id ?? "expiry-\(expiresAt ?? 0)-\(grantedAt ?? 0)"
+    }
+}
+
 public struct AccountResetCreditDetails: Codable, Equatable, Sendable {
+    public let available: Bool?
     public let availableCount: Int?
+    public let totalEarnedCount: Int?
+    public let credits: [AccountResetCreditCard]
+    public let earliestExpiresAt: TimeInterval?
     public let nextExpirationAt: TimeInterval?
 
-    public init(availableCount: Int? = nil, nextExpirationAt: TimeInterval? = nil) {
+    public init(
+        available: Bool? = nil,
+        availableCount: Int? = nil,
+        totalEarnedCount: Int? = nil,
+        credits: [AccountResetCreditCard] = [],
+        earliestExpiresAt: TimeInterval? = nil,
+        nextExpirationAt: TimeInterval? = nil
+    ) {
+        self.available = available
         self.availableCount = availableCount
+        self.totalEarnedCount = totalEarnedCount
+        self.credits = credits
+        self.earliestExpiresAt = earliestExpiresAt
         self.nextExpirationAt = nextExpirationAt
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case available
+        case availableCount
+        case totalEarnedCount
+        case credits
+        case earliestExpiresAt
+        case nextExpirationAt
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        available = try container.decodeIfPresent(Bool.self, forKey: .available)
+        availableCount = try container.decodeIfPresent(Int.self, forKey: .availableCount)
+        totalEarnedCount = try container.decodeIfPresent(Int.self, forKey: .totalEarnedCount)
+        credits = try container.decodeIfPresent([AccountResetCreditCard].self, forKey: .credits) ?? []
+        earliestExpiresAt = try container.decodeIfPresent(TimeInterval.self, forKey: .earliestExpiresAt)
+        nextExpirationAt = try container.decodeIfPresent(TimeInterval.self, forKey: .nextExpirationAt)
+    }
+}
+
+public struct AccountUsageSummary: Codable, Equatable, Sendable {
+    public let lifetimeTokens: Int?
+    public let peakDailyTokens: Int?
+    public let longestRunningTurnSec: Int?
+    public let currentStreakDays: Int?
+    public let longestStreakDays: Int?
+}
+
+public struct AccountDailyUsageBucket: Codable, Equatable, Sendable {
+    public let startDate: String
+    public let tokens: Int
+}
+
+public struct AccountUsage: Codable, Equatable, Sendable {
+    public let summary: AccountUsageSummary?
+    public let dailyUsageBuckets: [AccountDailyUsageBucket]?
+}
+
+public struct AccountUsageMetrics: Codable, Equatable, Sendable {
+    public let todayTokens: Int?
+    public let todayAvailable: Bool?
+    public let last7Tokens: Int?
+    public let last14Tokens: Int?
+    public let latestDate: String?
+    public let source: String?
+}
+
+public struct AccountAttributionAccuracy: Codable, Equatable, Sendable {
+    public let date: String
+    public let estimatedTokens: Int
+    public let officialTokens: Int
+    public let deltaTokens: Int
+    public let deltaPercent: Double?
+}
+
+public struct AccountTokenAttribution: Codable, Equatable, Sendable {
+    public let activeProfile: String?
+    public let managed: Bool
+    public let estimateAvailable: Bool
+    public let todayEstimatedTokens: Int?
+    public let todayOfficialTokens: Int?
+    public let todayDisplayTokens: Int?
+    public let todaySource: String?
+    public let previousDayAccuracy: AccountAttributionAccuracy?
+}
+
+public struct AccountProjectRankingItem: Codable, Equatable, Sendable {
+    public let name: String
+    public let path: String
+    public let threadCount: Int
+    public let tokensUsed: Int
+    public let latestUpdatedAt: Int
+}
+
+public struct AccountProjectRankings: Codable, Equatable, Sendable {
+    public let available: Bool
+    public let projects: [AccountProjectRankingItem]
+}
+
+public struct AccountToolRankingItem: Codable, Equatable, Sendable {
+    public let id: String
+    public let namespace: String
+    public let name: String
+    public let callCount: Int
+    public let latestUpdatedAt: Int
+    public let threadTokens: Int
+}
+
+public struct AccountToolRankings: Codable, Equatable, Sendable {
+    public let available: Bool
+    public let tools: [AccountToolRankingItem]
+}
+
+public struct AccountSkillRankingItem: Codable, Equatable, Sendable {
+    public let name: String
+    public let useCount: Int
+    public let latestTimestamp: String?
+}
+
+public struct AccountSkillRankings: Codable, Equatable, Sendable {
+    public let available: Bool
+    public let skills: [AccountSkillRankingItem]
+    public let badLineCount: Int?
 }
 
 public struct AccountProfile: Codable, Identifiable, Equatable, Sendable {
@@ -159,8 +417,14 @@ public struct AccountProfile: Codable, Identifiable, Equatable, Sendable {
     public let path: String?
     public let auth: String
     public let config: String
+    public let account: AccountStatusSummary?
     public let rateLimits: AccountRateLimits
     public let resetCreditDetails: AccountResetCreditDetails?
+    public let resetCreditStale: Bool?
+    public let resetCreditError: String?
+    public let usage: AccountUsage?
+    public let usageMetrics: AccountUsageMetrics?
+    public let tokenAttribution: AccountTokenAttribution?
     public let remoteStale: Bool?
     public let remoteError: String?
 
@@ -172,14 +436,26 @@ public struct AccountProfile: Codable, Identifiable, Equatable, Sendable {
         rateLimits: AccountRateLimits,
         resetCreditDetails: AccountResetCreditDetails? = nil,
         remoteStale: Bool? = nil,
-        remoteError: String? = nil
+        remoteError: String? = nil,
+        account: AccountStatusSummary? = nil,
+        resetCreditStale: Bool? = nil,
+        resetCreditError: String? = nil,
+        usage: AccountUsage? = nil,
+        usageMetrics: AccountUsageMetrics? = nil,
+        tokenAttribution: AccountTokenAttribution? = nil
     ) {
         self.name = name
         self.path = path
         self.auth = auth
         self.config = config
+        self.account = account
         self.rateLimits = rateLimits
         self.resetCreditDetails = resetCreditDetails
+        self.resetCreditStale = resetCreditStale
+        self.resetCreditError = resetCreditError
+        self.usage = usage
+        self.usageMetrics = usageMetrics
+        self.tokenAttribution = tokenAttribution
         self.remoteStale = remoteStale
         self.remoteError = remoteError
     }
@@ -188,8 +464,14 @@ public struct AccountProfile: Codable, Identifiable, Equatable, Sendable {
 public struct AccountDashboardPayload: Codable, Equatable, Sendable {
     public let generatedAt: Date
     public let activeProfile: String?
+    public let runtimeStatus: AccountRuntimeStatus?
     public let desktopStatus: AccountDesktopStatus?
     public let profileRoles: AccountProfileRoles?
+    public let attributionSummary: AccountAttributionSummary?
+    public let localSnapshot: AccountLocalTokenSnapshot?
+    public let projectRankings: AccountProjectRankings?
+    public let toolRankings: AccountToolRankings?
+    public let skillRankings: AccountSkillRankings?
     public let profiles: [AccountProfile]
 
     public init(
@@ -197,12 +479,24 @@ public struct AccountDashboardPayload: Codable, Equatable, Sendable {
         activeProfile: String?,
         desktopStatus: AccountDesktopStatus?,
         profileRoles: AccountProfileRoles?,
-        profiles: [AccountProfile]
+        profiles: [AccountProfile],
+        runtimeStatus: AccountRuntimeStatus? = nil,
+        attributionSummary: AccountAttributionSummary? = nil,
+        localSnapshot: AccountLocalTokenSnapshot? = nil,
+        projectRankings: AccountProjectRankings? = nil,
+        toolRankings: AccountToolRankings? = nil,
+        skillRankings: AccountSkillRankings? = nil
     ) {
         self.generatedAt = generatedAt
         self.activeProfile = activeProfile
+        self.runtimeStatus = runtimeStatus
         self.desktopStatus = desktopStatus
         self.profileRoles = profileRoles
+        self.attributionSummary = attributionSummary
+        self.localSnapshot = localSnapshot
+        self.projectRankings = projectRankings
+        self.toolRankings = toolRankings
+        self.skillRankings = skillRankings
         self.profiles = profiles
     }
 
