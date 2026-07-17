@@ -38,6 +38,15 @@ struct AccountsView: View {
                     )
                 }
 
+                if let stage = model.accountSwitchStage {
+                    AccountNotice(
+                        title: switchNoticeTitle(stage),
+                        message: "目标账号：\(AccountPresentationBuilder.profileDisplayName(stage.profile))。请稍候，不要重复操作。",
+                        color: .blue,
+                        systemImage: "arrow.triangle.2.circlepath"
+                    )
+                }
+
                 if model.isLegacyProfileSwitcherRunning {
                     AccountNotice(
                         title: "冷备 App 正在运行",
@@ -106,6 +115,15 @@ struct AccountsView: View {
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }
         .accessibilityIdentifier("accounts-page")
+    }
+
+    private func switchNoticeTitle(_ stage: AccountSwitchStage) -> String {
+        switch stage {
+        case .switching:
+            "正在切换登录账号"
+        case .verifying:
+            "正在验证登录账号"
+        }
     }
 }
 
