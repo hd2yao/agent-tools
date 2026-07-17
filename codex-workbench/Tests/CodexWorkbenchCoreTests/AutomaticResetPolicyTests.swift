@@ -137,6 +137,58 @@ func runAutomaticResetPolicyTests(_ runner: inout TestRunner) {
             == "automatic-reset.idempotency.hd-master.primary.2001800",
         "Idempotency keys must stay compatible with the legacy preference domain"
     )
+
+    let claimDirectory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("codex-workbench-reset-claim-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: claimDirectory) }
+    let claimStore = AutomaticResetClaimStore(directoryURL: claimDirectory)
+    let startGate = DispatchSemaphore(value: 0)
+    let attempted = DispatchSemaphore(value: 0)
+    let releaseWinner = DispatchSemaphore(value: 0)
+    let group = DispatchGroup()
+    let backendCallCount = LockedCounter()
+
+    for _ in 0..<2 {
+        group.enter()
+        DispatchQueue.global(qos: .userInitiated).async {
+            startGate.wait()
+            let claim = claimStore.acquire(fingerprint: fingerprint)
+            attempted.signal()
+            if let claim {
+                backendCallCount.increment()
+                releaseWinner.wait()
+                withExtendedLifetime(claim) {}
+            }
+            group.leave()
+        }
+    }
+    startGate.signal()
+    startGate.signal()
+    attempted.wait()
+    attempted.wait()
+    releaseWinner.signal()
+    group.wait()
+    runner.expect(
+        backendCallCount.value == 1,
+        "Two concurrent app processes must allow only one reset-credit backend call"
+    )
+}
+
+private final class LockedCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+
+    var value: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return count
+    }
+
+    func increment() {
+        lock.lock()
+        count += 1
+        lock.unlock()
+    }
 }
 
 private func automaticResetDecision(

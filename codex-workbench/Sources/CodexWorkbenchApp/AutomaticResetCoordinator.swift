@@ -11,6 +11,7 @@ final class AutomaticResetPreferenceStore {
     }
 
     func record(fingerprint: String) -> AutomaticResetRecord {
+        defaults.synchronize()
         let lastAttemptKey = AutomaticResetStorageKeys.lastAttempt(fingerprint: fingerprint)
         let lastAttempt = defaults.object(forKey: lastAttemptKey) == nil
             ? nil
@@ -39,6 +40,7 @@ final class AutomaticResetPreferenceStore {
             now,
             forKey: AutomaticResetStorageKeys.lastAttempt(fingerprint: attempt.fingerprint)
         )
+        defaults.synchronize()
     }
 
     func finish(attempt: AutomaticResetAttempt, outcome: String) {
@@ -46,6 +48,7 @@ final class AutomaticResetPreferenceStore {
             outcome,
             forKey: AutomaticResetStorageKeys.outcome(fingerprint: attempt.fingerprint)
         )
+        defaults.synchronize()
     }
 }
 
@@ -53,14 +56,24 @@ final class AutomaticResetPreferenceStore {
 final class AutomaticResetCoordinator {
     private let store: AutomaticResetPreferenceStore
     private let notifications: ResetCreditNotificationService
+    private let claimStore: AutomaticResetClaimStore
+    private let availabilityProvider: @MainActor @Sendable () -> AccountAutomationAvailability
     private var inFlight = Set<String>()
 
     init(
         store: AutomaticResetPreferenceStore = AutomaticResetPreferenceStore(),
-        notifications: ResetCreditNotificationService = ResetCreditNotificationService()
+        notifications: ResetCreditNotificationService = ResetCreditNotificationService(),
+        claimStore: AutomaticResetClaimStore = .shared(),
+        availabilityProvider: @escaping @MainActor @Sendable () -> AccountAutomationAvailability = {
+            AccountRuntimePolicy.automationAvailability(
+                legacyProfileSwitcherRunning: AccountRuntimeServices.legacyProfileSwitcherIsRunning()
+            )
+        }
     ) {
         self.store = store
         self.notifications = notifications
+        self.claimStore = claimStore
+        self.availabilityProvider = availabilityProvider
     }
 
     func start() {
@@ -70,9 +83,9 @@ final class AutomaticResetCoordinator {
     func process(
         payload: AccountDashboardPayload,
         gateway: AccountGateway?,
-        availability: AccountAutomationAvailability,
         onTerminalOutcome: @escaping @MainActor (AutomaticResetAttempt, AccountResetCreditConsumeResult) -> Void
     ) {
+        let availability = availabilityProvider()
         guard availability == .available else {
             notifications.clearScheduledReminders()
             return
@@ -82,8 +95,18 @@ final class AutomaticResetCoordinator {
         let now = Date().timeIntervalSince1970
 
         for profile in payload.profiles {
+            guard availabilityProvider() == .available else {
+                notifications.clearScheduledReminders()
+                return
+            }
             guard let fingerprint = AutomaticResetPolicy.fingerprint(profile: profile, now: now) else {
                 continue
+            }
+            guard let claim = claimStore.acquire(fingerprint: fingerprint) else { continue }
+            guard availabilityProvider() == .available else {
+                claim.release()
+                notifications.clearScheduledReminders()
+                return
             }
             let decision = AutomaticResetPolicy.decision(
                 profile: profile,
@@ -93,11 +116,20 @@ final class AutomaticResetCoordinator {
                 automationAvailability: availability,
                 newIdempotencyKey: UUID().uuidString
             )
-            guard case .consume(let attempt) = decision else { continue }
+            guard case .consume(let attempt) = decision else {
+                claim.release()
+                continue
+            }
             store.begin(attempt: attempt, now: now)
             inFlight.insert(fingerprint)
 
-            Task {
+            Task { [claim] in
+                defer { claim.release() }
+                guard availabilityProvider() == .available else {
+                    inFlight.remove(fingerprint)
+                    notifications.clearScheduledReminders()
+                    return
+                }
                 let result = await Task.detached(priority: .userInitiated) {
                     try? gateway.consumeResetCredit(
                         profile: attempt.profile,

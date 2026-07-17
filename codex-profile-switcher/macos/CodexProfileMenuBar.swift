@@ -1,6 +1,57 @@
 import AppKit
+import Darwin
 import Foundation
 import UserNotifications
+
+private final class AutomaticResetFileClaim {
+    private var descriptor: Int32?
+
+    init(descriptor: Int32) {
+        self.descriptor = descriptor
+    }
+
+    func release() {
+        guard let descriptor else { return }
+        flock(descriptor, LOCK_UN)
+        close(descriptor)
+        self.descriptor = nil
+    }
+
+    deinit {
+        release()
+    }
+}
+
+private func automaticResetClaim(fingerprint: String) -> AutomaticResetFileClaim? {
+    let directory = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent(".codex/profile-switcher/automatic-reset-claims", isDirectory: true)
+    do {
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+        )
+    } catch {
+        return nil
+    }
+
+    var hash: UInt64 = 14_695_981_039_346_656_037
+    for byte in ["automatic-reset-claim", fingerprint].joined(separator: "\u{1F}").utf8 {
+        hash ^= UInt64(byte)
+        hash = hash &* 1_099_511_628_211
+    }
+    let filename = "evt_" + String(format: "%016llx", hash) + ".lock"
+    let lockURL = directory.appendingPathComponent(filename, isDirectory: false)
+    let descriptor = lockURL.path.withCString {
+        open($0, O_CREAT | O_RDWR | O_CLOEXEC, S_IRUSR | S_IWUSR)
+    }
+    guard descriptor >= 0 else { return nil }
+    guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else {
+        close(descriptor)
+        return nil
+    }
+    return AutomaticResetFileClaim(descriptor: descriptor)
+}
 
 private enum MenuLayout {
     static let popoverWidth: CGFloat = 380
@@ -1459,6 +1510,10 @@ final class CodexProfileMenuBarApp: NSObject, NSApplicationDelegate, NSPopoverDe
                 ?? earliestExpiry
                 ?? 0
             let fingerprint = "\(profile.name).\(reachedType).\(Int(quotaWindow))"
+            guard let claim = automaticResetClaim(fingerprint: fingerprint) else {
+                continue
+            }
+            defaults.synchronize()
             let outcomeKey = "automatic-reset.outcome.\(fingerprint)"
             if let outcome = defaults.string(forKey: outcomeKey),
                ["reset", "alreadyRedeemed", "nothingToReset", "noCredit"].contains(outcome) {
@@ -1474,16 +1529,18 @@ final class CodexProfileMenuBarApp: NSObject, NSApplicationDelegate, NSPopoverDe
             let idempotencyKey = defaults.string(forKey: idempotencyKeyName) ?? UUID().uuidString
             defaults.set(idempotencyKey, forKey: idempotencyKeyName)
             defaults.set(now, forKey: lastAttemptKey)
+            defaults.synchronize()
             automaticResetInFlight.insert(fingerprint)
 
-            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            DispatchQueue.global(qos: .userInitiated).async { [weak self, claim] in
                 let result = Self.runPython(arguments: [
                     "consume-reset-credit",
                     profile.name,
                     "--idempotency-key",
                     idempotencyKey,
                 ])
-                DispatchQueue.main.async {
+                DispatchQueue.main.async { [weak self, claim] in
+                    defer { claim.release() }
                     guard let self else { return }
                     self.automaticResetInFlight.remove(fingerprint)
                     guard case .success(let output) = result,
@@ -1496,6 +1553,7 @@ final class CodexProfileMenuBarApp: NSObject, NSApplicationDelegate, NSPopoverDe
                     switch outcome {
                     case "reset", "alreadyRedeemed":
                         defaults.set(outcome, forKey: outcomeKey)
+                        defaults.synchronize()
                         self.resetCreditNotificationScheduler.notifyAutomaticReset(
                             profile: profile.name,
                             outcome: outcome
@@ -1503,6 +1561,7 @@ final class CodexProfileMenuBarApp: NSObject, NSApplicationDelegate, NSPopoverDe
                         self.refreshStatus(showProgress: false, forceResetCredits: true)
                     case "nothingToReset", "noCredit":
                         defaults.set(outcome, forKey: outcomeKey)
+                        defaults.synchronize()
                     default:
                         break
                     }

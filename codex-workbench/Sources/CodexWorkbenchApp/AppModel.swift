@@ -273,8 +273,7 @@ final class WorkbenchAppModel: ObservableObject {
         if let payload = account.payload {
             automaticResetCoordinator.process(
                 payload: payload,
-                gateway: accountGateway,
-                availability: accountAutomationAvailability
+                gateway: accountGateway
             ) { [weak self] _, _ in
                 Task { await self?.refreshAll(refreshResetCredits: true) }
             }
