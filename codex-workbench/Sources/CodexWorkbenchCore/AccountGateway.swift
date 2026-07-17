@@ -85,6 +85,9 @@ public struct AccountCommandBuilder: Equatable, Sendable {
 
 public enum AccountGatewayError: Error, Equatable, LocalizedError, Sendable {
     case backendMissing
+    case codexDesktopBusy
+    case codexDesktopLaunchFailed
+    case accountConflict
     case invalidProfile
     case launchFailed
     case processFailed(Int32)
@@ -93,11 +96,29 @@ public enum AccountGatewayError: Error, Equatable, LocalizedError, Sendable {
     public var errorDescription: String? {
         switch self {
         case .backendMissing: "账号模块不可用，请重新构建观测站。"
+        case .codexDesktopBusy: "Codex 仍有任务正在运行，未能安全退出。请等任务结束后再切换账号。"
+        case .codexDesktopLaunchFailed: "账号已准备，但 Codex 未能重新启动。请手动打开 Codex 后刷新状态。"
+        case .accountConflict: "检测到 Codex 认证账号意外变化。为保护两个账号，切换已中止。"
         case .invalidProfile: "账号名称不符合安全规则。"
         case .launchFailed: "无法启动账号模块。"
         case .processFailed(let code): "账号模块执行失败（退出码 \(code)）。"
         case .invalidPayload: "账号状态数据格式不兼容。"
         }
+    }
+
+    public static func processFailure(code: Int32, standardError: String) -> AccountGatewayError {
+        if standardError.contains("Codex Desktop did not quit within 12 seconds; switch aborted.") {
+            return .codexDesktopBusy
+        }
+        if standardError.contains(
+            "Codex auth account changed unexpectedly; switch aborted to preserve both accounts."
+        ) {
+            return .accountConflict
+        }
+        if standardError.contains("Codex Desktop did not launch within 12 seconds after `codex app`.") {
+            return .codexDesktopLaunchFailed
+        }
+        return .processFailed(code)
     }
 }
 
@@ -152,10 +173,11 @@ public struct AccountGateway: Sendable {
 
         let process = Process()
         let output = Pipe()
+        let errorOutput = Pipe()
         process.executableURL = command.executableURL
         process.arguments = command.arguments
         process.standardOutput = output
-        process.standardError = FileHandle.nullDevice
+        process.standardError = errorOutput
         process.environment = AccountCommandBuilder.processEnvironment(
             base: ProcessInfo.processInfo.environment
         )
@@ -166,9 +188,14 @@ public struct AccountGateway: Sendable {
             throw AccountGatewayError.launchFailed
         }
         let data = output.fileHandleForReading.readDataToEndOfFile()
+        let errorData = errorOutput.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
         guard process.terminationStatus == 0 else {
-            throw AccountGatewayError.processFailed(process.terminationStatus)
+            let standardError = String(data: errorData, encoding: .utf8) ?? ""
+            throw AccountGatewayError.processFailure(
+                code: process.terminationStatus,
+                standardError: standardError
+            )
         }
         return data
     }

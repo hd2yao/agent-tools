@@ -103,4 +103,23 @@ func runAccountGatewayTests(_ runner: inout TestRunner) {
     runner.expect(consumeResult?.ok == true, "Reset consumption result should decode its success state")
     runner.expect(consumeResult?.outcome == "alreadyRedeemed", "Reset outcome should preserve backend semantics")
     runner.expect(consumeResult?.expiresAt == 1_784_335_011, "Reset result should decode the selected expiry")
+
+    let busyFailure = AccountGatewayError.processFailure(
+        code: 1,
+        standardError: "Codex Desktop did not quit within 12 seconds; switch aborted.\n"
+    )
+    runner.expect(busyFailure == .codexDesktopBusy, "Known switch preconditions should have a safe error")
+    runner.expect(
+        busyFailure.errorDescription?.contains("任务") == true,
+        "The user should understand why Codex could not switch accounts"
+    )
+    let unknownFailure = AccountGatewayError.processFailure(
+        code: 42,
+        standardError: "secret backend detail"
+    )
+    runner.expect(unknownFailure == .processFailed(42), "Unknown backend errors should retain only the exit code")
+    runner.expect(
+        unknownFailure.errorDescription?.contains("secret backend detail") == false,
+        "Unknown stderr must never be exposed"
+    )
 }
