@@ -131,6 +131,10 @@ final class WorkbenchAppModel: ObservableObject {
         visualAcceptanceConfiguration.surface
     }
 
+    var windowSceneID: String {
+        visualAcceptanceConfiguration.windowSceneID
+    }
+
     var runtimePresentation: AccountRuntimePresentation {
         AccountPresentationBuilder.runtime(status: accountPayload?.runtimeStatus)
     }

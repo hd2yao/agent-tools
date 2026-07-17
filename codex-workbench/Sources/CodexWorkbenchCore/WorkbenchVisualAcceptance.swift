@@ -34,6 +34,10 @@ public struct WorkbenchVisualAcceptanceConfiguration: Equatable, Sendable {
         fixture == nil
     }
 
+    public var windowSceneID: String {
+        fixture == nil ? "main" : "visual-acceptance"
+    }
+
     public static func parse(environment: [String: String]) -> Self {
         let fixture = environment[fixtureEnvironmentKey].flatMap(Fixture.init(rawValue:))
         return Self(
