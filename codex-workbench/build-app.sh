@@ -47,6 +47,7 @@ cp "$ACCOUNT_SOURCE_DIR/codex_profile_dashboard.py" "$ACCOUNT_RESOURCE_DIR/codex
 chmod +x "$MACOS_DIR/CodexWorkbenchApp"
 /usr/libexec/PlistBuddy -c "Add :WorkbenchSourceCommit string $(git rev-parse --short HEAD 2>/dev/null || echo unknown)" "$CONTENTS_DIR/Info.plist"
 /usr/libexec/PlistBuddy -c "Add :WorkbenchSourceFingerprint string $(source_fingerprint)" "$CONTENTS_DIR/Info.plist"
+/usr/libexec/PlistBuddy -c "Add :WorkbenchAccountBackendFingerprint string $(bash "$ROOT_DIR/scripts/account-resource-fingerprint.sh" "$ACCOUNT_SOURCE_DIR")" "$CONTENTS_DIR/Info.plist"
 /usr/libexec/PlistBuddy -c "Add :WorkbenchBuildTimestamp string $(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$CONTENTS_DIR/Info.plist"
 codesign --force --deep --sign - "$APP_DIR"
 touch "$APP_DIR"
