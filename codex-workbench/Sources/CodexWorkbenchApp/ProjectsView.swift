@@ -146,7 +146,7 @@ private struct ProjectRankingRow: View {
         guard project.latestUpdatedAt > 0 else { return "--" }
         let raw = Double(project.latestUpdatedAt)
         let seconds = raw > 10_000_000_000 ? raw / 1_000 : raw
-        return Date(timeIntervalSince1970: seconds).formatted(date: .abbreviated, time: .shortened)
+        return Date(timeIntervalSince1970: seconds).formatted(date: .numeric, time: .omitted)
     }
 
     private func compact(_ value: Int) -> String {
