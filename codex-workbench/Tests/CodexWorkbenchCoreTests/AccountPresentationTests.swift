@@ -88,4 +88,13 @@ func runAccountPresentationTests(_ runner: inout TestRunner) {
     let missingRuntime = AccountPresentationBuilder.runtime(status: nil)
     runner.expect(missingRuntime.label == "未知", "Missing runtime should stay unknown")
     runner.expect(missingRuntime.symbol == "questionmark.circle", "Unknown should have an explicit symbol")
+
+    runner.expect(
+        AccountPresentationBuilder.usageSourceLabel("account_usage") == "官方账号用量",
+        "Internal source identifiers should be translated for the account page"
+    )
+    runner.expect(
+        AccountPresentationBuilder.usageSourceLabel("future_backend") == "账号统计",
+        "Unknown source identifiers should not leak into the user interface"
+    )
 }

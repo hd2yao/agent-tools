@@ -43,6 +43,7 @@ struct WorkbenchShell: View {
                 }
                 .disabled(model.isRefreshing)
                 .help("刷新操作日志与账号状态")
+                .accessibilityLabel("刷新工作台数据")
             }
         }
     }

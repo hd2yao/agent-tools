@@ -20,6 +20,7 @@ struct AccountsView: View {
                             Task { await model.refreshAll(refreshResetCredits: true) }
                         }
                         .disabled(model.isRefreshing)
+                        .accessibilityLabel("刷新账号额度")
                     )
                 )
 
@@ -361,7 +362,10 @@ private struct AccountUsageSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: WorkbenchSpacing.sm) {
-            SectionTitle("账号用量", detail: profile.usageMetrics?.source ?? "本地与官方数据")
+            SectionTitle(
+                "账号用量",
+                detail: AccountPresentationBuilder.usageSourceLabel(profile.usageMetrics?.source)
+            )
             LazyVGrid(
                 columns: [GridItem(.adaptive(minimum: 150, maximum: 250), spacing: WorkbenchSpacing.sm)],
                 spacing: WorkbenchSpacing.sm
@@ -474,6 +478,9 @@ private struct OtherAccountRow: View {
                 .controlSize(.small)
                 .disabled(switchStage != nil)
                 .frame(width: 132)
+                .accessibilityLabel(
+                    "切换到 \(AccountPresentationBuilder.profileDisplayName(profile.name)) 并重启 Codex"
+                )
             }
         }
         .accessibilityElement(children: .contain)

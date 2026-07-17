@@ -132,6 +132,15 @@ public enum AccountPresentationBuilder {
         return profile.hasPrefix("hd-") ? String(profile.dropFirst(3)) : profile
     }
 
+    public static func usageSourceLabel(_ source: String?) -> String {
+        switch source {
+        case "account_usage": "官方账号用量"
+        case "local", "local_usage": "本地用量"
+        case nil, "": "本地与官方数据"
+        default: "账号统计"
+        }
+    }
+
     public static func details(payload: AccountDashboardPayload?) -> AccountDetailsPresentation {
         guard let payload else {
             return AccountDetailsPresentation(
