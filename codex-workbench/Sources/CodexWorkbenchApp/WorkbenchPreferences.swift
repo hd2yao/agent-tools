@@ -1,3 +1,4 @@
+import CodexWorkbenchCore
 import ServiceManagement
 import SwiftUI
 
@@ -11,11 +12,54 @@ enum WorkbenchPreferences {
     }
 }
 
+@MainActor
+enum WorkbenchLoginItemManager {
+    static var service: SMAppService {
+        SMAppService.loginItem(identifier: WorkbenchBundleContract.loginHelperIdentifier)
+    }
+
+    static var isEnabled: Bool {
+        service.status == .enabled || service.status == .requiresApproval
+    }
+
+    static func setEnabled(_ enabled: Bool) throws {
+        if enabled {
+            if service.status == .notRegistered {
+                try service.register()
+            }
+            if service.status == .enabled, SMAppService.mainApp.status == .enabled {
+                try SMAppService.mainApp.unregister()
+            }
+        } else {
+            if service.status != .notRegistered {
+                try service.unregister()
+            }
+            if SMAppService.mainApp.status != .notRegistered {
+                try SMAppService.mainApp.unregister()
+            }
+        }
+    }
+
+    static func migrateLegacyRegistrationIfNeeded() {
+        guard SMAppService.mainApp.status == .enabled else { return }
+        do {
+            if service.status == .notRegistered {
+                try service.register()
+            }
+            if service.status == .enabled {
+                try SMAppService.mainApp.unregister()
+            }
+        } catch {
+            // Keep the working legacy registration if the helper cannot be enabled.
+        }
+    }
+}
+
 struct WorkbenchSettingsView: View {
     @AppStorage(WorkbenchPreferences.showWhenCodexLaunchesKey)
     private var showWhenCodexLaunches = true
 
-    @State private var startAtLogin = SMAppService.mainApp.status == .enabled
+    @State private var startAtLogin = WorkbenchLoginItemManager.isEnabled
     @State private var loginItemError: String?
 
     var body: some View {
@@ -47,14 +91,14 @@ struct WorkbenchSettingsView: View {
             set: { newValue in
                 do {
                     if newValue {
-                        try SMAppService.mainApp.register()
+                        try WorkbenchLoginItemManager.setEnabled(true)
                     } else {
-                        try SMAppService.mainApp.unregister()
+                        try WorkbenchLoginItemManager.setEnabled(false)
                     }
-                    startAtLogin = newValue
+                    startAtLogin = WorkbenchLoginItemManager.isEnabled
                     loginItemError = nil
                 } catch {
-                    startAtLogin = SMAppService.mainApp.status == .enabled
+                    startAtLogin = WorkbenchLoginItemManager.isEnabled
                     loginItemError = "无法更新登录启动设置：\(error.localizedDescription)"
                 }
             }

@@ -8,11 +8,16 @@ let package = Package(
     products: [
         .library(name: "CodexWorkbenchCore", targets: ["CodexWorkbenchCore"]),
         .executable(name: "CodexWorkbenchApp", targets: ["CodexWorkbenchApp"]),
+        .executable(name: "CodexWorkbenchLoginHelper", targets: ["CodexWorkbenchLoginHelper"]),
     ],
     targets: [
         .target(name: "CodexWorkbenchCore"),
         .executableTarget(
             name: "CodexWorkbenchApp",
+            dependencies: ["CodexWorkbenchCore"]
+        ),
+        .executableTarget(
+            name: "CodexWorkbenchLoginHelper",
             dependencies: ["CodexWorkbenchCore"]
         ),
         .executableTarget(

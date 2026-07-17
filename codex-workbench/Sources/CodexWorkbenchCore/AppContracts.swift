@@ -37,3 +37,22 @@ public enum WorkbenchLayout {
     public static let sidebarMaximum = 248.0
     public static let spacingUnit = 8.0
 }
+
+public enum WorkbenchLaunchMode: Equatable, Sendable {
+    case mainWindow
+    case menuBarOnly
+}
+
+public enum WorkbenchLaunchPolicy {
+    public static let loginItemArgument = "--login-item"
+
+    public static func mode(arguments: [String]) -> WorkbenchLaunchMode {
+        arguments.contains(loginItemArgument) ? .menuBarOnly : .mainWindow
+    }
+}
+
+public enum WorkbenchBundleContract {
+    public static let mainIdentifier = "com.hd2yao.codex-workbench"
+    public static let loginHelperIdentifier = "com.hd2yao.codex-workbench.login-helper"
+    public static let loginHelperAppName = "Codex Workbench Login Helper"
+}

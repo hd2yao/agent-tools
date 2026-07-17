@@ -252,6 +252,7 @@ struct MenuBarView: View {
 
     private func showWorkbench(module: AppModule) {
         model.selectedModule = module
+        NSApp.setActivationPolicy(.regular)
         openWindow(id: "main")
         NSApp.activate(ignoringOtherApps: true)
         DispatchQueue.main.async {

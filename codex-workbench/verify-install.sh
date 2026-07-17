@@ -7,6 +7,9 @@ INSTALL_ROOT="${CODEX_WORKBENCH_INSTALL_ROOT:-$HOME/Applications}"
 APP_DIR="$INSTALL_ROOT/$APP_NAME.app"
 PLIST="$APP_DIR/Contents/Info.plist"
 BINARY="$APP_DIR/Contents/MacOS/CodexWorkbenchApp"
+LOGIN_HELPER_APP="$APP_DIR/Contents/Library/LoginItems/Codex Workbench Login Helper.app"
+LOGIN_HELPER_PLIST="$LOGIN_HELPER_APP/Contents/Info.plist"
+LOGIN_HELPER_BINARY="$LOGIN_HELPER_APP/Contents/MacOS/CodexWorkbenchLoginHelper"
 
 source_fingerprint() {
     cd "$ROOT_DIR"
@@ -22,6 +25,7 @@ source_fingerprint() {
 
 [[ -d "$APP_DIR" ]] || { echo "FAIL: 未安装 $APP_DIR" >&2; exit 1; }
 [[ -x "$BINARY" ]] || { echo "FAIL: 缺少可执行文件" >&2; exit 1; }
+[[ -x "$LOGIN_HELPER_BINARY" ]] || { echo "FAIL: 缺少登录启动 helper" >&2; exit 1; }
 [[ -f "$APP_DIR/Contents/Resources/AppIcon.icns" ]] || { echo "FAIL: 缺少应用图标" >&2; exit 1; }
 [[ -f "$APP_DIR/Contents/Resources/codex-profile-switcher/codex_profile_dashboard.py" ]] \
     || { echo "FAIL: 缺少账号模块资源" >&2; exit 1; }
@@ -29,6 +33,11 @@ source_fingerprint() {
     || { echo "FAIL: 缺少账号切换资源" >&2; exit 1; }
 
 plutil -lint "$PLIST" >/dev/null
+plutil -lint "$LOGIN_HELPER_PLIST" >/dev/null
+[[ "$(defaults read "$LOGIN_HELPER_PLIST" CFBundleIdentifier)" == "com.hd2yao.codex-workbench.login-helper" ]] \
+    || { echo "FAIL: 登录 helper bundle id 不正确" >&2; exit 1; }
+[[ "$(defaults read "$LOGIN_HELPER_PLIST" LSUIElement)" == "1" ]] \
+    || { echo "FAIL: 登录 helper 不是后台 App" >&2; exit 1; }
 
 EXPECTED_FINGERPRINT="$(source_fingerprint)"
 INSTALLED_FINGERPRINT="$(defaults read "$PLIST" WorkbenchSourceFingerprint)"
