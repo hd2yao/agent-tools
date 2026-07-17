@@ -59,4 +59,24 @@ func runAccountDetailPresentationTests(_ runner: inout TestRunner) {
     let unknown = AccountPresentationBuilder.details(payload: nil)
     runner.expect(unknown.currentProfile == nil, "Missing payload must not invent a current account")
     runner.expect(unknown.otherProfiles.isEmpty, "Missing payload must not invent switch targets")
+
+    let inconsistentPayload = AccountDashboardPayload(
+        generatedAt: Date(timeIntervalSince1970: 1_001),
+        activeProfile: "hd-master",
+        desktopStatus: AccountDesktopStatus(
+            running: true,
+            managed: true,
+            state: "managed_default_home",
+            message: nil,
+            activeProfile: "hd-sarah-blackwell"
+        ),
+        profileRoles: nil,
+        profiles: [blackwell, master]
+    )
+    let inconsistent = AccountPresentationBuilder.details(payload: inconsistentPayload)
+    runner.expect(inconsistent.currentProfile == nil, "Account details must not select a current profile from inconsistent records")
+    runner.expect(
+        inconsistent.otherProfiles.map(\.name) == ["hd-master", "hd-sarah-blackwell"],
+        "Every managed profile should remain available when the current account is unknown"
+    )
 }

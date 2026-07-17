@@ -35,6 +35,36 @@ func runAccountPresentationTests(_ runner: inout TestRunner) {
     runner.expect(unknown.quotaText == "--", "Unknown quota must not be shown as zero")
     runner.expect(unknown.runtimeLabel == "未知", "Missing runtime must stay unknown")
 
+    let inconsistentJSON = #"""
+    {
+      "generated_at":"2026-07-17T08:00:00Z",
+      "active_profile":"hd-master",
+      "desktop_status":{"running":true,"managed":true,"state":"managed_default_home","active_profile":"hd-sarah-blackwell"},
+      "profiles":[
+        {"name":"hd-master","auth":"present","config":"present","rate_limits":{"primary":{"remaining_percent":87,"window_minutes":300}}},
+        {"name":"hd-sarah-blackwell","auth":"present","config":"present","rate_limits":{"primary":{"remaining_percent":42,"window_minutes":300}}}
+      ]
+    }
+    """#
+    let inconsistentPayload = try? AccountDashboardPayload.decode(data: Data(inconsistentJSON.utf8))
+    let inconsistent = AccountPresentationBuilder.menu(payload: inconsistentPayload)
+    runner.expect(inconsistent.profile == nil, "Mismatched auth and desktop records must not invent a current account")
+    runner.expect(inconsistent.quotaText == "--", "Mismatched account state must not show either account's quota as current")
+
+    let unmanagedJSON = #"""
+    {
+      "generated_at":"2026-07-17T08:00:00Z",
+      "active_profile":"hd-master",
+      "desktop_status":{"running":true,"managed":false,"state":"manual_or_unknown","active_profile":"hd-master"},
+      "profiles":[{"name":"hd-master","auth":"present","config":"present","rate_limits":{"primary":{"remaining_percent":87,"window_minutes":300}}}]
+    }
+    """#
+    let unmanagedPayload = try? AccountDashboardPayload.decode(data: Data(unmanagedJSON.utf8))
+    runner.expect(
+        AccountPresentationBuilder.menu(payload: unmanagedPayload).profile == nil,
+        "An unmanaged desktop session must remain unknown even when its stale record matches"
+    )
+
     let running = AccountPresentationBuilder.runtime(
         status: AccountRuntimeStatus(
             state: "running",

@@ -576,6 +576,7 @@ class CommandTests(unittest.TestCase):
                 ("wait", None),
                 ("reconcile", None),
                 ("bridge", profile, "account-a", self.root / "shared-codex"),
+                ("active", "account-a", {"profile_home": profile}),
                 ("default", ["app"]),
                 ("launch", None),
                 ("active", "account-a", {"profile_home": profile, "codex_pid": 24680}),
@@ -678,6 +679,7 @@ class CommandTests(unittest.TestCase):
                 ("quit", None),
                 ("wait", None),
                 ("bridge", profile, "account-a", self.root / "shared-codex"),
+                ("active", "account-a", {"profile_home": profile}),
                 ("default", ["app"]),
                 ("launch", None),
             ],
@@ -728,6 +730,7 @@ class CommandTests(unittest.TestCase):
             calls,
             [
                 ("bridge", profile, "account-a", self.root / "shared-codex"),
+                ("active", "account-a", {"profile_home": profile}),
                 ("default", ["app"]),
                 ("launch", None),
                 ("active", "account-a", {"profile_home": profile, "codex_pid": 24680}),

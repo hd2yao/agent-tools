@@ -108,7 +108,7 @@ final class WorkbenchAppModel: ObservableObject {
     }
 
     var currentProfileName: String? {
-        accountPayload?.activeProfile ?? accountPayload?.desktopStatus?.activeProfile
+        AccountPresentationBuilder.confirmedCurrentProfileName(payload: accountPayload)
     }
 
     var desktopProfileName: String? {

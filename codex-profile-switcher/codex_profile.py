@@ -916,6 +916,10 @@ def cmd_app(args: argparse.Namespace) -> int:
             )
             return 1
     activate_default_home_profile(path, args.name, shared_home=get_shared_home())
+    # The authentication bridge is already authoritative at this point. Record
+    # that selected route before launching so a later manual launch cannot be
+    # attributed to the previously active account when `codex app` times out.
+    record_active_profile(args.name, profile_home=path)
     code = run_codex_default_home(["app"])
     if code != 0:
         return code

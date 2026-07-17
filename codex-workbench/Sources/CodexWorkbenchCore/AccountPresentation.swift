@@ -93,8 +93,22 @@ public struct WorkspaceInsightsPresentation: Equatable, Sendable {
 }
 
 public enum AccountPresentationBuilder {
+    public static func confirmedCurrentProfileName(payload: AccountDashboardPayload?) -> String? {
+        guard
+            let payload,
+            let desktopStatus = payload.desktopStatus,
+            desktopStatus.running,
+            desktopStatus.managed,
+            let activeProfile = payload.activeProfile,
+            desktopStatus.activeProfile == activeProfile
+        else {
+            return nil
+        }
+        return activeProfile
+    }
+
     public static func menu(payload: AccountDashboardPayload?) -> AccountMenuPresentation {
-        let profileName = payload?.activeProfile ?? payload?.desktopStatus?.activeProfile
+        let profileName = confirmedCurrentProfileName(payload: payload)
         let profile = payload?.profiles.first { $0.name == profileName }
         let window = profile?.rateLimits.primary
         let secondaryWindow = profile?.rateLimits.secondary
@@ -166,7 +180,7 @@ public enum AccountPresentationBuilder {
                 currentResetCards: []
             )
         }
-        let currentName = payload.activeProfile ?? payload.desktopStatus?.activeProfile
+        let currentName = confirmedCurrentProfileName(payload: payload)
         let currentProfile = payload.profiles.first { $0.name == currentName }
         let otherProfiles = payload.profiles
             .filter { $0.name != currentName }
