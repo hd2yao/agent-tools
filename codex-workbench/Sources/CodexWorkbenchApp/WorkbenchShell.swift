@@ -20,10 +20,11 @@ struct WorkbenchShell: View {
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
                 StatusChip(
-                    model.isCodexRunning ? "Codex 运行中" : "Codex 未运行",
-                    color: model.isCodexRunning ? .green : .secondary
+                    "Codex \(model.runtimePresentation.label)",
+                    color: runtimeColor,
+                    systemImage: model.runtimePresentation.symbol
                 )
-                .accessibilityLabel(model.isCodexRunning ? "Codex 正在运行" : "Codex 未运行")
+                .accessibilityLabel("Codex \(model.runtimePresentation.label)，\(model.runtimePresentation.detail)")
 
                 Button(action: CodexIntegrationService.openCodex) {
                     Label(model.isCodexRunning ? "切到 Codex" : "打开 Codex", systemImage: "terminal")
@@ -43,6 +44,14 @@ struct WorkbenchShell: View {
                 .disabled(model.isRefreshing)
                 .help("刷新操作日志与账号状态")
             }
+        }
+    }
+
+    private var runtimeColor: Color {
+        switch model.runtimePresentation.state {
+        case "running": .green
+        case "waiting": .orange
+        default: .secondary
         }
     }
 

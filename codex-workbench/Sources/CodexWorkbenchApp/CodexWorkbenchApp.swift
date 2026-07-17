@@ -20,7 +20,13 @@ struct CodexWorkbenchApp: App {
         MenuBarExtra {
             MenuBarView(model: model)
         } label: {
-            Label("Codex 观测站", systemImage: "scope")
+            let presentation = AccountPresentationBuilder.menu(payload: model.accountPayload)
+            HStack(spacing: 4) {
+                Image(systemName: presentation.runtimeSymbol)
+                Text(presentation.quotaText)
+                    .monospacedDigit()
+            }
+            .accessibilityLabel(presentation.accessibilityLabel)
         }
         .menuBarExtraStyle(.window)
 

@@ -2,23 +2,35 @@ import Foundation
 
 public struct AccountMenuPresentation: Equatable, Sendable {
     public let profile: String?
+    public let profileDisplayName: String
     public let quotaText: String
     public let quotaWindowLabel: String
+    public let secondaryQuotaText: String
+    public let secondaryQuotaWindowLabel: String
+    public let resetCreditText: String
     public let runtimeLabel: String
     public let runtimeSymbol: String
     public let accessibilityLabel: String
 
     public init(
         profile: String?,
+        profileDisplayName: String,
         quotaText: String,
         quotaWindowLabel: String,
+        secondaryQuotaText: String,
+        secondaryQuotaWindowLabel: String,
+        resetCreditText: String,
         runtimeLabel: String,
         runtimeSymbol: String,
         accessibilityLabel: String
     ) {
         self.profile = profile
+        self.profileDisplayName = profileDisplayName
         self.quotaText = quotaText
         self.quotaWindowLabel = quotaWindowLabel
+        self.secondaryQuotaText = secondaryQuotaText
+        self.secondaryQuotaWindowLabel = secondaryQuotaWindowLabel
+        self.resetCreditText = resetCreditText
         self.runtimeLabel = runtimeLabel
         self.runtimeSymbol = runtimeSymbol
         self.accessibilityLabel = accessibilityLabel
@@ -44,8 +56,16 @@ public enum AccountPresentationBuilder {
         let profileName = payload?.activeProfile ?? payload?.desktopStatus?.activeProfile
         let profile = payload?.profiles.first { $0.name == profileName }
         let window = profile?.rateLimits.primary
+        let secondaryWindow = profile?.rateLimits.secondary
         let quotaText = window?.remainingPercent.map(formatPercent) ?? "--"
         let quotaWindowLabel = windowLabel(minutes: window?.windowMinutes)
+        let secondaryQuotaText = secondaryWindow?.remainingPercent.map(formatPercent) ?? "--"
+        let secondaryQuotaWindowLabel = windowLabel(minutes: secondaryWindow?.windowMinutes)
+        let resetCreditText = (
+            profile?.resetCreditDetails?.availableCount
+                ?? profile?.rateLimits.resetCredits?.availableCount
+                ?? profile?.rateLimits.creditsAvailable
+        ).map(String.init) ?? "--"
         let runtime = runtime(status: payload?.runtimeStatus)
         let accountText = profileName.map { "当前登录账号 \($0)" } ?? "当前登录账号未知"
         let quotaDescription = window?.remainingPercent == nil
@@ -54,12 +74,21 @@ public enum AccountPresentationBuilder {
 
         return AccountMenuPresentation(
             profile: profileName,
+            profileDisplayName: profileDisplayName(profileName),
             quotaText: quotaText,
             quotaWindowLabel: quotaWindowLabel,
+            secondaryQuotaText: secondaryQuotaText,
+            secondaryQuotaWindowLabel: secondaryQuotaWindowLabel,
+            resetCreditText: resetCreditText,
             runtimeLabel: runtime.label,
             runtimeSymbol: runtime.symbol,
             accessibilityLabel: "\(accountText)，\(quotaDescription)，Codex \(runtime.label)"
         )
+    }
+
+    public static func profileDisplayName(_ profile: String?) -> String {
+        guard let profile else { return "未知账号" }
+        return profile.hasPrefix("hd-") ? String(profile.dropFirst(3)) : profile
     }
 
     public static func runtime(status: AccountRuntimeStatus?) -> AccountRuntimePresentation {

@@ -19,7 +19,11 @@ func runAccountPresentationTests(_ runner: inout TestRunner) {
     let presentation = AccountPresentationBuilder.menu(payload: payload)
 
     runner.expect(presentation.profile == "hd-master", "Menu bar must use the actual active profile")
+    runner.expect(presentation.profileDisplayName == "master", "Menu bar should use the compact profile name")
     runner.expect(presentation.quotaText == "87%", "Menu bar should show the active profile primary quota")
+    runner.expect(presentation.secondaryQuotaText == "62%", "Popover should show the active profile weekly quota")
+    runner.expect(presentation.secondaryQuotaWindowLabel == "7日剩余", "Weekly quota should keep its window label")
+    runner.expect(presentation.resetCreditText == "--", "Missing reset credit data must stay unknown")
     runner.expect(presentation.runtimeLabel == "运行中", "Menu bar should show the shared runtime state")
     runner.expect(presentation.runtimeSymbol == "bolt.circle.fill", "Running state should have a non-color symbol")
     runner.expect(
