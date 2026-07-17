@@ -63,11 +63,19 @@ func runEvidenceReconcilerTests(_ runner: inout TestRunner) {
         "automatic-reset.last-attempt.hd-master.rate_limit_reached.1784515205": .number(1_784_027_580.6553841),
         "automatic-reset.outcome.hd-master.rate_limit_reached.1784515205": .string("reset"),
         "automatic-reset.idempotency.hd-master.rate_limit_reached.1784515205": .string("secret-idempotency-key"),
+        "automatic-reset.actor.hd-master.rate_limit_reached.1784515205": .string("codex-workbench"),
     ]
     let resets = AutomaticResetEvidence.parse(preferences: preferences)
     runner.expect(resets.count == 1, "A reset outcome and attempt should form one evidence item")
     runner.expect(resets.first?.profile == "hd-master", "Profile should parse from the reset key")
     runner.expect(resets.first?.outcome == "reset", "Reset outcome should parse")
+    runner.expect(resets.first?.producer == "codex-workbench", "New reset evidence should retain its producer")
+
+    let legacyReset = AutomaticResetEvidence.parse(preferences: [
+        "automatic-reset.last-attempt.hd-master.primary.1784515205": .number(1_784_027_580),
+        "automatic-reset.outcome.hd-master.primary.1784515205": .string("reset"),
+    ])
+    runner.expect(legacyReset.first?.producer == nil, "Legacy reset evidence should remain distinguishable")
 
     let taskLine = #"{"at":"2026-07-07T08:20:24Z","event":"update","task":{"id":"task_1","title":"线程关联项目工具","status":"done","project":{"name":"agent-tools","path":"/Users/dysania/program/tools/agent-tools"},"source":{"thread_id":"019f4613-1b48-7d00-a66f-788db5765f21","session_id":"019f4613-1b48-7d00-a66f-788db5765f21"}}}"#
     let taskRecord = LifecycleLedgerRecord.parse(line: taskLine, kind: .task)
@@ -220,7 +228,12 @@ func runEvidenceReconcilerTests(_ runner: inout TestRunner) {
 
     let resetEvent = events.first { $0.action == "reset_credit_consumed" }
     runner.expect(resetEvent?.category == .quota, "Reset outcome should become a quota event")
-    runner.expect(resetEvent?.actor.id == "codex-profile-switcher", "Reset should be attributed to Profile Switcher")
+    runner.expect(resetEvent?.actor.id == "codex-workbench", "New reset should be attributed to the workbench")
+    runner.expect(
+        resetEvent?.sourceChain.map(\.id)
+            == ["codex-workbench", "codex-profile-switcher", "automatic-reset"],
+        "New reset evidence should preserve the workbench, account engine, and state machine chain"
+    )
     runner.expect(resetEvent?.account?.profile == "hd-master", "Reset event should retain profile")
     runner.expect(resetEvent?.occurredAt.timeIntervalSince1970 == 1_784_027_580.6553841, "Reset should retain exact attempt time")
 
@@ -242,6 +255,15 @@ func runEvidenceReconcilerTests(_ runner: inout TestRunner) {
     runner.expect(rawLedger.contains("schema_version"), "Persisted ledger should use snake_case")
     runner.expect(rawLedger.contains("secret-idempotency-key") == false, "Idempotency values must never reach the ledger")
     runner.expect(rawLedger.contains("recommended_plugins") == false, "Injected context wrappers must not reach the ledger")
+
+    let legacyResetEvent = EvidenceReconciler().events(
+        from: EvidenceSnapshot(automaticResets: legacyReset),
+        recordedAt: recordedAt
+    ).first
+    runner.expect(
+        legacyResetEvent?.actor.id == "codex-profile-switcher",
+        "Historical resets without a producer marker should keep their original attribution"
+    )
 
     let fixtureRoot = temporaryDirectory.appendingPathComponent("evidence", isDirectory: true)
     let cardsDirectory = fixtureRoot.appendingPathComponent("context-cards", isDirectory: true)

@@ -118,6 +118,11 @@ func runAutomaticResetPolicyTests(_ runner: inout TestRunner) {
 
     let fingerprint = "hd-master.primary.2001800"
     runner.expect(
+        AutomaticResetStorageKeys.actor(fingerprint: fingerprint)
+            == "automatic-reset.actor.hd-master.primary.2001800",
+        "Producer markers should share the legacy preference domain without changing old keys"
+    )
+    runner.expect(
         AutomaticResetStorageKeys.outcome(fingerprint: fingerprint)
             == "automatic-reset.outcome.hd-master.primary.2001800",
         "Outcome keys must stay compatible with the legacy preference domain"

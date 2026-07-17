@@ -154,6 +154,25 @@ public struct EvidenceReconciler: Sendable {
 
     private func resetEvent(from evidence: AutomaticResetEvidence, recordedAt: Date) -> OperationEvent {
         let succeeded = evidence.outcome == "reset"
+        let producedByWorkbench = evidence.producer == "codex-workbench"
+        let producer = producedByWorkbench
+            ? EventActor(type: .app, id: "codex-workbench", label: "Codex 观测站")
+            : EventActor(type: .app, id: "codex-profile-switcher", label: "Profile Switcher")
+        let producerLabel = producer.id == "codex-workbench" ? "工作台" : "Profile Switcher"
+        let sourceChain = producedByWorkbench
+            ? [
+                producer,
+                EventActor(
+                    type: .system,
+                    id: "codex-profile-switcher",
+                    label: "Profile Switcher 账号引擎"
+                ),
+                EventActor(type: .system, id: "automatic-reset", label: "自动重置状态机"),
+            ]
+            : [
+                producer,
+                EventActor(type: .system, id: "automatic-reset", label: "自动重置状态机"),
+            ]
         return OperationEvent(
             schemaVersion: 1,
             id: StableEventID.make(parts: [
@@ -168,17 +187,14 @@ public struct EvidenceReconciler: Sendable {
             action: succeeded ? "reset_credit_consumed" : "reset_credit_attempted",
             title: succeeded ? "已自动使用 1 次额度重置" : "额度重置未完成",
             summary: succeeded
-                ? "\(evidence.profile) 在额度耗尽后由 Profile Switcher 自动执行重置。"
+                ? "\(evidence.profile) 在额度耗尽后由\(producerLabel)自动执行重置。"
                 : "\(evidence.profile) 的自动重置结果为 \(evidence.outcome)。",
             status: succeeded ? .success : .failure,
             importance: .critical,
             certainty: .confirmed,
-            actor: EventActor(type: .app, id: "codex-profile-switcher", label: "Profile Switcher"),
+            actor: producer,
             account: EventAccount(profile: evidence.profile),
-            sourceChain: [
-                EventActor(type: .app, id: "codex-profile-switcher", label: "Profile Switcher"),
-                EventActor(type: .system, id: "automatic-reset", label: "自动重置状态机"),
-            ],
+            sourceChain: sourceChain,
             before: .object(["quota_state": .string(evidence.reason)]),
             after: .object(["reset_outcome": .string(evidence.outcome)]),
             evidence: [

@@ -146,18 +146,28 @@ public struct AutomaticResetEvidence: Equatable, Sendable {
     public let expiresAt: Date
     public let attemptedAt: Date
     public let outcome: String
+    public let producer: String?
 
-    public init(profile: String, reason: String, expiresAt: Date, attemptedAt: Date, outcome: String) {
+    public init(
+        profile: String,
+        reason: String,
+        expiresAt: Date,
+        attemptedAt: Date,
+        outcome: String,
+        producer: String? = nil
+    ) {
         self.profile = profile
         self.reason = reason
         self.expiresAt = expiresAt
         self.attemptedAt = attemptedAt
         self.outcome = outcome
+        self.producer = producer
     }
 
     public static func parse(preferences: [String: JSONValue]) -> [AutomaticResetEvidence] {
         let outcomePrefix = "automatic-reset.outcome."
         let attemptPrefix = "automatic-reset.last-attempt."
+        let actorPrefix = "automatic-reset.actor."
 
         return preferences.compactMap { key, value in
             guard key.hasPrefix(outcomePrefix), case .string(let outcome) = value else { return nil }
@@ -179,12 +189,22 @@ public struct AutomaticResetEvidence: Equatable, Sendable {
             else {
                 return nil
             }
+            let producer: String?
+            if
+                let actorValue = preferences[actorPrefix + suffix],
+                case .string(let actor) = actorValue
+            {
+                producer = actor
+            } else {
+                producer = nil
+            }
             return AutomaticResetEvidence(
                 profile: profile,
                 reason: reason,
                 expiresAt: Date(timeIntervalSince1970: expirySeconds),
                 attemptedAt: Date(timeIntervalSince1970: attemptSeconds),
-                outcome: outcome
+                outcome: outcome,
+                producer: producer
             )
         }
         .sorted { $0.attemptedAt > $1.attemptedAt }

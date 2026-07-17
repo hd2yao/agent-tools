@@ -238,8 +238,7 @@ final class WorkbenchAppModel: ObservableObject {
                 payload: payload,
                 gateway: accountGateway,
                 availability: accountAutomationAvailability
-            ) { [weak self] _, result in
-                guard result.outcome == "reset" || result.outcome == "alreadyRedeemed" else { return }
+            ) { [weak self] _, _ in
                 Task { await self?.refreshAll(refreshResetCredits: true) }
             }
         }
@@ -267,6 +266,11 @@ final class WorkbenchAppModel: ObservableObject {
                 }
             }.value
             if let errorMessage = switchError {
+                recordAccountSwitchFailure(
+                    expected: profile,
+                    actual: previousProfile,
+                    reason: "switch_command_failed"
+                )
                 accountSwitchStage = nil
                 accountError = errorMessage
                 return
@@ -288,6 +292,11 @@ final class WorkbenchAppModel: ObservableObject {
             }.value
 
             guard let payload = result.payload else {
+                recordAccountSwitchFailure(
+                    expected: profile,
+                    actual: previousProfile,
+                    reason: "verification_unavailable"
+                )
                 accountSwitchStage = nil
                 accountError = result.errorMessage ?? "无法验证切换后的账号。"
                 return
@@ -300,9 +309,19 @@ final class WorkbenchAppModel: ObservableObject {
                 recordAccountSwitch(from: previousProfile, to: profile)
                 await refreshAll(refreshResetCredits: true)
             case .mismatch(let expected, let actual):
+                recordAccountSwitchFailure(
+                    expected: expected,
+                    actual: actual,
+                    reason: "verification_mismatch"
+                )
                 accountSwitchStage = nil
                 accountError = "账号切换未通过验证：目标为 \(expected)，实际为 \(actual ?? "未知")。"
             case .unmanaged(let actual):
+                recordAccountSwitchFailure(
+                    expected: profile,
+                    actual: actual,
+                    reason: "unmanaged_login"
+                )
                 accountSwitchStage = nil
                 accountError = "账号切换未通过验证：\(actual ?? "未知账号") 尚未被工作台接管。"
             }
@@ -317,30 +336,25 @@ final class WorkbenchAppModel: ObservableObject {
     }
 
     private func recordAccountSwitch(from previousProfile: String?, to profile: String) {
-        let now = Date()
-        let event = OperationEvent(
-            schemaVersion: 1,
-            id: StableEventID.make(parts: ["account-switch", profile, String(now.timeIntervalSince1970)]),
-            occurredAt: now,
-            recordedAt: now,
-            category: .account,
-            action: "account_switched",
-            title: "已切换 Codex 桌面账号",
-            summary: "已切换到 \(profile)，并通过 Profile Switcher 重启 Codex。",
-            status: .success,
-            importance: .critical,
-            certainty: .confirmed,
-            actor: EventActor(type: .app, id: "codex-workbench", label: "Codex 观测站"),
-            account: EventAccount(profile: profile),
-            sourceChain: [
-                EventActor(type: .app, id: "codex-workbench", label: "Codex 观测站"),
-                EventActor(type: .app, id: "codex-profile-switcher", label: "Profile Switcher"),
-            ],
-            before: previousProfile.map { .object(["desktop_profile": .string($0)]) },
-            after: .object(["desktop_profile": .string(profile)]),
-            evidence: [EventEvidence(kind: "app_action", label: "账号切换完成")]
+        appendAccountOperationEvent(
+            AccountOperationEventFactory.switchSucceeded(from: previousProfile, to: profile)
         )
-        _ = LedgerWriter().append(events: [event], to: ledgerURL)
+    }
+
+    private func recordAccountSwitchFailure(expected: String, actual: String?, reason: String) {
+        appendAccountOperationEvent(
+            AccountOperationEventFactory.switchFailed(
+                expected: expected,
+                actual: actual,
+                reason: reason
+            )
+        )
+    }
+
+    private func appendAccountOperationEvent(_ event: OperationEvent) {
+        let result = LedgerWriter().append(events: [event], to: ledgerURL)
+        guard result.appendedCount == 1 else { return }
+        events = (events + [event]).sorted { $0.occurredAt > $1.occurredAt }
     }
 
     private func configureOfficialRateLimitObserver() {

@@ -115,6 +115,10 @@ public enum AutomaticResetPolicy {
 }
 
 public enum AutomaticResetStorageKeys {
+    public static func actor(fingerprint: String) -> String {
+        "automatic-reset.actor.\(fingerprint)"
+    }
+
     public static func outcome(fingerprint: String) -> String {
         "automatic-reset.outcome.\(fingerprint)"
     }

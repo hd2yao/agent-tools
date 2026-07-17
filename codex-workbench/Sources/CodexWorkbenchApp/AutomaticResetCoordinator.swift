@@ -28,6 +28,10 @@ final class AutomaticResetPreferenceStore {
 
     func begin(attempt: AutomaticResetAttempt, now: TimeInterval) {
         defaults.set(
+            "codex-workbench",
+            forKey: AutomaticResetStorageKeys.actor(fingerprint: attempt.fingerprint)
+        )
+        defaults.set(
             attempt.idempotencyKey,
             forKey: AutomaticResetStorageKeys.idempotency(fingerprint: attempt.fingerprint)
         )
