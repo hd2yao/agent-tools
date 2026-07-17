@@ -1,16 +1,16 @@
 # Codex 工作台账号整合任务拆分
 
-- [ ] **T001 固定基线与同步 v0.10.1**
+- [x] **T001 固定基线与同步 v0.10.1**
   映射：AC-PI-001、AC-PI-012、AC-PI-013
   验收：冷备 App 身份被记录；工作台分支包含凭据刷新保护；Python 和现有 Swift 测试通过。
   验证：版本 / hash、`python3 -m unittest -v`、`./codex-workbench/test.sh`。
 
-- [ ] **T002 完整账号 payload 与菜单展示契约**
+- [x] **T002 完整账号 payload 与菜单展示契约**
   映射：AC-PI-002 至 AC-PI-006、AC-PI-008、AC-PI-010
   验收：Swift 可解码 runtime、账号、额度、逐张重置卡、用量和排行；当前账号和菜单栏文案由纯逻辑生成。
   验证：真实脱敏 fixture RED/GREEN 测试。
 
-- [ ] **T003 安装资源与后端 freshness**
+- [x] **T003 安装资源与后端 freshness**
   映射：AC-PI-012、AC-PI-016
   验收：构建只复制受控 Python 资源，指纹覆盖实际打包内容；陈旧资源 verifier 失败。
   验证：脚本测试、构建、篡改 fixture、codesign。
