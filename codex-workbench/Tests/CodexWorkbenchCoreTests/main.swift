@@ -30,6 +30,7 @@ runAppServerNotificationTests(&runner)
 runLedgerMaintenanceTests(&runner)
 runAccountGatewayTests(&runner)
 runAccountPresentationTests(&runner)
+runAccountSwitchVerificationTests(&runner)
 runCodexIntegrationTests(&runner)
 
 if runner.failures.isEmpty {

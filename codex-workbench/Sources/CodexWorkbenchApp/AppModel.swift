@@ -15,6 +15,18 @@ private struct AccountRefreshResult: Sendable {
     let errorMessage: String?
 }
 
+enum AccountSwitchStage: Equatable {
+    case switching(profile: String)
+    case verifying(profile: String)
+
+    var profile: String {
+        switch self {
+        case .switching(let profile), .verifying(let profile):
+            profile
+        }
+    }
+}
+
 @MainActor
 final class WorkbenchAppModel: ObservableObject {
     @Published var selectedModule: AppModule? = .overview
@@ -23,7 +35,7 @@ final class WorkbenchAppModel: ObservableObject {
     @Published private(set) var accountPayload: AccountDashboardPayload?
     @Published private(set) var accountError: String?
     @Published private(set) var isRefreshing = false
-    @Published private(set) var switchingProfile: String?
+    @Published private(set) var accountSwitchStage: AccountSwitchStage?
     @Published private(set) var isCodexRunning = false
     @Published private(set) var lastUpdated: Date?
     @Published var searchText = ""
@@ -74,10 +86,16 @@ final class WorkbenchAppModel: ObservableObject {
         }.count
     }
 
+    var currentProfileName: String? {
+        accountPayload?.activeProfile ?? accountPayload?.desktopStatus?.activeProfile
+    }
+
     var desktopProfileName: String? {
-        accountPayload?.profileRoles?.desktop.profile
-            ?? accountPayload?.desktopStatus?.activeProfile
-            ?? accountPayload?.activeProfile
+        currentProfileName
+    }
+
+    var switchingProfile: String? {
+        accountSwitchStage?.profile
     }
 
     func bootstrap() {
@@ -213,28 +231,58 @@ final class WorkbenchAppModel: ObservableObject {
     }
 
     func switchProfile(_ profile: String) {
-        guard switchingProfile == nil, let gateway = accountGateway else { return }
-        switchingProfile = profile
-        let previousProfile = desktopProfileName
+        guard accountSwitchStage == nil, let gateway = accountGateway else { return }
+        accountSwitchStage = .switching(profile: profile)
+        let previousProfile = currentProfileName
         Task {
-            let result = await Task.detached(priority: .userInitiated) {
+            let switchError = await Task.detached(priority: .userInitiated) {
                 do {
                     try gateway.switchProfile(profile)
-                    return AccountRefreshResult(payload: nil, errorMessage: nil)
+                    return nil as String?
                 } catch {
-                    return AccountRefreshResult(
-                        payload: nil,
-                        errorMessage: (error as? LocalizedError)?.errorDescription ?? "账号切换失败。"
-                    )
+                    return (error as? LocalizedError)?.errorDescription ?? "账号切换失败。"
                 }
             }.value
-            switchingProfile = nil
-            if let errorMessage = result.errorMessage {
+            if let errorMessage = switchError {
+                accountSwitchStage = nil
                 accountError = errorMessage
                 return
             }
-            recordAccountSwitch(from: previousProfile, to: profile)
-            await refreshAll()
+
+            accountSwitchStage = .verifying(profile: profile)
+            let result = await Task.detached(priority: .userInitiated) {
+                do {
+                    return AccountRefreshResult(
+                        payload: try gateway.loadStatus(refreshResetCredits: true),
+                        errorMessage: nil
+                    )
+                } catch {
+                    return AccountRefreshResult(
+                        payload: nil,
+                        errorMessage: (error as? LocalizedError)?.errorDescription ?? "无法验证切换后的账号。"
+                    )
+                }
+            }.value
+
+            guard let payload = result.payload else {
+                accountSwitchStage = nil
+                accountError = result.errorMessage ?? "无法验证切换后的账号。"
+                return
+            }
+            switch AccountSwitchVerifier.verify(payload: payload, expectedProfile: profile) {
+            case .verified:
+                accountPayload = payload
+                accountError = nil
+                accountSwitchStage = nil
+                recordAccountSwitch(from: previousProfile, to: profile)
+                await refreshAll(refreshResetCredits: true)
+            case .mismatch(let expected, let actual):
+                accountSwitchStage = nil
+                accountError = "账号切换未通过验证：目标为 \(expected)，实际为 \(actual ?? "未知")。"
+            case .unmanaged(let actual):
+                accountSwitchStage = nil
+                accountError = "账号切换未通过验证：\(actual ?? "未知账号") 尚未被工作台接管。"
+            }
         }
     }
 
