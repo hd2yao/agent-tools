@@ -74,7 +74,7 @@ public struct WorkbenchVisualAcceptanceSnapshot: Equatable, Sendable {
         let payload = fixture == .error ? nil : samplePayload(now: now)
         return Self(
             payload: payload,
-            errorMessage: errorMessage(for: fixture),
+            errorMessage: errorMessage(for: fixture, now: now),
             switchingProfile: fixture == .switching ? "hd-master" : nil,
             lastUpdatedAt: fixture == .stale ? now.addingTimeInterval(-600) : now,
             isCodexRunning: true,
@@ -84,11 +84,17 @@ public struct WorkbenchVisualAcceptanceSnapshot: Equatable, Sendable {
     }
 
     private static func errorMessage(
-        for fixture: WorkbenchVisualAcceptanceConfiguration.Fixture
+        for fixture: WorkbenchVisualAcceptanceConfiguration.Fixture,
+        now: Date
     ) -> String? {
         switch fixture {
         case .stale:
-            "账号状态刷新失败，正在展示 10 分钟前的暂存数据。"
+            AccountRefreshFreshness(lastSuccessfulAt: now.addingTimeInterval(-600))
+                .failureMessage(
+                    error: "账号状态刷新失败。",
+                    hasCachedPayload: true,
+                    now: now
+                )
         case .error:
             "无法读取账号状态；请检查内置账号模块。"
         case .switching:

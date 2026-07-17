@@ -55,7 +55,10 @@ func runWorkbenchVisualAcceptanceTests(_ runner: inout TestRunner) {
 
     let stale = WorkbenchVisualAcceptanceSnapshot.make(for: .stale)
     runner.expect(stale.payload?.activeProfile == "hd-sarah-blackwell", "Stale fixture should retain a current account")
-    runner.expect(stale.errorMessage?.contains("暂存") == true, "Stale fixture should explain cached data")
+    runner.expect(
+        stale.errorMessage == "账号状态刷新失败。正在展示 10 分钟前成功读取的暂存数据。",
+        "Stale fixture should reuse the production cache-age wording"
+    )
     runner.expect(stale.switchingProfile == nil, "Stale fixture must not pretend a switch is running")
     runner.expect(stale.blocksLiveOperations, "Fixture states must block real account operations")
 
