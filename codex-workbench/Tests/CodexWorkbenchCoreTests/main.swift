@@ -30,6 +30,7 @@ runAppServerNotificationTests(&runner)
 runLedgerMaintenanceTests(&runner)
 runAccountGatewayTests(&runner)
 runAccountPresentationTests(&runner)
+runAccountRuntimePolicyTests(&runner)
 runAccountSwitchVerificationTests(&runner)
 runCodexIntegrationTests(&runner)
 

@@ -25,6 +25,20 @@ public struct AccountMenuPresentation: Equatable, Sendable {
     }
 }
 
+public struct AccountRuntimePresentation: Equatable, Sendable {
+    public let state: String
+    public let label: String
+    public let detail: String
+    public let symbol: String
+
+    public init(state: String, label: String, detail: String, symbol: String) {
+        self.state = state
+        self.label = label
+        self.detail = detail
+        self.symbol = symbol
+    }
+}
+
 public enum AccountPresentationBuilder {
     public static func menu(payload: AccountDashboardPayload?) -> AccountMenuPresentation {
         let profileName = payload?.activeProfile ?? payload?.desktopStatus?.activeProfile
@@ -32,8 +46,7 @@ public enum AccountPresentationBuilder {
         let window = profile?.rateLimits.primary
         let quotaText = window?.remainingPercent.map(formatPercent) ?? "--"
         let quotaWindowLabel = windowLabel(minutes: window?.windowMinutes)
-        let runtimeLabel = nonEmpty(payload?.runtimeStatus?.label) ?? "未知"
-        let runtimeSymbol = symbol(light: payload?.runtimeStatus?.light)
+        let runtime = runtime(status: payload?.runtimeStatus)
         let accountText = profileName.map { "当前登录账号 \($0)" } ?? "当前登录账号未知"
         let quotaDescription = window?.remainingPercent == nil
             ? "额度未知"
@@ -43,10 +56,55 @@ public enum AccountPresentationBuilder {
             profile: profileName,
             quotaText: quotaText,
             quotaWindowLabel: quotaWindowLabel,
-            runtimeLabel: runtimeLabel,
-            runtimeSymbol: runtimeSymbol,
-            accessibilityLabel: "\(accountText)，\(quotaDescription)，Codex \(runtimeLabel)"
+            runtimeLabel: runtime.label,
+            runtimeSymbol: runtime.symbol,
+            accessibilityLabel: "\(accountText)，\(quotaDescription)，Codex \(runtime.label)"
         )
+    }
+
+    public static func runtime(status: AccountRuntimeStatus?) -> AccountRuntimePresentation {
+        guard let status else {
+            return AccountRuntimePresentation(
+                state: "unknown",
+                label: "未知",
+                detail: "尚未读取运行状态",
+                symbol: "questionmark.circle"
+            )
+        }
+
+        switch status.state {
+        case "running":
+            let detail = status.activeProcessCount > 0
+                ? "\(status.activeProcessCount) 个对话进程正在运行"
+                : "最近 90 秒内有 Codex 输出"
+            return AccountRuntimePresentation(
+                state: "running",
+                label: "运行中",
+                detail: detail,
+                symbol: "bolt.circle.fill"
+            )
+        case "waiting":
+            return AccountRuntimePresentation(
+                state: "waiting",
+                label: "待接手",
+                detail: "最近 15 分钟内有活动，可能等你继续",
+                symbol: "pause.circle.fill"
+            )
+        case "idle":
+            return AccountRuntimePresentation(
+                state: "idle",
+                label: "空闲",
+                detail: "当前没有运行中的对话",
+                symbol: "circle"
+            )
+        default:
+            return AccountRuntimePresentation(
+                state: "unknown",
+                label: "未知",
+                detail: "尚未读取运行状态",
+                symbol: "questionmark.circle"
+            )
+        }
     }
 
     private static func formatPercent(_ value: Double) -> String {
@@ -68,25 +126,5 @@ public enum AccountPresentationBuilder {
         case nil:
             return "额度"
         }
-    }
-
-    private static func symbol(light: String?) -> String {
-        switch light {
-        case "green":
-            return "bolt.circle.fill"
-        case "yellow":
-            return "pause.circle.fill"
-        case "red":
-            return "circle"
-        default:
-            return "questionmark.circle"
-        }
-    }
-
-    private static func nonEmpty(_ value: String?) -> String? {
-        guard let value, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return nil
-        }
-        return value
     }
 }

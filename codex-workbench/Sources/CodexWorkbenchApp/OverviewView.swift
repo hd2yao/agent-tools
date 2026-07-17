@@ -27,10 +27,10 @@ struct OverviewView: View {
                 ) {
                     SummaryTile(
                         title: "Codex",
-                        value: model.isCodexRunning ? "运行中" : "未运行",
-                        detail: model.isCodexRunning ? "桌面进程已连接" : "可从工具栏启动",
-                        systemImage: "terminal",
-                        color: model.isCodexRunning ? .green : .secondary
+                        value: model.runtimePresentation.label,
+                        detail: model.runtimePresentation.detail,
+                        systemImage: model.runtimePresentation.symbol,
+                        color: runtimeColor
                     )
                     SummaryTile(
                         title: "桌面账号",
@@ -96,6 +96,13 @@ struct OverviewView: View {
                                 detail: model.accountError ?? "已读取真实账号状态",
                                 healthy: model.accountError == nil
                             )
+                            DataSourceLine(
+                                title: "冷备进程",
+                                detail: model.isLegacyProfileSwitcherRunning
+                                    ? "旧 Profile Switcher 正在运行，账号自动化已暂停"
+                                    : "旧 App 已保留且未运行",
+                                healthy: !model.isLegacyProfileSwitcherRunning
+                            )
                         }
                     }
                     .frame(maxWidth: .infinity)
@@ -132,10 +139,19 @@ struct OverviewView: View {
     }
 
     private var desktopAccountDetail: String {
-        guard let desktop = model.accountPayload?.profileRoles?.desktop else {
+        guard let status = model.accountPayload?.desktopStatus else {
             return model.accountError ?? "等待账号模块"
         }
-        return "\(desktop.confidence.displayName) · \(desktop.source)"
+        return status.managed ? "当前登录状态已接管" : "当前登录状态未接管"
+    }
+
+    private var runtimeColor: Color {
+        switch model.runtimePresentation.state {
+        case "running": .green
+        case "waiting": .orange
+        case "idle": .secondary
+        default: .secondary
+        }
     }
 }
 

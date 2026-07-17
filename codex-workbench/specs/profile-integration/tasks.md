@@ -20,7 +20,7 @@
   验收：切换阶段明确，命令完成后强制验证目标账号和托管状态；失败不写成功日志。
   验证：切换 verifier、AppModel fixture 和错误边界测试。
 
-- [ ] **T005 运行状态与冷备进程互斥**
+- [x] **T005 运行状态与冷备进程互斥**
   映射：AC-PI-001、AC-PI-003、AC-PI-008、AC-PI-010
   验收：工作台使用现有 running / waiting / idle 语义；检测旧 App 后暂停自动化并提示。
   验证：状态 fixture、进程检测注入测试、菜单栏 presentation 测试。

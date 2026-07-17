@@ -21,14 +21,23 @@ struct MenuBarView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Codex 观测站")
                         .font(.system(size: 14, weight: .semibold))
-                    Text(model.isCodexRunning ? "Codex 正在运行" : "Codex 当前未运行")
+                    Text("Codex \(model.runtimePresentation.label) · \(model.runtimePresentation.detail)")
                         .font(.system(size: 10))
                         .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
                 Spacer()
-                Circle()
-                    .fill(model.isCodexRunning ? Color.green : Color.secondary)
-                    .frame(width: 8, height: 8)
+                Image(systemName: model.runtimePresentation.symbol)
+                    .foregroundStyle(runtimeColor)
+            }
+
+            if model.isLegacyProfileSwitcherRunning {
+                Label(
+                    "旧 Profile Switcher 正在运行，账号自动化已暂停",
+                    systemImage: "exclamationmark.triangle.fill"
+                )
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(.orange)
             }
 
             VStack(spacing: WorkbenchSpacing.xs) {
@@ -95,7 +104,7 @@ struct MenuBarView: View {
                 for: NSWorkspace.didLaunchApplicationNotification
             )
         ) { notification in
-            model.updateCodexRunningState()
+            model.updateRunningApplicationState()
             guard
                 let application = notification.userInfo?[NSWorkspace.applicationUserInfoKey]
                     as? NSRunningApplication,
@@ -109,7 +118,7 @@ struct MenuBarView: View {
                 for: NSWorkspace.didTerminateApplicationNotification
             )
         ) { _ in
-            model.updateCodexRunningState()
+            model.updateRunningApplicationState()
         }
         .onReceive(
             NSWorkspace.shared.notificationCenter.publisher(
@@ -131,6 +140,14 @@ struct MenuBarView: View {
     private func openPreferences() {
         NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    private var runtimeColor: Color {
+        switch model.runtimePresentation.state {
+        case "running": .green
+        case "waiting": .orange
+        default: .secondary
+        }
     }
 }
 

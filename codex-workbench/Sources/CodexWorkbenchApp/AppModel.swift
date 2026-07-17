@@ -37,6 +37,7 @@ final class WorkbenchAppModel: ObservableObject {
     @Published private(set) var isRefreshing = false
     @Published private(set) var accountSwitchStage: AccountSwitchStage?
     @Published private(set) var isCodexRunning = false
+    @Published private(set) var isLegacyProfileSwitcherRunning = false
     @Published private(set) var lastUpdated: Date?
     @Published var searchText = ""
     @Published var importanceFilter: EventImportance?
@@ -57,7 +58,7 @@ final class WorkbenchAppModel: ObservableObject {
         observationStateURL = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".codex/operation-ledger/state/observation-state.json")
         accountGateway = AccountBackendLocator.bundled() ?? Self.developmentAccountGateway()
-        updateCodexRunningState()
+        updateRunningApplicationState()
     }
 
     var filteredEvents: [OperationEvent] {
@@ -98,6 +99,16 @@ final class WorkbenchAppModel: ObservableObject {
         accountSwitchStage?.profile
     }
 
+    var runtimePresentation: AccountRuntimePresentation {
+        AccountPresentationBuilder.runtime(status: accountPayload?.runtimeStatus)
+    }
+
+    var accountAutomationAvailability: AccountAutomationAvailability {
+        AccountRuntimePolicy.automationAvailability(
+            legacyProfileSwitcherRunning: isLegacyProfileSwitcherRunning
+        )
+    }
+
     func bootstrap() {
         guard !hasBootstrapped else { return }
         hasBootstrapped = true
@@ -114,7 +125,7 @@ final class WorkbenchAppModel: ObservableObject {
     func refreshAll(refreshResetCredits: Bool = false) async {
         guard !isRefreshing else { return }
         isRefreshing = true
-        updateCodexRunningState()
+        updateRunningApplicationState()
 
         let ledgerURL = ledgerURL
         async let ledgerResult: LedgerRefreshResult = Task.detached(priority: .userInitiated) {
@@ -286,10 +297,11 @@ final class WorkbenchAppModel: ObservableObject {
         }
     }
 
-    func updateCodexRunningState() {
+    func updateRunningApplicationState() {
         isCodexRunning = !NSRunningApplication.runningApplications(
             withBundleIdentifier: CodexIntegration.bundleIdentifier
         ).isEmpty
+        isLegacyProfileSwitcherRunning = AccountRuntimeServices.legacyProfileSwitcherIsRunning()
     }
 
     private func recordAccountSwitch(from previousProfile: String?, to profile: String) {

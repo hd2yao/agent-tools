@@ -30,4 +30,58 @@ func runAccountPresentationTests(_ runner: inout TestRunner) {
     let unknown = AccountPresentationBuilder.menu(payload: nil)
     runner.expect(unknown.quotaText == "--", "Unknown quota must not be shown as zero")
     runner.expect(unknown.runtimeLabel == "未知", "Missing runtime must stay unknown")
+
+    let running = AccountPresentationBuilder.runtime(
+        status: AccountRuntimeStatus(
+            state: "running",
+            light: "red",
+            label: "空闲",
+            activeProcessCount: 2,
+            recentProcessCount: 2
+        )
+    )
+    runner.expect(running.label == "运行中", "Runtime state should be the canonical status source")
+    runner.expect(running.symbol == "bolt.circle.fill", "Running should have a distinct symbol")
+    runner.expect(running.detail == "2 个对话进程正在运行", "Running detail should include the active count")
+
+    let recentOutput = AccountPresentationBuilder.runtime(
+        status: AccountRuntimeStatus(
+            state: "running",
+            light: "green",
+            label: "运行中",
+            activeProcessCount: 0,
+            recentProcessCount: 1
+        )
+    )
+    runner.expect(recentOutput.detail == "最近 90 秒内有 Codex 输出", "Recent output should remain running")
+
+    let waiting = AccountPresentationBuilder.runtime(
+        status: AccountRuntimeStatus(
+            state: "waiting",
+            light: "yellow",
+            label: "待接手",
+            activeProcessCount: 0,
+            recentProcessCount: 1
+        )
+    )
+    runner.expect(waiting.label == "待接手", "Waiting state should keep the existing product wording")
+    runner.expect(waiting.symbol == "pause.circle.fill", "Waiting should not rely on color alone")
+    runner.expect(waiting.detail == "最近 15 分钟内有活动，可能等你继续", "Waiting should explain the next action")
+
+    let idle = AccountPresentationBuilder.runtime(
+        status: AccountRuntimeStatus(
+            state: "idle",
+            light: "red",
+            label: "空闲",
+            activeProcessCount: 0,
+            recentProcessCount: 0
+        )
+    )
+    runner.expect(idle.label == "空闲", "Idle state should remain explicit")
+    runner.expect(idle.symbol == "circle", "Idle should have a non-color symbol")
+    runner.expect(idle.detail == "当前没有运行中的对话", "Idle detail should not imply the app is closed")
+
+    let missingRuntime = AccountPresentationBuilder.runtime(status: nil)
+    runner.expect(missingRuntime.label == "未知", "Missing runtime should stay unknown")
+    runner.expect(missingRuntime.symbol == "questionmark.circle", "Unknown should have an explicit symbol")
 }
