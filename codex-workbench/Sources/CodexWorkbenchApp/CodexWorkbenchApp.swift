@@ -27,15 +27,36 @@ struct CodexWorkbenchApp: App {
 
     private var mainWindow: some Scene {
         Window("Codex 观测站", id: "main") {
+            mainWindowContent
+                .task { model.bootstrap() }
+        }
+        .defaultSize(width: WorkbenchLayout.defaultWidth, height: WorkbenchLayout.defaultHeight)
+        .windowResizability(.contentMinSize)
+    }
+
+    @ViewBuilder
+    private var mainWindowContent: some View {
+        if model.visualAcceptanceSurface == .menu {
+            MenuBarVisualAcceptancePreview(model: model)
+        } else {
             WorkbenchShell(model: model)
                 .frame(
                     minWidth: WorkbenchLayout.minimumWidth,
                     minHeight: WorkbenchLayout.minimumContentHeight
                 )
-                .task { model.bootstrap() }
         }
-        .defaultSize(width: WorkbenchLayout.defaultWidth, height: WorkbenchLayout.defaultHeight)
-        .windowResizability(.contentMinSize)
+    }
+}
+
+private struct MenuBarVisualAcceptancePreview: View {
+    @ObservedObject var model: WorkbenchAppModel
+
+    var body: some View {
+        MenuBarView(model: model)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .shadow(color: .black.opacity(0.2), radius: 12, y: 5)
+            .padding(20)
     }
 }
 

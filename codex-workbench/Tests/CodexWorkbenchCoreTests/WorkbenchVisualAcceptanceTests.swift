@@ -9,9 +9,11 @@ func runWorkbenchVisualAcceptanceTests(_ runner: inout TestRunner) {
     let configured = WorkbenchVisualAcceptanceConfiguration.parse(environment: [
         "CODEX_WORKBENCH_VISUAL_FIXTURE": "switching",
         "CODEX_WORKBENCH_VISUAL_APPEARANCE": "dark",
+        "CODEX_WORKBENCH_VISUAL_SURFACE": "menu",
     ])
     runner.expect(configured.fixture == .switching, "Known fixture names should be parsed")
     runner.expect(configured.appearance == .dark, "Known appearance names should be parsed")
+    runner.expect(configured.surface == .menu, "Known visual surfaces should be parsed")
     runner.expect(!configured.liveOperationsAllowed, "Fixture mode must block live account operations")
 
     let appearanceOnly = WorkbenchVisualAcceptanceConfiguration.parse(environment: [
@@ -21,14 +23,22 @@ func runWorkbenchVisualAcceptanceTests(_ runner: inout TestRunner) {
         appearanceOnly.liveOperationsAllowed,
         "Process-only appearance overrides must preserve normal workbench behavior"
     )
+    runner.expect(
+        WorkbenchVisualAcceptanceConfiguration.parse(environment: [
+            "CODEX_WORKBENCH_VISUAL_SURFACE": "menu",
+        ]).surface == nil,
+        "Visual preview surfaces must require a fixture"
+    )
     runner.expect(disabled.liveOperationsAllowed, "Normal launches must preserve live operations")
 
     let ignored = WorkbenchVisualAcceptanceConfiguration.parse(environment: [
         "CODEX_WORKBENCH_VISUAL_FIXTURE": "production",
         "CODEX_WORKBENCH_VISUAL_APPEARANCE": "sepia",
+        "CODEX_WORKBENCH_VISUAL_SURFACE": "settings",
     ])
     runner.expect(ignored.fixture == nil, "Unknown fixtures must not change production behavior")
     runner.expect(ignored.appearance == nil, "Unknown appearances must not change production behavior")
+    runner.expect(ignored.surface == nil, "Unknown visual surfaces must not change production behavior")
 
     let stale = WorkbenchVisualAcceptanceSnapshot.make(for: .stale)
     runner.expect(stale.payload?.activeProfile == "hd-sarah-blackwell", "Stale fixture should retain a current account")

@@ -68,6 +68,7 @@ final class WorkbenchAppModel: ObservableObject {
             let snapshot = WorkbenchVisualAcceptanceSnapshot.make(for: fixture)
             visualAcceptanceSnapshot = snapshot
             accountGateway = nil
+            selectedModule = .accounts
             accountPayload = snapshot.payload
             accountError = snapshot.errorMessage
             accountSwitchStage = snapshot.switchingProfile.map { .switching(profile: $0) }
@@ -124,6 +125,10 @@ final class WorkbenchAppModel: ObservableObject {
 
     var visualAcceptanceBanner: String? {
         visualAcceptanceSnapshot?.banner
+    }
+
+    var visualAcceptanceSurface: WorkbenchVisualAcceptanceConfiguration.Surface? {
+        visualAcceptanceConfiguration.surface
     }
 
     var runtimePresentation: AccountRuntimePresentation {

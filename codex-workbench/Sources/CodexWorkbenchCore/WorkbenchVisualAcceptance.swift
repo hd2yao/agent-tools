@@ -3,6 +3,7 @@ import Foundation
 public struct WorkbenchVisualAcceptanceConfiguration: Equatable, Sendable {
     public static let fixtureEnvironmentKey = "CODEX_WORKBENCH_VISUAL_FIXTURE"
     public static let appearanceEnvironmentKey = "CODEX_WORKBENCH_VISUAL_APPEARANCE"
+    public static let surfaceEnvironmentKey = "CODEX_WORKBENCH_VISUAL_SURFACE"
 
     public enum Fixture: String, Equatable, Sendable {
         case stale
@@ -15,12 +16,18 @@ public struct WorkbenchVisualAcceptanceConfiguration: Equatable, Sendable {
         case light
     }
 
+    public enum Surface: String, Equatable, Sendable {
+        case menu
+    }
+
     public let fixture: Fixture?
     public let appearance: Appearance?
+    public let surface: Surface?
 
-    public init(fixture: Fixture?, appearance: Appearance?) {
+    public init(fixture: Fixture?, appearance: Appearance?, surface: Surface?) {
         self.fixture = fixture
         self.appearance = appearance
+        self.surface = surface
     }
 
     public var liveOperationsAllowed: Bool {
@@ -28,9 +35,13 @@ public struct WorkbenchVisualAcceptanceConfiguration: Equatable, Sendable {
     }
 
     public static func parse(environment: [String: String]) -> Self {
-        Self(
-            fixture: environment[fixtureEnvironmentKey].flatMap(Fixture.init(rawValue:)),
-            appearance: environment[appearanceEnvironmentKey].flatMap(Appearance.init(rawValue:))
+        let fixture = environment[fixtureEnvironmentKey].flatMap(Fixture.init(rawValue:))
+        return Self(
+            fixture: fixture,
+            appearance: environment[appearanceEnvironmentKey].flatMap(Appearance.init(rawValue:)),
+            surface: fixture.flatMap { _ in
+                environment[surfaceEnvironmentKey].flatMap(Surface.init(rawValue:))
+            }
         )
     }
 }

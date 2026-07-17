@@ -28,11 +28,40 @@ final class WorkbenchAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        configureVisualAcceptanceWindowIfNeeded()
         guard launchMode == .menuBarOnly else { return }
         DispatchQueue.main.async {
             NSApp.windows
                 .filter { $0.title == "Codex 观测站" }
                 .forEach { $0.orderOut(nil) }
+        }
+    }
+
+    private func configureVisualAcceptanceWindowIfNeeded() {
+        guard visualAcceptanceConfiguration.fixture != nil else { return }
+        let surface = visualAcceptanceConfiguration.surface
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            guard let window = NSApp.windows.first(where: { $0.title == "Codex 观测站" }) else {
+                return
+            }
+            if surface == .menu {
+                window.styleMask = [.borderless]
+                window.isOpaque = false
+                window.backgroundColor = .clear
+                window.hasShadow = false
+                window.setFrame(
+                    NSRect(origin: window.frame.origin, size: NSSize(width: 400, height: 520)),
+                    display: true
+                )
+            } else {
+                window.setFrame(
+                    NSRect(origin: window.frame.origin, size: NSSize(width: 1_160, height: 780)),
+                    display: true
+                )
+            }
+            window.center()
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
         }
     }
 
