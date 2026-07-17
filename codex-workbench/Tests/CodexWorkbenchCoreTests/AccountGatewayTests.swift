@@ -72,6 +72,19 @@ func runAccountGatewayTests(_ runner: inout TestRunner) {
         builder.switchCommand(profile: "hd-master")?.arguments == [helperURL.path, "app", "hd-master"],
         "Switch should reuse the existing app command"
     )
+    runner.expect(
+        builder.consumeResetCreditCommand(profile: "hd-master", idempotencyKey: "stable-key")?.arguments
+            == [helperURL.path, "consume-reset-credit", "hd-master", "--idempotency-key", "stable-key"],
+        "Reset consumption should reuse the sanitized Python command contract"
+    )
+    runner.expect(
+        builder.consumeResetCreditCommand(profile: "../../bad", idempotencyKey: "stable-key") == nil,
+        "Reset consumption must reject unsafe profile names"
+    )
+    runner.expect(
+        builder.consumeResetCreditCommand(profile: "hd-master", idempotencyKey: "") == nil,
+        "Reset consumption must reject an empty idempotency key"
+    )
     runner.expect(builder.switchCommand(profile: "../../bad") == nil, "Unsafe profile names must be rejected")
     runner.expect(builder.switchCommand(profile: "name with space") == nil, "Whitespace profile names must be rejected")
 
@@ -84,4 +97,10 @@ func runAccountGatewayTests(_ runner: inout TestRunner) {
         environment["PATH"]?.hasSuffix(":/custom/bin") == true,
         "Python environment should preserve the caller PATH"
     )
+
+    let consumeJSON = #"{"ok":true,"outcome":"alreadyRedeemed","expires_at":1784335011,"error":null}"#
+    let consumeResult = try? AccountResetCreditConsumeResult.decode(data: Data(consumeJSON.utf8))
+    runner.expect(consumeResult?.ok == true, "Reset consumption result should decode its success state")
+    runner.expect(consumeResult?.outcome == "alreadyRedeemed", "Reset outcome should preserve backend semantics")
+    runner.expect(consumeResult?.expiresAt == 1_784_335_011, "Reset result should decode the selected expiry")
 }

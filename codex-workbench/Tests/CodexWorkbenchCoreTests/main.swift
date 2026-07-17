@@ -32,6 +32,8 @@ runAccountGatewayTests(&runner)
 runAccountPresentationTests(&runner)
 runAccountRuntimePolicyTests(&runner)
 runAccountSwitchVerificationTests(&runner)
+runAutomaticResetPolicyTests(&runner)
+runResetCreditNotificationPlanTests(&runner)
 runCodexIntegrationTests(&runner)
 
 if runner.failures.isEmpty {

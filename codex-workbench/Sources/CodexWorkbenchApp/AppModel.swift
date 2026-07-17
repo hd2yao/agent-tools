@@ -51,6 +51,7 @@ final class WorkbenchAppModel: ObservableObject {
     private let observationStateURL: URL
     private let accountGateway: AccountGateway?
     private let officialRateLimitObserver = OfficialRateLimitObserver()
+    private let automaticResetCoordinator = AutomaticResetCoordinator()
 
     init() {
         ledgerURL = FileManager.default.homeDirectoryForCurrentUser
@@ -112,6 +113,7 @@ final class WorkbenchAppModel: ObservableObject {
     func bootstrap() {
         guard !hasBootstrapped else { return }
         hasBootstrapped = true
+        automaticResetCoordinator.start()
         Task { await refreshAll() }
         pollingTask = Task { [weak self] in
             while !Task.isCancelled {
@@ -231,6 +233,16 @@ final class WorkbenchAppModel: ObservableObject {
         configureOfficialRateLimitObserver()
         lastUpdated = Date()
         isRefreshing = false
+        if let payload = account.payload {
+            automaticResetCoordinator.process(
+                payload: payload,
+                gateway: accountGateway,
+                availability: accountAutomationAvailability
+            ) { [weak self] _, result in
+                guard result.outcome == "reset" || result.outcome == "alreadyRedeemed" else { return }
+                Task { await self?.refreshAll(refreshResetCredits: true) }
+            }
+        }
     }
 
     func handleSystemWake() {

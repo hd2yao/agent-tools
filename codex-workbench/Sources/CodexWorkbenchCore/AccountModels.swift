@@ -209,6 +209,7 @@ public struct AccountResetCredits: Codable, Equatable, Sendable {
 public struct AccountRateLimits: Codable, Equatable, Sendable {
     public let planType: String?
     public let limitName: String?
+    public let creditsAvailable: Int?
     public let primary: AccountQuotaWindow?
     public let secondary: AccountQuotaWindow?
     private let rateLimitReachedType: String?
@@ -219,6 +220,7 @@ public struct AccountRateLimits: Codable, Equatable, Sendable {
     public init(
         planType: String? = nil,
         limitName: String? = nil,
+        creditsAvailable: Int? = nil,
         primary: AccountQuotaWindow? = nil,
         secondary: AccountQuotaWindow? = nil,
         reachedType: String? = nil,
@@ -226,10 +228,22 @@ public struct AccountRateLimits: Codable, Equatable, Sendable {
     ) {
         self.planType = planType
         self.limitName = limitName
+        self.creditsAvailable = creditsAvailable
         self.primary = primary
         self.secondary = secondary
         self.rateLimitReachedType = reachedType
         self.resetCredits = resetCredits
+    }
+}
+
+public struct AccountResetCreditConsumeResult: Codable, Equatable, Sendable {
+    public let ok: Bool
+    public let outcome: String?
+    public let expiresAt: TimeInterval?
+    public let error: String?
+
+    public static func decode(data: Data) throws -> AccountResetCreditConsumeResult {
+        try LedgerRepository.decoder().decode(AccountResetCreditConsumeResult.self, from: data)
     }
 }
 

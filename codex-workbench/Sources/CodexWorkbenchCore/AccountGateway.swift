@@ -35,11 +35,38 @@ public struct AccountCommandBuilder: Equatable, Sendable {
         )
     }
 
+    public func consumeResetCreditCommand(
+        profile: String,
+        idempotencyKey: String
+    ) -> AccountCommand? {
+        guard
+            Self.isSafeProfileName(profile),
+            Self.isSafeIdempotencyKey(idempotencyKey)
+        else {
+            return nil
+        }
+        return AccountCommand(
+            executableURL: pythonURL,
+            arguments: [
+                helperURL.path,
+                "consume-reset-credit",
+                profile,
+                "--idempotency-key",
+                idempotencyKey,
+            ]
+        )
+    }
+
     public static func isSafeProfileName(_ value: String) -> Bool {
         value.range(
             of: #"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"#,
             options: .regularExpression
         ) != nil
+    }
+
+    public static func isSafeIdempotencyKey(_ value: String) -> Bool {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !trimmed.isEmpty && trimmed.count <= 256
     }
 
     public static func processEnvironment(base: [String: String]) -> [String: String] {
@@ -95,6 +122,24 @@ public struct AccountGateway: Sendable {
             throw AccountGatewayError.invalidProfile
         }
         _ = try run(command)
+    }
+
+    public func consumeResetCredit(
+        profile: String,
+        idempotencyKey: String
+    ) throws -> AccountResetCreditConsumeResult {
+        guard let command = commandBuilder.consumeResetCreditCommand(
+            profile: profile,
+            idempotencyKey: idempotencyKey
+        ) else {
+            throw AccountGatewayError.invalidProfile
+        }
+        let data = try run(command)
+        do {
+            return try AccountResetCreditConsumeResult.decode(data: data)
+        } catch {
+            throw AccountGatewayError.invalidPayload
+        }
     }
 
     private func run(_ command: AccountCommand) throws -> Data {
