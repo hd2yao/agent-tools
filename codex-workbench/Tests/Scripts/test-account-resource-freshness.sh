@@ -20,6 +20,12 @@ if ! /usr/libexec/PlistBuddy -c "Print :WorkbenchAccountBackendFingerprint" "$PL
     exit 1
 fi
 
+if ! CODEX_WORKBENCH_INSTALL_ROOT="$TEST_ROOT" "$ROOT_DIR/verify-install.sh" >"$OUTPUT" 2>&1; then
+    echo "FAIL: 未篡改的账号后端没有通过 freshness 校验" >&2
+    cat "$OUTPUT" >&2
+    exit 1
+fi
+
 printf '\n# freshness-test-tamper\n' >> "$HELPER"
 if CODEX_WORKBENCH_INSTALL_ROOT="$TEST_ROOT" "$ROOT_DIR/verify-install.sh" >"$OUTPUT" 2>&1; then
     echo "FAIL: verifier 接受了被篡改的账号后端" >&2

@@ -12,5 +12,5 @@ for name in codex_profile.py codex_profile_dashboard.py; do
 done
 
 for name in codex_profile.py codex_profile_dashboard.py; do
-    shasum -a 256 "$ACCOUNT_DIR/$name"
+    shasum -a 256 "$ACCOUNT_DIR/$name" | awk '{print $1}'
 done | shasum -a 256 | awk '{print $1}'
