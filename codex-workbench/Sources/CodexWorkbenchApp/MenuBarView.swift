@@ -247,7 +247,10 @@ struct MenuBarView: View {
     private func profileAccessibilityLabel(_ profile: AccountProfile) -> String {
         let state = profile.name == model.currentProfileName ? "当前登录账号" : "可切换"
         let quota = profile.rateLimits.primary?.remainingPercent.map { "\(Int($0.rounded()))%" } ?? "未知"
-        return "\(AccountPresentationBuilder.profileDisplayName(profile.name))，\(state)，5小时剩余额度 \(quota)"
+        let window = AccountPresentationBuilder.quotaWindowName(
+            minutes: profile.rateLimits.primary?.windowMinutes
+        ) ?? "主要"
+        return "\(AccountPresentationBuilder.profileDisplayName(profile.name))，\(state)，\(window)剩余额度 \(quota)"
     }
 
     private func showWorkbench(module: AppModule) {

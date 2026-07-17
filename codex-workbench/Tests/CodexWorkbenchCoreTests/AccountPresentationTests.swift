@@ -97,4 +97,13 @@ func runAccountPresentationTests(_ runner: inout TestRunner) {
         AccountPresentationBuilder.usageSourceLabel("future_backend") == "账号统计",
         "Unknown source identifiers should not leak into the user interface"
     )
+    runner.expect(
+        AccountPresentationBuilder.quotaWindowName(minutes: 300) == "5 小时"
+            && AccountPresentationBuilder.quotaWindowName(minutes: 10_080) == "7 日",
+        "Quota window names should follow the official duration"
+    )
+    runner.expect(
+        AccountPresentationBuilder.quotaWindowName(minutes: nil) == nil,
+        "Missing window metadata must not be guessed"
+    )
 }

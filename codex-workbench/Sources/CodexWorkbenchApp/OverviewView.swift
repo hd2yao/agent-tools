@@ -33,8 +33,8 @@ struct OverviewView: View {
                         color: runtimeColor
                     )
                     SummaryTile(
-                        title: "桌面账号",
-                        value: model.desktopProfileName ?? "未知",
+                        title: "当前登录账号",
+                        value: AccountPresentationBuilder.profileDisplayName(model.desktopProfileName),
                         detail: desktopAccountDetail,
                         systemImage: "person.crop.circle",
                         color: .teal

@@ -141,6 +141,23 @@ public enum AccountPresentationBuilder {
         }
     }
 
+    public static func quotaWindowName(minutes: Int?) -> String? {
+        switch minutes {
+        case 300:
+            return "5 小时"
+        case 10_080:
+            return "7 日"
+        case let value? where value % (24 * 60) == 0:
+            return "\(value / (24 * 60)) 日"
+        case let value? where value % 60 == 0:
+            return "\(value / 60) 小时"
+        case let value?:
+            return "\(value) 分钟"
+        case nil:
+            return nil
+        }
+    }
+
     public static func details(payload: AccountDashboardPayload?) -> AccountDetailsPresentation {
         guard let payload else {
             return AccountDetailsPresentation(
@@ -240,19 +257,9 @@ public enum AccountPresentationBuilder {
     }
 
     private static func windowLabel(minutes: Int?) -> String {
-        switch minutes {
-        case 300:
-            return "5小时剩余"
-        case 10_080:
-            return "7日剩余"
-        case let value? where value % (24 * 60) == 0:
-            return "\(value / (24 * 60))日剩余"
-        case let value? where value % 60 == 0:
-            return "\(value / 60)小时剩余"
-        case let value?:
-            return "\(value)分钟剩余"
-        case nil:
-            return "额度"
-        }
+        quotaWindowName(minutes: minutes)?
+            .replacingOccurrences(of: " ", with: "")
+            .appending("剩余")
+            ?? "额度"
     }
 }

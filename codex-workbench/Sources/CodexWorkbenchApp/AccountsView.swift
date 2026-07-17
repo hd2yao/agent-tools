@@ -139,8 +139,14 @@ private struct CurrentAccountSection: View {
                     alignment: .leading,
                     spacing: WorkbenchSpacing.sm
                 ) {
-                    AccountQuotaTile(title: "5 小时额度", window: profile.rateLimits.primary)
-                    AccountQuotaTile(title: "7 日额度", window: profile.rateLimits.secondary)
+                    AccountQuotaTile(
+                        title: quotaTitle(profile.rateLimits.primary, fallback: "主要额度"),
+                        window: profile.rateLimits.primary
+                    )
+                    AccountQuotaTile(
+                        title: quotaTitle(profile.rateLimits.secondary, fallback: "其他额度"),
+                        window: profile.rateLimits.secondary
+                    )
                     ResetCreditSummaryTile(profile: profile)
                 }
 
@@ -176,6 +182,12 @@ private struct CurrentAccountSection: View {
         case "waiting": .orange
         default: .secondary
         }
+    }
+
+    private func quotaTitle(_ window: AccountQuotaWindow?, fallback: String) -> String {
+        AccountPresentationBuilder.quotaWindowName(minutes: window?.windowMinutes)
+            .map { "\($0)额度" }
+            ?? fallback
     }
 }
 
@@ -460,8 +472,14 @@ private struct OtherAccountRow: View {
                 .frame(minWidth: 130, maxWidth: .infinity, alignment: .leading)
                 .layoutPriority(1)
 
-                CompactAccountValue(title: "5 小时", value: quota(profile.rateLimits.primary))
-                CompactAccountValue(title: "7 日", value: quota(profile.rateLimits.secondary))
+                CompactAccountValue(
+                    title: quotaTitle(profile.rateLimits.primary, fallback: "主要"),
+                    value: quota(profile.rateLimits.primary)
+                )
+                CompactAccountValue(
+                    title: quotaTitle(profile.rateLimits.secondary, fallback: "其他"),
+                    value: quota(profile.rateLimits.secondary)
+                )
                 CompactAccountValue(title: "重置卡", value: resetCount)
 
                 Button(action: onSwitch) {
@@ -496,6 +514,10 @@ private struct OtherAccountRow: View {
                 ?? profile.rateLimits.resetCredits?.availableCount
                 ?? profile.rateLimits.creditsAvailable
         ).map(String.init) ?? "--"
+    }
+
+    private func quotaTitle(_ window: AccountQuotaWindow?, fallback: String) -> String {
+        AccountPresentationBuilder.quotaWindowName(minutes: window?.windowMinutes) ?? fallback
     }
 
     private var stageText: String {
