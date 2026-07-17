@@ -141,4 +141,3 @@ git add specs/profile-integration/tasks.md \
   screenshots/profile-integration
 git commit -m "docs: complete workbench migration acceptance"
 ```
-
