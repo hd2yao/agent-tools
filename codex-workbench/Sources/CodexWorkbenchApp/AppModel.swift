@@ -39,6 +39,7 @@ final class WorkbenchAppModel: ObservableObject {
     @Published private(set) var isCodexRunning = false
     @Published private(set) var isLegacyProfileSwitcherRunning = false
     @Published private(set) var lastUpdated: Date?
+    @Published private(set) var accountLastSuccessfulRefresh: Date?
     @Published var searchText = ""
     @Published var importanceFilter: EventImportance?
     @Published var actorFilter: EventActorType?
@@ -54,6 +55,7 @@ final class WorkbenchAppModel: ObservableObject {
     private let visualAcceptanceSnapshot: WorkbenchVisualAcceptanceSnapshot?
     private let officialRateLimitObserver = OfficialRateLimitObserver()
     private let automaticResetCoordinator = AutomaticResetCoordinator()
+    private var accountRefreshFreshness = AccountRefreshFreshness()
 
     init() {
         let configuration = WorkbenchVisualAcceptanceConfiguration.parse(
@@ -74,6 +76,10 @@ final class WorkbenchAppModel: ObservableObject {
             accountSwitchStage = snapshot.switchingProfile.map { .switching(profile: $0) }
             isCodexRunning = snapshot.isCodexRunning
             lastUpdated = snapshot.lastUpdatedAt
+            if snapshot.payload != nil {
+                accountRefreshFreshness.recordSuccess(at: snapshot.lastUpdatedAt)
+                accountLastSuccessfulRefresh = snapshot.lastUpdatedAt
+            }
         } else {
             visualAcceptanceSnapshot = nil
             accountGateway = AccountBackendLocator.bundled() ?? Self.developmentAccountGateway()
@@ -205,10 +211,19 @@ final class WorkbenchAppModel: ObservableObject {
 
         let ledger = await ledgerResult
         let account = await accountResult
+        let accountRefreshCompletedAt = Date()
         if let payload = account.payload {
             accountPayload = payload
+            accountRefreshFreshness.recordSuccess(at: accountRefreshCompletedAt)
+            accountLastSuccessfulRefresh = accountRefreshCompletedAt
+            accountError = nil
+        } else if let errorMessage = account.errorMessage {
+            accountError = accountRefreshFreshness.failureMessage(
+                error: errorMessage,
+                hasCachedPayload: accountPayload != nil,
+                now: accountRefreshCompletedAt
+            )
         }
-        accountError = account.errorMessage
 
         let observationStateURL = observationStateURL
         let observedAt = Date()
@@ -341,6 +356,9 @@ final class WorkbenchAppModel: ObservableObject {
             switch AccountSwitchVerifier.verify(payload: payload, expectedProfile: profile) {
             case .verified:
                 accountPayload = payload
+                let verifiedAt = Date()
+                accountRefreshFreshness.recordSuccess(at: verifiedAt)
+                accountLastSuccessfulRefresh = verifiedAt
                 accountError = nil
                 accountSwitchStage = nil
                 recordAccountSwitch(from: previousProfile, to: profile)
