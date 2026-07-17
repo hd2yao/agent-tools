@@ -51,6 +51,22 @@ public struct AccountRuntimePresentation: Equatable, Sendable {
     }
 }
 
+public struct AccountDetailsPresentation: Equatable, Sendable {
+    public let currentProfile: AccountProfile?
+    public let otherProfiles: [AccountProfile]
+    public let currentResetCards: [AccountResetCreditCard]
+
+    public init(
+        currentProfile: AccountProfile?,
+        otherProfiles: [AccountProfile],
+        currentResetCards: [AccountResetCreditCard]
+    ) {
+        self.currentProfile = currentProfile
+        self.otherProfiles = otherProfiles
+        self.currentResetCards = currentResetCards
+    }
+}
+
 public enum AccountPresentationBuilder {
     public static func menu(payload: AccountDashboardPayload?) -> AccountMenuPresentation {
         let profileName = payload?.activeProfile ?? payload?.desktopStatus?.activeProfile
@@ -89,6 +105,33 @@ public enum AccountPresentationBuilder {
     public static func profileDisplayName(_ profile: String?) -> String {
         guard let profile else { return "未知账号" }
         return profile.hasPrefix("hd-") ? String(profile.dropFirst(3)) : profile
+    }
+
+    public static func details(payload: AccountDashboardPayload?) -> AccountDetailsPresentation {
+        guard let payload else {
+            return AccountDetailsPresentation(
+                currentProfile: nil,
+                otherProfiles: [],
+                currentResetCards: []
+            )
+        }
+        let currentName = payload.activeProfile ?? payload.desktopStatus?.activeProfile
+        let currentProfile = payload.profiles.first { $0.name == currentName }
+        let otherProfiles = payload.profiles
+            .filter { $0.name != currentName }
+            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        let resetCards = (currentProfile?.resetCreditDetails?.credits ?? []).sorted { lhs, rhs in
+            let lhsUsed = lhs.used == true
+            let rhsUsed = rhs.used == true
+            if lhsUsed != rhsUsed { return !lhsUsed }
+            return (lhs.expiresAt ?? .greatestFiniteMagnitude)
+                < (rhs.expiresAt ?? .greatestFiniteMagnitude)
+        }
+        return AccountDetailsPresentation(
+            currentProfile: currentProfile,
+            otherProfiles: otherProfiles,
+            currentResetCards: resetCards
+        )
     }
 
     public static func runtime(status: AccountRuntimeStatus?) -> AccountRuntimePresentation {

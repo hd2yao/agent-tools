@@ -142,10 +142,11 @@
 
 ### 账号管理
 
-- 顶部明确三种角色：最近任务（可能为推断）、桌面默认、统计归因。
-- 主列表按 profile 展示登录状态、主要额度、重置时间、重置卡；当前桌面 profile 有明确但不夸张的选中状态。
+- 顶部只展示 Codex 当前实际登录账号，不用最近任务或统计归因替代“当前”。
+- 当前账号依次展示 5 小时 / 7 日额度、逐张重置卡和账号用量；项目、工具与 Skill 排行属于独立模块。
+- 其他 profile 作为切换目标放在当前账号之后；当前账号有明确但不夸张的选中状态。
 - 切换账号是高影响动作，按钮文案为“切换并重启 Codex”，点击后需明确进度和结果。
-- 不在 V1 复制旧 Dashboard 的所有排行与分析；保留“打开独立 Profile Switcher”入口作为高级功能。
+- 最近任务与统计归因只放在可展开的高级诊断中，并明确不会决定当前登录账号。
 
 ### 菜单栏
 
@@ -160,7 +161,7 @@
 | UI 状态 | 权威来源 | 作用域 | 降级文案 |
 |---|---|---|---|
 | Codex 是否运行 | `NSRunningApplication` bundle id | 设备 | “未检测到 Codex 进程” |
-| 桌面默认账号 | Profile Switcher `desktop_status/active_profile` | 设备 | “未知；打开账号管理刷新” |
+| 当前登录账号 | Profile Switcher `active_profile` + `desktop_status/active_profile` | 设备 | “未知；打开账号管理刷新” |
 | 最近任务账号 | `profile_roles.task` | 最近活动任务 | 必须显示“推断”或“未知” |
 | 统计归因账号 | `profile_roles.attribution` | 本地统计周期 | “未建立归因记录” |
 | 日志事实 | operation ledger + evidence | 单事件 | `已核实 / 根据证据推断 / 尚无足够证据` |
