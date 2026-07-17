@@ -20,8 +20,12 @@ struct AccountsView: View {
                             Task { await model.refreshAll(refreshResetCredits: true) }
                         }
                         .disabled(model.isRefreshing)
-                        .accessibilityElement(children: .ignore)
-                        .accessibilityLabel("刷新账号额度")
+                        .accessibilityRepresentation {
+                            Button("刷新账号额度") {
+                                Task { await model.refreshAll(refreshResetCredits: true) }
+                            }
+                            .disabled(model.isRefreshing)
+                        }
                     )
                 )
 
@@ -497,14 +501,16 @@ private struct OtherAccountRow: View {
                 .controlSize(.small)
                 .disabled(switchStage != nil)
                 .frame(width: 132)
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel(
-                    "切换到 \(AccountPresentationBuilder.profileDisplayName(profile.name)) 并重启 Codex"
-                )
-                .accessibilityHint("结束当前 Codex 进程，切换登录账号后重新启动")
+                .accessibilityRepresentation {
+                    Button(
+                        "切换到 \(AccountPresentationBuilder.profileDisplayName(profile.name)) 并重启 Codex",
+                        action: onSwitch
+                    )
+                    .disabled(switchStage != nil)
+                    .accessibilityHint("结束当前 Codex 进程，切换登录账号后重新启动")
+                }
             }
         }
-        .accessibilityElement(children: .contain)
     }
 
     private func quota(_ window: AccountQuotaWindow?) -> String {

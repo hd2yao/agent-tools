@@ -43,8 +43,16 @@ struct WorkbenchShell: View {
                 }
                 .disabled(model.isRefreshing)
                 .help("刷新操作日志与账号状态")
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel("刷新工作台数据")
+                .accessibilityRepresentation {
+                    Button("刷新工作台数据") {
+                        Task {
+                            await model.refreshAll(
+                                refreshResetCredits: model.selectedModule == .accounts
+                            )
+                        }
+                    }
+                    .disabled(model.isRefreshing)
+                }
             }
         }
     }
