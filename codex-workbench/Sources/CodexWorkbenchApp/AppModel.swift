@@ -50,16 +50,34 @@ final class WorkbenchAppModel: ObservableObject {
     private let ledgerURL: URL
     private let observationStateURL: URL
     private let accountGateway: AccountGateway?
+    private let visualAcceptanceConfiguration: WorkbenchVisualAcceptanceConfiguration
+    private let visualAcceptanceSnapshot: WorkbenchVisualAcceptanceSnapshot?
     private let officialRateLimitObserver = OfficialRateLimitObserver()
     private let automaticResetCoordinator = AutomaticResetCoordinator()
 
     init() {
+        let configuration = WorkbenchVisualAcceptanceConfiguration.parse(
+            environment: ProcessInfo.processInfo.environment
+        )
+        visualAcceptanceConfiguration = configuration
         ledgerURL = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".codex/operation-ledger/events.jsonl")
         observationStateURL = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".codex/operation-ledger/state/observation-state.json")
-        accountGateway = AccountBackendLocator.bundled() ?? Self.developmentAccountGateway()
-        updateRunningApplicationState()
+        if let fixture = configuration.fixture {
+            let snapshot = WorkbenchVisualAcceptanceSnapshot.make(for: fixture)
+            visualAcceptanceSnapshot = snapshot
+            accountGateway = nil
+            accountPayload = snapshot.payload
+            accountError = snapshot.errorMessage
+            accountSwitchStage = snapshot.switchingProfile.map { .switching(profile: $0) }
+            isCodexRunning = snapshot.isCodexRunning
+            lastUpdated = snapshot.lastUpdatedAt
+        } else {
+            visualAcceptanceSnapshot = nil
+            accountGateway = AccountBackendLocator.bundled() ?? Self.developmentAccountGateway()
+            updateRunningApplicationState()
+        }
     }
 
     var filteredEvents: [OperationEvent] {
@@ -100,6 +118,14 @@ final class WorkbenchAppModel: ObservableObject {
         accountSwitchStage?.profile
     }
 
+    var isVisualAcceptanceMode: Bool {
+        visualAcceptanceSnapshot != nil
+    }
+
+    var visualAcceptanceBanner: String? {
+        visualAcceptanceSnapshot?.banner
+    }
+
     var runtimePresentation: AccountRuntimePresentation {
         AccountPresentationBuilder.runtime(status: accountPayload?.runtimeStatus)
     }
@@ -113,6 +139,7 @@ final class WorkbenchAppModel: ObservableObject {
     func bootstrap() {
         guard !hasBootstrapped else { return }
         hasBootstrapped = true
+        guard visualAcceptanceConfiguration.liveOperationsAllowed else { return }
         automaticResetCoordinator.start()
         Task { await refreshAll() }
         pollingTask = Task { [weak self] in
@@ -125,6 +152,7 @@ final class WorkbenchAppModel: ObservableObject {
     }
 
     func refreshAll(refreshResetCredits: Bool = false) async {
+        guard visualAcceptanceConfiguration.liveOperationsAllowed else { return }
         guard !isRefreshing else { return }
         isRefreshing = true
         updateRunningApplicationState()
@@ -253,6 +281,7 @@ final class WorkbenchAppModel: ObservableObject {
     }
 
     func switchProfile(_ profile: String) {
+        guard visualAcceptanceConfiguration.liveOperationsAllowed else { return }
         guard accountSwitchStage == nil, let gateway = accountGateway else { return }
         accountSwitchStage = .switching(profile: profile)
         let previousProfile = currentProfileName

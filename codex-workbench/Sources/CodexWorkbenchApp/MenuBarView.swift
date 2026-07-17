@@ -36,6 +36,14 @@ struct MenuBarView: View {
                 )
             }
 
+            if let banner = model.visualAcceptanceBanner {
+                MenuNotice(
+                    text: banner,
+                    color: .blue,
+                    systemImage: "eye.fill"
+                )
+            }
+
             if model.isLegacyProfileSwitcherRunning {
                 MenuNotice(
                     text: "旧 Profile Switcher 正在运行，提醒和自动重置已暂停",
@@ -105,7 +113,7 @@ struct MenuBarView: View {
                 Button("刷新") {
                     Task { await model.refreshAll(refreshResetCredits: true) }
                 }
-                .disabled(model.isRefreshing)
+                .disabled(model.isRefreshing || model.isVisualAcceptanceMode)
                 Button("退出") { NSApp.terminate(nil) }
             }
             .buttonStyle(.plain)
@@ -207,7 +215,11 @@ struct MenuBarView: View {
                             : Color.clear,
                         in: RoundedRectangle(cornerRadius: 7)
                     )
-                    .disabled(model.switchingProfile != nil || profile.name == model.currentProfileName)
+                    .disabled(
+                        model.isVisualAcceptanceMode
+                            || model.switchingProfile != nil
+                            || profile.name == model.currentProfileName
+                    )
                     .accessibilityLabel(profileAccessibilityLabel(profile))
                 }
             } else {

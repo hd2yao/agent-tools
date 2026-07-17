@@ -19,15 +19,24 @@ struct AccountsView: View {
                         Button("刷新额度") {
                             Task { await model.refreshAll(refreshResetCredits: true) }
                         }
-                        .disabled(model.isRefreshing)
+                        .disabled(model.isRefreshing || model.isVisualAcceptanceMode)
                         .accessibilityRepresentation {
                             Button("刷新账号额度") {
                                 Task { await model.refreshAll(refreshResetCredits: true) }
                             }
-                            .disabled(model.isRefreshing)
+                            .disabled(model.isRefreshing || model.isVisualAcceptanceMode)
                         }
                     )
                 )
+
+                if let banner = model.visualAcceptanceBanner {
+                    AccountNotice(
+                        title: "视觉验收模式",
+                        message: banner,
+                        color: .blue,
+                        systemImage: "eye.fill"
+                    )
+                }
 
                 if model.isLegacyProfileSwitcherRunning {
                     AccountNotice(
@@ -85,6 +94,7 @@ struct AccountsView: View {
                     profiles: details.otherProfiles,
                     currentProfile: model.currentProfileName,
                     switchStage: model.accountSwitchStage,
+                    switchingDisabled: model.isVisualAcceptanceMode,
                     onSwitch: model.switchProfile
                 )
 
@@ -431,6 +441,7 @@ private struct OtherAccountsSection: View {
     let profiles: [AccountProfile]
     let currentProfile: String?
     let switchStage: AccountSwitchStage?
+    let switchingDisabled: Bool
     let onSwitch: (String) -> Void
 
     var body: some View {
@@ -448,6 +459,7 @@ private struct OtherAccountsSection: View {
                     OtherAccountRow(
                         profile: profile,
                         switchStage: switchStage,
+                        switchingDisabled: switchingDisabled,
                         onSwitch: { onSwitch(profile.name) }
                     )
                 }
@@ -459,6 +471,7 @@ private struct OtherAccountsSection: View {
 private struct OtherAccountRow: View {
     let profile: AccountProfile
     let switchStage: AccountSwitchStage?
+    let switchingDisabled: Bool
     let onSwitch: () -> Void
 
     var body: some View {
@@ -499,14 +512,14 @@ private struct OtherAccountRow: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
-                .disabled(switchStage != nil)
+                .disabled(switchingDisabled || switchStage != nil)
                 .frame(width: 132)
                 .accessibilityRepresentation {
                     Button(
                         "切换到 \(AccountPresentationBuilder.profileDisplayName(profile.name)) 并重启 Codex",
                         action: onSwitch
                     )
-                    .disabled(switchStage != nil)
+                    .disabled(switchingDisabled || switchStage != nil)
                     .accessibilityHint("结束当前 Codex 进程，切换登录账号后重新启动")
                 }
             }

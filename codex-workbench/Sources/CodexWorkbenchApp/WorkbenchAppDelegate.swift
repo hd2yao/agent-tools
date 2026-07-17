@@ -9,8 +9,19 @@ final class WorkbenchAppDelegate: NSObject, NSApplicationDelegate {
     private let launchMode = WorkbenchLaunchPolicy.mode(
         arguments: ProcessInfo.processInfo.arguments
     )
+    private let visualAcceptanceConfiguration = WorkbenchVisualAcceptanceConfiguration.parse(
+        environment: ProcessInfo.processInfo.environment
+    )
 
     func applicationWillFinishLaunching(_ notification: Notification) {
+        switch visualAcceptanceConfiguration.appearance {
+        case .dark:
+            NSApp.appearance = NSAppearance(named: .darkAqua)
+        case .light:
+            NSApp.appearance = NSAppearance(named: .aqua)
+        case nil:
+            break
+        }
         if launchMode == .menuBarOnly {
             NSApp.setActivationPolicy(.accessory)
         }

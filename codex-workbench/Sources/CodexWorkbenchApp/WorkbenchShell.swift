@@ -41,7 +41,7 @@ struct WorkbenchShell: View {
                         Label("刷新", systemImage: "arrow.clockwise")
                     }
                 }
-                .disabled(model.isRefreshing)
+                .disabled(model.isRefreshing || model.isVisualAcceptanceMode)
                 .help("刷新操作日志与账号状态")
                 .accessibilityRepresentation {
                     Button("刷新工作台数据") {
@@ -51,7 +51,7 @@ struct WorkbenchShell: View {
                             )
                         }
                     }
-                    .disabled(model.isRefreshing)
+                    .disabled(model.isRefreshing || model.isVisualAcceptanceMode)
                 }
             }
         }

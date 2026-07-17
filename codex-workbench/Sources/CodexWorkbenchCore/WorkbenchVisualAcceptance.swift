@@ -23,6 +23,10 @@ public struct WorkbenchVisualAcceptanceConfiguration: Equatable, Sendable {
         self.appearance = appearance
     }
 
+    public var liveOperationsAllowed: Bool {
+        fixture == nil
+    }
+
     public static func parse(environment: [String: String]) -> Self {
         Self(
             fixture: environment[fixtureEnvironmentKey].flatMap(Fixture.init(rawValue:)),

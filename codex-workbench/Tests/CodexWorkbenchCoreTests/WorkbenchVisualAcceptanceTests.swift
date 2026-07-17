@@ -12,6 +12,16 @@ func runWorkbenchVisualAcceptanceTests(_ runner: inout TestRunner) {
     ])
     runner.expect(configured.fixture == .switching, "Known fixture names should be parsed")
     runner.expect(configured.appearance == .dark, "Known appearance names should be parsed")
+    runner.expect(!configured.liveOperationsAllowed, "Fixture mode must block live account operations")
+
+    let appearanceOnly = WorkbenchVisualAcceptanceConfiguration.parse(environment: [
+        "CODEX_WORKBENCH_VISUAL_APPEARANCE": "dark",
+    ])
+    runner.expect(
+        appearanceOnly.liveOperationsAllowed,
+        "Process-only appearance overrides must preserve normal workbench behavior"
+    )
+    runner.expect(disabled.liveOperationsAllowed, "Normal launches must preserve live operations")
 
     let ignored = WorkbenchVisualAcceptanceConfiguration.parse(environment: [
         "CODEX_WORKBENCH_VISUAL_FIXTURE": "production",
