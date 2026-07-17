@@ -13,10 +13,10 @@
 - 工作台：`/Users/dysania/Applications/Codex 观测站.app`
 - Bundle ID：`com.hd2yao.codex-workbench`
 - 版本：`0.2.0`
-- 源码提交：`23cd8be`
-- 账号后端指纹：`35e6b086f32fd6e97791e658b1662d8e0daca2517322aef1644dccd0656d67c5`
+- 安装二进制源码提交：`74abc7c`（后续 `42f9920` 仅更新验收截图）
+- 账号后端指纹：`82355f935efff1f88727f7d08bacf515d31c5cb64686d2992862dfe79a1891c5`
 - 安装验证：通过；内置 Login Helper、源码指纹、账号资源 freshness 和 codesign 均通过。
-- 冷备：`/Users/dysania/Applications/Codex Profile Switcher.app`，`com.hd2yao.codex-profile-switcher`，`0.10.1 (21)`；仍安装，验收结束时进程数为 0。
+- 冷备：`/Users/dysania/Applications/Codex Profile Switcher.app`，`com.hd2yao.codex-profile-switcher`，`0.10.1 (21)`；已同步共享自动重置锁，仍安装且验收结束时进程数为 0。更新前安装包在废纸篓保留为可恢复副本。
 - 包内未发现 `__pycache__`；人工后端只读检查均设置 `PYTHONDONTWRITEBYTECODE=1`，没有再次破坏签名。
 
 ## 真实账号与双向切换
@@ -25,7 +25,7 @@
 
 - 当前真实登录账号：`hd-sarah-blackwell`；桌面状态为托管；Codex 状态为“运行中”。
 - `hd-master`：Plus，官方首要窗口 `10080` 分钟（7 日），采样时剩余 `53%`，第二窗口缺失，2 张可用重置卡。
-- `hd-sarah-blackwell`：Plus，官方首要窗口 `10080` 分钟（7 日），视觉安全复查时剩余 `41%`、最终门禁时为 `36%`，第二窗口缺失，1 张可用重置卡。期间下降来自当前 Codex 的真实持续使用，不是 fixture 写入。
+- `hd-sarah-blackwell`：Plus，官方首要窗口 `10080` 分钟（7 日），最终门禁时剩余 `25%`，第二窗口缺失，1 张可用重置卡。验收期间从 41% 持续下降来自当前 Codex 的真实使用，不是 fixture 写入。
 - UI 按官方 `window_minutes` 显示“7 日额度”，第二窗口缺失时显示“其他额度 —”；没有“桌面默认账号”这一套额外语义。
 
 额度会随真实 Codex 使用继续变化；验收只要求账号归属与窗口语义正确，不把百分比固定为常量。
@@ -45,6 +45,7 @@
 - `CODEX_WORKBENCH_VISUAL_APPEARANCE=dark|light`
 - `CODEX_WORKBENCH_VISUAL_SURFACE=menu` 仅在 fixture 有效时开放，用同一 `MenuBarView` 生成菜单预览。
 - fixture 不加载 Python 后端，不刷新或写入台账，不启动轮询、通知、官方额度观察或自动重置，刷新与切换控件禁用。
+- fixture 在 App 初始化阶段也跳过 `SMAppService` 登录项迁移，不注册或注销任何真实登录启动项。
 - fixture 使用独立窗口 scene ID，不覆盖普通工作台的窗口保存状态；深浅色只应用于当前进程，不修改 macOS 全局或 App 持久外观。
 - 所有 synthetic 截图均显示“视觉验收模式 · 不执行真实账号操作”，其中 49% / 53% 为固定展示样例，不是验收结束时的实时额度。
 
@@ -54,7 +55,7 @@
 |---|---|---|---|
 | 当前真实账号 | `hd-sarah-blackwell` | `hd-sarah-blackwell` | PASS |
 | Blackwell / Master 重置卡 | `1 / 2` | `1 / 2` | PASS |
-| 台账原始行数 | `361` | `361` | PASS |
+| 台账原始行数 | `362` | `362` | PASS |
 | 旧 App 进程 | `0` | `0` | PASS |
 | 持久视觉环境键 | 无 | 无 | PASS |
 | 普通窗口 | `1160×780` | `1160×780` | PASS |
@@ -100,12 +101,23 @@
 
 此前安装版已验证账号切换按钮暴露标准 Button 角色和 `AXPress`。本轮 macOS 终端辅助功能权限不可用，Computer Use 客户端也存在版本不匹配，因此没有虚报新的完整 VoiceOver 语音走查；新增内容没有新的无标签交互控件，已完成源码语义与截图底线检查。
 
+## 独立复审收敛
+
+第一次独立复审发现 4 个 Important，最终结论曾撤回；本轮按 TDD 全部关闭：
+
+- 认证桥接成功后、启动 Codex 前立即记录目标账号路由；启动成功后再补 PID。手动启动恢复时不会继续沿用旧账号记录。
+- 只有桌面正在运行、已托管且 active / desktop 账号一致时，菜单和账号页才标记“当前登录账号”；不一致或非托管时明确显示未知。
+- 新旧 App 对同一额度 fingerprint 使用同一路径、同一文件名算法和同一旧偏好域的跨进程 claim；工作台在 claim 前后和后端调用前实时复查冷备进程。并发测试证明只能进入一次消费调用。
+- 账号最后成功读取时间与工作台刷新时间分开；失败保留旧 payload，并显示“正在展示 N 分钟前成功读取的暂存数据”。A 方式截图复用同一生产逻辑。
+
+二次独立复审未发现 Critical / Important。唯一 Minor 是冷备身份文档仍引用更新前 hash，已在同轮修正。
+
 ## 操作台账、性能与启动
 
-- JSONL 原始追加行：`361`；唯一事件 ID：`185`。
+- JSONL 原始追加行：`362`；唯一事件 ID：`186`。
 - 两条最新真实双向切换成功记录与一条早期安全失败记录均保留。
 - V1.4 上下文摘要、具体工作流变更与元数据过滤继续由 Core 全量回归覆盖：`PASS: CodexWorkbenchCoreTests`。
-- 普通安装版重启后 RSS 采样约 `253184 KB`，与此前 253–283 MB 稳态范围一致，没有恢复到历史 846 MB 高占用。
+- 普通安装版重启后 RSS 采样约 `245968 KB`，与此前修复后的稳态范围一致，没有恢复到历史 846 MB 高占用。
 - 手动打开显示主窗口；Login Helper 继续只负责登录启动时驻留菜单栏。
 - 验收结束时只运行一个普通模式 `Codex 观测站`，旧 Profile Switcher 不运行。
 
