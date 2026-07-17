@@ -7,7 +7,12 @@ struct CodexWorkbenchApp: App {
     @StateObject private var model = WorkbenchAppModel()
 
     init() {
-        WorkbenchLoginItemManager.migrateLegacyRegistrationIfNeeded()
+        let visualConfiguration = WorkbenchVisualAcceptanceConfiguration.parse(
+            environment: ProcessInfo.processInfo.environment
+        )
+        if WorkbenchStartupPolicy.shouldMigrateLoginItem(configuration: visualConfiguration) {
+            WorkbenchLoginItemManager.migrateLegacyRegistrationIfNeeded()
+        }
     }
 
     var body: some Scene {

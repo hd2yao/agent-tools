@@ -50,6 +50,14 @@ public struct WorkbenchVisualAcceptanceConfiguration: Equatable, Sendable {
     }
 }
 
+public enum WorkbenchStartupPolicy {
+    public static func shouldMigrateLoginItem(
+        configuration: WorkbenchVisualAcceptanceConfiguration
+    ) -> Bool {
+        configuration.liveOperationsAllowed
+    }
+}
+
 public struct WorkbenchVisualAcceptanceSnapshot: Equatable, Sendable {
     public let payload: AccountDashboardPayload?
     public let errorMessage: String?

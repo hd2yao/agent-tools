@@ -16,6 +16,10 @@ func runWorkbenchVisualAcceptanceTests(_ runner: inout TestRunner) {
     runner.expect(configured.surface == .menu, "Known visual surfaces should be parsed")
     runner.expect(!configured.liveOperationsAllowed, "Fixture mode must block live account operations")
     runner.expect(
+        !WorkbenchStartupPolicy.shouldMigrateLoginItem(configuration: configured),
+        "Fixture mode must not register, unregister, or migrate login items"
+    )
+    runner.expect(
         configured.windowSceneID == "visual-acceptance",
         "Fixture windows must not reuse the production window autosave identity"
     )
@@ -34,6 +38,10 @@ func runWorkbenchVisualAcceptanceTests(_ runner: inout TestRunner) {
         "Visual preview surfaces must require a fixture"
     )
     runner.expect(disabled.liveOperationsAllowed, "Normal launches must preserve live operations")
+    runner.expect(
+        WorkbenchStartupPolicy.shouldMigrateLoginItem(configuration: disabled),
+        "Normal launches should retain the one-time login-item migration"
+    )
     runner.expect(disabled.windowSceneID == "main", "Normal launches must retain the production window identity")
 
     let ignored = WorkbenchVisualAcceptanceConfiguration.parse(environment: [
