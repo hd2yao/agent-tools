@@ -122,6 +122,10 @@ struct WorkbenchShell: View {
             ActivityView(model: model)
         case .accounts:
             AccountsView(model: model)
+        case .projects:
+            ProjectsView(model: model)
+        case .toolsAndSkills:
+            ToolsSkillsView(model: model)
         }
     }
 }

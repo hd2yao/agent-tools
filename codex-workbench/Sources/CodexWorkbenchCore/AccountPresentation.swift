@@ -67,6 +67,31 @@ public struct AccountDetailsPresentation: Equatable, Sendable {
     }
 }
 
+public struct WorkspaceInsightsPresentation: Equatable, Sendable {
+    public let projectsAvailable: Bool
+    public let toolsAvailable: Bool
+    public let skillsAvailable: Bool
+    public let projects: [AccountProjectRankingItem]
+    public let tools: [AccountToolRankingItem]
+    public let skills: [AccountSkillRankingItem]
+
+    public init(
+        projectsAvailable: Bool,
+        toolsAvailable: Bool,
+        skillsAvailable: Bool,
+        projects: [AccountProjectRankingItem],
+        tools: [AccountToolRankingItem],
+        skills: [AccountSkillRankingItem]
+    ) {
+        self.projectsAvailable = projectsAvailable
+        self.toolsAvailable = toolsAvailable
+        self.skillsAvailable = skillsAvailable
+        self.projects = projects
+        self.tools = tools
+        self.skills = skills
+    }
+}
+
 public enum AccountPresentationBuilder {
     public static func menu(payload: AccountDashboardPayload?) -> AccountMenuPresentation {
         let profileName = payload?.activeProfile ?? payload?.desktopStatus?.activeProfile
@@ -131,6 +156,28 @@ public enum AccountPresentationBuilder {
             currentProfile: currentProfile,
             otherProfiles: otherProfiles,
             currentResetCards: resetCards
+        )
+    }
+
+    public static func workspaceInsights(
+        payload: AccountDashboardPayload?
+    ) -> WorkspaceInsightsPresentation {
+        WorkspaceInsightsPresentation(
+            projectsAvailable: payload?.projectRankings?.available ?? false,
+            toolsAvailable: payload?.toolRankings?.available ?? false,
+            skillsAvailable: payload?.skillRankings?.available ?? false,
+            projects: (payload?.projectRankings?.projects ?? []).sorted { lhs, rhs in
+                if lhs.tokensUsed == rhs.tokensUsed { return lhs.name < rhs.name }
+                return lhs.tokensUsed > rhs.tokensUsed
+            },
+            tools: (payload?.toolRankings?.tools ?? []).sorted { lhs, rhs in
+                if lhs.callCount == rhs.callCount { return lhs.id < rhs.id }
+                return lhs.callCount > rhs.callCount
+            },
+            skills: (payload?.skillRankings?.skills ?? []).sorted { lhs, rhs in
+                if lhs.useCount == rhs.useCount { return lhs.name < rhs.name }
+                return lhs.useCount > rhs.useCount
+            }
         )
     }
 

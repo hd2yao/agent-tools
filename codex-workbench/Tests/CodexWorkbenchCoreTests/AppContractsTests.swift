@@ -2,12 +2,14 @@ import CodexWorkbenchCore
 
 func runAppContractsTests(_ runner: inout TestRunner) {
     runner.expect(
-        AppModule.allCases == [.overview, .activity, .accounts],
-        "Primary modules should keep overview/activity/accounts order"
+        AppModule.allCases == [.overview, .activity, .accounts, .projects, .toolsAndSkills],
+        "Primary modules should keep operations first and analysis modules after accounts"
     )
     runner.expect(AppModule.overview.title == "概览", "Overview title should be localized")
     runner.expect(AppModule.activity.title == "操作日志", "Activity title should be localized")
     runner.expect(AppModule.accounts.title == "账号管理", "Accounts title should be localized")
+    runner.expect(AppModule.projects.title == "项目分析", "Projects title should be localized")
+    runner.expect(AppModule.toolsAndSkills.title == "工具 / Skill", "Tools title should be localized")
     runner.expect(
         AppModule.allCases.allSatisfy { !$0.systemImage.isEmpty },
         "Every module should have an SF Symbol"

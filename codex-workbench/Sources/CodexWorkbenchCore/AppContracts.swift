@@ -2,12 +2,16 @@ public enum AppModule: String, CaseIterable, Hashable, Sendable {
     case overview
     case activity
     case accounts
+    case projects
+    case toolsAndSkills
 
     public var title: String {
         switch self {
         case .overview: "概览"
         case .activity: "操作日志"
         case .accounts: "账号管理"
+        case .projects: "项目分析"
+        case .toolsAndSkills: "工具 / Skill"
         }
     }
 
@@ -16,6 +20,8 @@ public enum AppModule: String, CaseIterable, Hashable, Sendable {
         case .overview: "rectangle.grid.2x2"
         case .activity: "clock.arrow.trianglehead.counterclockwise.rotate.90"
         case .accounts: "person.2"
+        case .projects: "folder.badge.gearshape"
+        case .toolsAndSkills: "wrench.and.screwdriver"
         }
     }
 }
