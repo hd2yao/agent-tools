@@ -79,4 +79,35 @@ func runAccountDetailPresentationTests(_ runner: inout TestRunner) {
         inconsistent.otherProfiles.map(\.name) == ["hd-master", "hd-sarah-blackwell"],
         "Every managed profile should remain available when the current account is unknown"
     )
+
+    let local = AccountProfile(
+        name: "local-default",
+        path: "/tmp/.codex",
+        auth: "present",
+        config: "present",
+        rateLimits: AccountRateLimits(primary: AccountQuotaWindow(remainingPercent: 43))
+    )
+    let localPayload = AccountDashboardPayload(
+        generatedAt: Date(timeIntervalSince1970: 1_002),
+        activeProfile: "local-default",
+        accountMode: .localDefault,
+        desktopStatus: AccountDesktopStatus(
+            running: false,
+            managed: false,
+            state: "local_default",
+            message: "使用本机默认 Codex 账号",
+            activeProfile: "local-default"
+        ),
+        profileRoles: nil,
+        profiles: [local]
+    )
+    let localDetails = AccountPresentationBuilder.details(payload: localPayload)
+    runner.expect(
+        localDetails.currentProfile?.name == "local-default",
+        "Explicit local mode should select the synthetic default-home account"
+    )
+    runner.expect(
+        localDetails.otherProfiles.isEmpty,
+        "The synthetic default-home account must never become a switch target"
+    )
 }

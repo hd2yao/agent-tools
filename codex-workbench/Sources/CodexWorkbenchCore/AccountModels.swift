@@ -475,9 +475,21 @@ public struct AccountProfile: Codable, Identifiable, Equatable, Sendable {
     }
 }
 
+public enum AccountMode: String, Codable, Equatable, Sendable {
+    case managedProfiles = "managed_profiles"
+    case localDefault = "local_default"
+    case unavailable
+
+    public init(from decoder: Decoder) throws {
+        let value = try decoder.singleValueContainer().decode(String.self)
+        self = Self(rawValue: value) ?? .unavailable
+    }
+}
+
 public struct AccountDashboardPayload: Codable, Equatable, Sendable {
     public let generatedAt: Date
     public let activeProfile: String?
+    public let accountMode: AccountMode
     public let runtimeStatus: AccountRuntimeStatus?
     public let desktopStatus: AccountDesktopStatus?
     public let profileRoles: AccountProfileRoles?
@@ -491,6 +503,7 @@ public struct AccountDashboardPayload: Codable, Equatable, Sendable {
     public init(
         generatedAt: Date,
         activeProfile: String?,
+        accountMode: AccountMode = .managedProfiles,
         desktopStatus: AccountDesktopStatus?,
         profileRoles: AccountProfileRoles?,
         profiles: [AccountProfile],
@@ -503,6 +516,7 @@ public struct AccountDashboardPayload: Codable, Equatable, Sendable {
     ) {
         self.generatedAt = generatedAt
         self.activeProfile = activeProfile
+        self.accountMode = accountMode
         self.runtimeStatus = runtimeStatus
         self.desktopStatus = desktopStatus
         self.profileRoles = profileRoles
@@ -512,6 +526,53 @@ public struct AccountDashboardPayload: Codable, Equatable, Sendable {
         self.toolRankings = toolRankings
         self.skillRankings = skillRankings
         self.profiles = profiles
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case generatedAt
+        case activeProfile
+        case accountMode
+        case runtimeStatus
+        case desktopStatus
+        case profileRoles
+        case attributionSummary
+        case localSnapshot
+        case projectRankings
+        case toolRankings
+        case skillRankings
+        case profiles
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        generatedAt = try container.decode(Date.self, forKey: .generatedAt)
+        activeProfile = try container.decodeIfPresent(String.self, forKey: .activeProfile)
+        accountMode = try container.decodeIfPresent(AccountMode.self, forKey: .accountMode)
+            ?? .managedProfiles
+        runtimeStatus = try container.decodeIfPresent(AccountRuntimeStatus.self, forKey: .runtimeStatus)
+        desktopStatus = try container.decodeIfPresent(AccountDesktopStatus.self, forKey: .desktopStatus)
+        profileRoles = try container.decodeIfPresent(AccountProfileRoles.self, forKey: .profileRoles)
+        attributionSummary = try container.decodeIfPresent(
+            AccountAttributionSummary.self,
+            forKey: .attributionSummary
+        )
+        localSnapshot = try container.decodeIfPresent(
+            AccountLocalTokenSnapshot.self,
+            forKey: .localSnapshot
+        )
+        projectRankings = try container.decodeIfPresent(
+            AccountProjectRankings.self,
+            forKey: .projectRankings
+        )
+        toolRankings = try container.decodeIfPresent(
+            AccountToolRankings.self,
+            forKey: .toolRankings
+        )
+        skillRankings = try container.decodeIfPresent(
+            AccountSkillRankings.self,
+            forKey: .skillRankings
+        )
+        profiles = try container.decode([AccountProfile].self, forKey: .profiles)
     }
 
     public static func decode(data: Data) throws -> AccountDashboardPayload {

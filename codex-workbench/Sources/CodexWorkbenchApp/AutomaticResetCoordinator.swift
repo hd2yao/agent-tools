@@ -85,12 +85,20 @@ final class AutomaticResetCoordinator {
         gateway: AccountGateway?,
         onTerminalOutcome: @escaping @MainActor (AutomaticResetAttempt, AccountResetCreditConsumeResult) -> Void
     ) {
-        let availability = availabilityProvider()
-        guard availability == .available else {
+        let runtimeAvailability = availabilityProvider()
+        let availability = runtimeAvailability == .available
+            ? AccountRuntimePolicy.automationAvailability(
+                accountMode: payload.accountMode,
+                legacyProfileSwitcherRunning: false
+            )
+            : runtimeAvailability
+        guard availability != .pausedForLegacyProfileSwitcher else {
             notifications.clearScheduledReminders()
             return
         }
         notifications.sync(payload: payload)
+        guard availability == .available else { return }
+        guard payload.accountMode == .managedProfiles else { return }
         guard let gateway else { return }
         let now = Date().timeIntervalSince1970
 
@@ -125,7 +133,10 @@ final class AutomaticResetCoordinator {
 
             Task { [claim] in
                 defer { claim.release() }
-                guard availabilityProvider() == .available else {
+                guard
+                    payload.accountMode == .managedProfiles,
+                    availabilityProvider() == .available
+                else {
                     inFlight.remove(fingerprint)
                     notifications.clearScheduledReminders()
                     return

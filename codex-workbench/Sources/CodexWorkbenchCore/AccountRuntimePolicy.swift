@@ -1,6 +1,7 @@
 public enum AccountAutomationAvailability: Equatable, Sendable {
     case available
     case pausedForLegacyProfileSwitcher
+    case readOnlyLocalAccount
 }
 
 public enum AccountRuntimePolicy {
@@ -13,8 +14,12 @@ public enum AccountRuntimePolicy {
     }
 
     public static func automationAvailability(
+        accountMode: AccountMode = .managedProfiles,
         legacyProfileSwitcherRunning: Bool
     ) -> AccountAutomationAvailability {
-        legacyProfileSwitcherRunning ? .pausedForLegacyProfileSwitcher : .available
+        if accountMode == .localDefault {
+            return .readOnlyLocalAccount
+        }
+        return legacyProfileSwitcherRunning ? .pausedForLegacyProfileSwitcher : .available
     }
 }

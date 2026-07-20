@@ -94,17 +94,30 @@ public struct WorkspaceInsightsPresentation: Equatable, Sendable {
 
 public enum AccountPresentationBuilder {
     public static func confirmedCurrentProfileName(payload: AccountDashboardPayload?) -> String? {
-        guard
-            let payload,
-            let desktopStatus = payload.desktopStatus,
-            desktopStatus.running,
-            desktopStatus.managed,
-            let activeProfile = payload.activeProfile,
-            desktopStatus.activeProfile == activeProfile
-        else {
+        guard let payload else { return nil }
+        switch payload.accountMode {
+        case .localDefault:
+            guard
+                payload.activeProfile == "local-default",
+                payload.profiles.contains(where: { $0.name == "local-default" })
+            else {
+                return nil
+            }
+            return "local-default"
+        case .managedProfiles:
+            guard
+                let desktopStatus = payload.desktopStatus,
+                desktopStatus.running,
+                desktopStatus.managed,
+                let activeProfile = payload.activeProfile,
+                desktopStatus.activeProfile == activeProfile
+            else {
+                return nil
+            }
+            return activeProfile
+        case .unavailable:
             return nil
         }
-        return activeProfile
     }
 
     public static func menu(payload: AccountDashboardPayload?) -> AccountMenuPresentation {
@@ -122,7 +135,9 @@ public enum AccountPresentationBuilder {
                 ?? profile?.rateLimits.creditsAvailable
         ).map(String.init) ?? "--"
         let runtime = runtime(status: payload?.runtimeStatus)
-        let accountText = profileName.map { "当前登录账号 \($0)" } ?? "当前登录账号未知"
+        let accountText = profileName.map {
+            $0 == "local-default" ? "当前登录账号 本机当前账号" : "当前登录账号 \($0)"
+        } ?? "当前登录账号未知"
         let quotaDescription = window?.remainingPercent == nil
             ? "额度未知"
             : "\(quotaWindowLabel) \(quotaText)"
@@ -143,6 +158,7 @@ public enum AccountPresentationBuilder {
 
     public static func profileDisplayName(_ profile: String?) -> String {
         guard let profile else { return "未知账号" }
+        if profile == "local-default" { return "本机当前账号" }
         return profile.hasPrefix("hd-") ? String(profile.dropFirst(3)) : profile
     }
 
@@ -183,7 +199,7 @@ public enum AccountPresentationBuilder {
         let currentName = confirmedCurrentProfileName(payload: payload)
         let currentProfile = payload.profiles.first { $0.name == currentName }
         let otherProfiles = payload.profiles
-            .filter { $0.name != currentName }
+            .filter { $0.name != currentName && $0.name != "local-default" }
             .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
         let resetCards = (currentProfile?.resetCreditDetails?.credits ?? []).sorted { lhs, rhs in
             let lhsUsed = lhs.used == true

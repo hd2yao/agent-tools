@@ -18,6 +18,7 @@ func runAccountPresentationTests(_ runner: inout TestRunner) {
     let payload = try? AccountDashboardPayload.decode(data: Data(payloadJSON.utf8))
     let presentation = AccountPresentationBuilder.menu(payload: payload)
 
+    runner.expect(payload?.accountMode == .managedProfiles, "Legacy payloads must infer managed profile mode")
     runner.expect(presentation.profile == "hd-master", "Menu bar must use the actual active profile")
     runner.expect(presentation.profileDisplayName == "master", "Menu bar should use the compact profile name")
     runner.expect(presentation.quotaText == "87%", "Menu bar should show the active profile primary quota")
@@ -63,6 +64,54 @@ func runAccountPresentationTests(_ runner: inout TestRunner) {
     runner.expect(
         AccountPresentationBuilder.menu(payload: unmanagedPayload).profile == nil,
         "An unmanaged desktop session must remain unknown even when its stale record matches"
+    )
+
+    let localDefaultJSON = #"""
+    {
+      "generated_at":"2026-07-20T06:00:00Z",
+      "account_mode":"local_default",
+      "active_profile":"local-default",
+      "runtime_status":{"state":"idle","light":"red","label":"空闲","active_process_count":0,"recent_process_count":0},
+      "desktop_status":{"running":false,"managed":false,"state":"local_default","message":"使用本机默认 Codex 账号","active_profile":"local-default"},
+      "profiles":[
+        {"name":"local-default","path":"/tmp/.codex","auth":"present","config":"present","rate_limits":{"primary":{"remaining_percent":43,"window_minutes":300}}}
+      ]
+    }
+    """#
+    let localPayload = try? AccountDashboardPayload.decode(data: Data(localDefaultJSON.utf8))
+    let localMenu = AccountPresentationBuilder.menu(payload: localPayload)
+    let localDetails = AccountPresentationBuilder.details(payload: localPayload)
+    runner.expect(localPayload?.accountMode == .localDefault, "Local default mode must decode")
+    runner.expect(
+        AccountPresentationBuilder.confirmedCurrentProfileName(payload: localPayload) == "local-default",
+        "The default home account is confirmed by its explicit mode"
+    )
+    runner.expect(
+        localMenu.profileDisplayName == "本机当前账号",
+        "Synthetic internal keys must not leak into the menu"
+    )
+    runner.expect(localMenu.quotaText == "43%", "Local mode should present the default account quota")
+    runner.expect(
+        !localMenu.accessibilityLabel.contains("local-default"),
+        "Synthetic account keys must not leak into accessibility text"
+    )
+    runner.expect(
+        localDetails.otherProfiles.isEmpty,
+        "Local mode must not expose a switch target"
+    )
+
+    let unknownModeJSON = localDefaultJSON.replacingOccurrences(
+        of: "\"local_default\"",
+        with: "\"future_mode\""
+    )
+    let unknownModePayload = try? AccountDashboardPayload.decode(data: Data(unknownModeJSON.utf8))
+    runner.expect(
+        unknownModePayload?.accountMode == .unavailable,
+        "Unknown backend modes must fail closed without breaking payload decoding"
+    )
+    runner.expect(
+        AccountPresentationBuilder.confirmedCurrentProfileName(payload: unknownModePayload) == nil,
+        "Unknown account modes must not confirm a current account"
     )
 
     let running = AccountPresentationBuilder.runtime(

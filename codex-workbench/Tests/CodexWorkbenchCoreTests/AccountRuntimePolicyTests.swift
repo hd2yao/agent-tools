@@ -25,4 +25,18 @@ func runAccountRuntimePolicyTests(_ runner: inout TestRunner) {
             == .available,
         "Account automation should stay available when only the workbench is running"
     )
+    runner.expect(
+        AccountRuntimePolicy.automationAvailability(
+            accountMode: .localDefault,
+            legacyProfileSwitcherRunning: false
+        ) == .readOnlyLocalAccount,
+        "The read-only local account must never consume reset credits automatically"
+    )
+    runner.expect(
+        AccountRuntimePolicy.automationAvailability(
+            accountMode: .managedProfiles,
+            legacyProfileSwitcherRunning: false
+        ) == .available,
+        "Managed profiles must preserve their existing automatic reset behavior"
+    )
 }
