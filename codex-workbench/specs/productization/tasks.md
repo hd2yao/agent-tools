@@ -1,9 +1,9 @@
 # Codex 工作台产品化与公开发行任务拆分
 
-- [ ] **T001 固定产品化基线与冷备**
+- [x] **T001 固定产品化基线与冷备**
   映射：AC-PD-001、AC-PD-011
   验收：记录当前工作台与 Profile Switcher 产物、源码、hash、进程和恢复路径；不读取凭据正文。
-  验证：git / bundle / hash / process 清单与恢复演练说明。
+  验证：git / bundle / hash / process 清单与恢复演练说明；证据见 `docs/productization-baseline.md` 与 `docs/profile-switcher-cold-backup.md`。
 
 - [ ] **T002 本机单账号后端契约**
   映射：AC-PD-003、AC-PD-004、AC-PD-011
