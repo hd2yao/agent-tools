@@ -924,6 +924,92 @@ class CommandTests(unittest.TestCase):
 
         self.assertEqual(build_status_payload()["active_profile"], "account-a")
 
+    def test_status_payload_uses_local_default_without_managed_profile_repairs(self):
+        from codex_profile import build_status_payload
+
+        profile_root = self.root / ".codex-profiles"
+        shared_home = self.root / ".codex"
+        shared_home.mkdir()
+        local_payload = {
+            "account_mode": "local_default",
+            "active_profile": "local-default",
+            "profiles": [{"name": "local-default", "path": str(shared_home)}],
+        }
+        with (
+            patch("codex_profile.get_profile_root", return_value=profile_root),
+            patch("codex_profile.get_shared_home", return_value=shared_home),
+            patch("codex_profile.sync_profile_homes") as sync_profiles,
+            patch("codex_profile.repair_default_home_bridge_for_active_profile") as repair_bridge,
+            patch("codex_profile.read_active_profile", return_value="stale-profile") as read_active,
+            patch(
+                "codex_profile_dashboard.build_profiles_payload",
+                return_value=local_payload,
+            ),
+            patch(
+                "codex_profile_dashboard.read_runtime_status",
+                return_value={"state": "idle"},
+            ),
+            patch(
+                "codex_profile.build_desktop_status",
+                return_value={
+                    "running": False,
+                    "managed": False,
+                    "active_profile": None,
+                    "state": "not_running",
+                    "message": "Codex 未运行",
+                    "default_home_bridge": {"state": "no_active_profile"},
+                },
+            ),
+        ):
+            payload = build_status_payload()
+
+        sync_profiles.assert_not_called()
+        repair_bridge.assert_not_called()
+        read_active.assert_not_called()
+        self.assertEqual(payload["account_mode"], "local_default")
+        self.assertEqual(payload["active_profile"], "local-default")
+        self.assertFalse(payload["desktop_status"]["managed"])
+        self.assertEqual(payload["desktop_status"]["active_profile"], "local-default")
+        self.assertEqual(payload["desktop_status"]["state"], "local_default")
+        self.assertEqual(payload["desktop_status"]["message"], "使用本机默认 Codex 账号")
+
+    def test_status_payload_preserves_managed_profile_repairs(self):
+        from codex_profile import build_status_payload
+
+        profile_root = self.root / ".codex-profiles"
+        shared_home = self.root / ".codex"
+        (profile_root / "account-a").mkdir(parents=True)
+        shared_home.mkdir()
+        with (
+            patch("codex_profile.get_profile_root", return_value=profile_root),
+            patch("codex_profile.get_shared_home", return_value=shared_home),
+            patch("codex_profile.sync_profile_homes") as sync_profiles,
+            patch("codex_profile.repair_default_home_bridge_for_active_profile") as repair_bridge,
+            patch("codex_profile.read_active_profile", return_value="account-a"),
+            patch(
+                "codex_profile_dashboard.build_profiles_payload",
+                return_value={
+                    "account_mode": "managed_profiles",
+                    "active_profile": "account-a",
+                    "profiles": [{"name": "account-a", "path": str(profile_root / "account-a")}],
+                },
+            ),
+            patch(
+                "codex_profile_dashboard.read_runtime_status",
+                return_value={"state": "idle"},
+            ),
+            patch(
+                "codex_profile.build_desktop_status",
+                return_value={"active_profile": "account-a", "default_home_bridge": {}},
+            ),
+        ):
+            payload = build_status_payload()
+
+        sync_profiles.assert_called_once_with()
+        repair_bridge.assert_called_once_with()
+        self.assertEqual(payload["account_mode"], "managed_profiles")
+        self.assertEqual(payload["active_profile"], "account-a")
+
     def test_sync_profile_homes_links_new_shared_entries_for_all_profiles(self):
         from codex_profile import sync_profile_homes
 
@@ -959,13 +1045,14 @@ class CommandTests(unittest.TestCase):
         import codex_profile
         from codex_profile import build_status_payload
 
+        profile_root = self.root / "profiles"
+        (profile_root / "account-a").mkdir(parents=True)
         calls = []
-        old_sync = codex_profile.sync_profile_homes
-        try:
-            codex_profile.sync_profile_homes = lambda: calls.append("sync") or []
+        with (
+            patch("codex_profile.get_profile_root", return_value=profile_root),
+            patch("codex_profile.sync_profile_homes", side_effect=lambda: calls.append("sync") or []),
+        ):
             payload = build_status_payload()
-        finally:
-            codex_profile.sync_profile_homes = old_sync
 
         self.assertIn("sync", calls)
         self.assertIn("profiles", payload)

@@ -1562,7 +1562,11 @@ def _read_remote_status_with_cache(
     shared_home: Path,
     remote_reader: Callable[[Path], dict],
     now_seconds: float,
+    *,
+    profile_name: str | None = None,
+    cache_enabled: bool = True,
 ) -> dict:
+    logical_name = profile_name or profile.name
     try:
         remote = remote_reader(profile)
     except Exception:
@@ -1574,10 +1578,15 @@ def _read_remote_status_with_cache(
             "error": "status reader failed",
         }
     if remote.get("ok") and remote.get("rate_limits"):
-        _write_remote_status_cache(shared_home, profile.name, remote, now_seconds)
+        if cache_enabled:
+            _write_remote_status_cache(shared_home, logical_name, remote, now_seconds)
         return {**remote, "stale": False, "cached_at": None}
 
-    cached = _read_remote_status_cache(shared_home, profile.name, now_seconds)
+    cached = (
+        _read_remote_status_cache(shared_home, logical_name, now_seconds)
+        if cache_enabled
+        else None
+    )
     if cached is not None:
         cached["error"] = remote.get("error")
         return cached
@@ -1642,13 +1651,16 @@ def _read_reset_credit_details_with_cache(
     reset_credit_reader: Callable[[Path], dict],
     now_seconds: float,
     *,
+    profile_name: str | None = None,
+    cache_enabled: bool = True,
     expected_count: int | None = None,
     force_refresh: bool = False,
 ) -> dict:
-    if not force_refresh:
+    logical_name = profile_name or profile.name
+    if cache_enabled and not force_refresh:
         cached = _read_reset_credit_details_cache(
             shared_home,
-            profile.name,
+            logical_name,
             now_seconds,
             expected_count=expected_count,
         )
@@ -1660,15 +1672,20 @@ def _read_reset_credit_details_with_cache(
         remote = {"ok": False, "details": None, "error": "reset credit reader failed"}
     if remote.get("ok") and remote.get("details"):
         details = remote["details"]
-        _write_reset_credit_details_cache(shared_home, profile.name, details, now_seconds)
+        if cache_enabled:
+            _write_reset_credit_details_cache(shared_home, logical_name, details, now_seconds)
         return {**remote, "stale": False, "cached_at": None}
 
-    cached = _read_reset_credit_details_cache(
-        shared_home,
-        profile.name,
-        now_seconds,
-        expected_count=None,
-        max_age_seconds=None,
+    cached = (
+        _read_reset_credit_details_cache(
+            shared_home,
+            logical_name,
+            now_seconds,
+            expected_count=None,
+            max_age_seconds=None,
+        )
+        if cache_enabled
+        else None
     )
     if cached is not None:
         cached["error"] = remote.get("error")
@@ -1688,37 +1705,52 @@ def build_profiles_payload(
 ) -> dict:
     now = time.time() if now_seconds is None else now_seconds
     local_snapshot = read_local_token_snapshot(shared_home)
-    profile_paths = (
+    managed_paths = (
         sorted(path for path in profile_root.iterdir() if path.is_dir())
         if profile_root.exists()
         else []
     )
+    if managed_paths:
+        account_mode = "managed_profiles"
+        account_sources = [(path.name, path) for path in managed_paths]
+        effective_active_profile = active_profile
+    elif shared_home.is_dir():
+        account_mode = "local_default"
+        account_sources = [("local-default", shared_home)]
+        effective_active_profile = "local-default"
+    else:
+        account_mode = "unavailable"
+        account_sources = []
+        effective_active_profile = None
+    cache_enabled = account_mode == "managed_profiles"
     remote_by_name: dict[str, dict | None] = {}
-    if read_remote and profile_paths:
+    if read_remote and account_sources:
         reader = remote_reader or read_app_server_account_snapshot
-        with ThreadPoolExecutor(max_workers=min(4, len(profile_paths))) as executor:
+        with ThreadPoolExecutor(max_workers=min(4, len(account_sources))) as executor:
             futures = {
                 executor.submit(
                     _read_remote_status_with_cache,
-                    profile,
+                    account_home,
                     shared_home,
                     reader,
                     now,
-                ): profile
-                for profile in profile_paths
+                    profile_name=account_name,
+                    cache_enabled=cache_enabled,
+                ): account_name
+                for account_name, account_home in account_sources
             }
             for future in as_completed(futures):
-                profile = futures[future]
-                remote_by_name[profile.name] = future.result()
+                account_name = futures[future]
+                remote_by_name[account_name] = future.result()
 
     reset_details_by_name: dict[str, dict | None] = {}
-    fallback_profiles: list[Path] = []
-    for profile in profile_paths:
-        remote = remote_by_name.get(profile.name) or {}
+    fallback_accounts: list[tuple[str, Path]] = []
+    for account_name, account_home in account_sources:
+        remote = remote_by_name.get(account_name) or {}
         normalized_limits = normalize_rate_limits(remote.get("rate_limits") or {})
         embedded = normalized_limits["reset_credit_details"]
         if embedded.get("available"):
-            reset_details_by_name[profile.name] = {
+            reset_details_by_name[account_name] = {
                 "ok": True,
                 "details": embedded,
                 "error": None,
@@ -1726,38 +1758,41 @@ def build_profiles_payload(
                 "cached_at": remote.get("cached_at"),
             }
         elif reset_credit_reader is not None:
-            fallback_profiles.append(profile)
+            fallback_accounts.append((account_name, account_home))
 
-    if read_remote and fallback_profiles and reset_credit_reader is not None:
+    if read_remote and fallback_accounts and reset_credit_reader is not None:
         reader = reset_credit_reader
-        with ThreadPoolExecutor(max_workers=min(4, len(profile_paths))) as executor:
+        with ThreadPoolExecutor(max_workers=min(4, len(fallback_accounts))) as executor:
             futures = {}
-            for profile in fallback_profiles:
-                remote = remote_by_name.get(profile.name)
+            for account_name, account_home in fallback_accounts:
+                remote = remote_by_name.get(account_name)
                 expected_count = normalize_rate_limits(
                     (remote or {}).get("rate_limits") or {}
                 )["reset_credits"]["available_count"]
                 futures[
                     executor.submit(
                         _read_reset_credit_details_with_cache,
-                        profile,
+                        account_home,
                         shared_home,
                         reader,
                         now,
+                        profile_name=account_name,
+                        cache_enabled=cache_enabled,
                         expected_count=expected_count,
                         force_refresh=force_reset_credit_refresh,
                     )
-                ] = profile
+                ] = account_name
             for future in as_completed(futures):
-                profile = futures[future]
-                reset_details_by_name[profile.name] = future.result()
+                account_name = futures[future]
+                reset_details_by_name[account_name] = future.result()
 
     profiles = []
     attribution_ledger = read_attribution_ledger(shared_home)
     if (
         active_profile
         and not attribution_ledger.get("active_profile")
-        and any(profile.name == active_profile for profile in profile_paths)
+        and account_mode == "managed_profiles"
+        and any(account_name == active_profile for account_name, _ in account_sources)
     ):
         record_attribution_baseline(
             shared_home,
@@ -1767,19 +1802,19 @@ def build_profiles_payload(
             now_seconds=now,
         )
         attribution_ledger = read_attribution_ledger(shared_home)
-    for profile in profile_paths:
-        remote = remote_by_name.get(profile.name)
-        reset_details = reset_details_by_name.get(profile.name) or {}
+    for account_name, account_home in account_sources:
+        remote = remote_by_name.get(account_name)
+        reset_details = reset_details_by_name.get(account_name) or {}
         usage = (remote or {}).get("usage")
         normalized_limits = normalize_rate_limits(
             (remote or {}).get("rate_limits") or {}
         )
         profiles.append(
             {
-                "name": profile.name,
-                "path": str(profile),
-                "auth": "present" if (profile / "auth.json").is_file() else "missing",
-                "config": "present" if (profile / "config.toml").is_file() else "missing",
+                "name": account_name,
+                "path": str(account_home),
+                "auth": "present" if (account_home / "auth.json").is_file() else "missing",
+                "config": "present" if (account_home / "config.toml").is_file() else "missing",
                 "account": normalize_account((remote or {}).get("account")),
                 "rate_limits": normalized_limits,
                 "usage": usage,
@@ -1789,7 +1824,7 @@ def build_profiles_payload(
                 ),
                 "token_attribution": summarize_profile_attribution(
                     shared_home,
-                    profile.name,
+                    account_name,
                     local_snapshot,
                     usage,
                     now=datetime.fromtimestamp(now, timezone.utc),
@@ -1808,11 +1843,18 @@ def build_profiles_payload(
         {profile["name"]: profile["rate_limits"] for profile in profiles},
         now_seconds=now,
     )
-    desktop_role = {
-        "profile": active_profile,
-        "source": "desktop_bridge_record" if active_profile else "unavailable",
-        "confidence": "confirmed" if active_profile else "unknown",
-    }
+    if account_mode == "local_default":
+        desktop_role = {
+            "profile": "local-default",
+            "source": "local_default",
+            "confidence": "confirmed",
+        }
+    else:
+        desktop_role = {
+            "profile": active_profile,
+            "source": "desktop_bridge_record" if active_profile else "unavailable",
+            "confidence": "confirmed" if active_profile else "unknown",
+        }
     attribution_profile = attribution_ledger.get("active_profile")
     attribution_role = {
         "profile": attribution_profile,
@@ -1826,6 +1868,8 @@ def build_profiles_payload(
     )
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
+        "account_mode": account_mode,
+        "active_profile": effective_active_profile,
         "profile_root": str(profile_root),
         "shared_home": str(shared_home),
         "local_snapshot": local_snapshot,

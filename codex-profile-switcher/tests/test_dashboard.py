@@ -1116,6 +1116,117 @@ class AppServerClientTests(unittest.TestCase):
 
 
 class ProfileApiTests(unittest.TestCase):
+    @staticmethod
+    def remote_snapshot(remaining=43):
+        return {
+            "ok": True,
+            "account": {
+                "account": {"type": "chatgpt", "planType": "plus", "email": None},
+                "requiresOpenaiAuth": True,
+            },
+            "rate_limits": {
+                "rateLimits": {
+                    "limitId": "codex",
+                    "planType": "plus",
+                    "primary": {"usedPercent": 100 - remaining},
+                }
+            },
+            "usage": None,
+            "error": None,
+        }
+
+    def test_default_home_becomes_read_only_local_account_when_profiles_are_absent(self):
+        from codex_profile_dashboard import build_profiles_payload
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            profile_root = root / ".codex-profiles"
+            shared_home = root / ".codex"
+            shared_home.mkdir()
+            auth = shared_home / "auth.json"
+            auth.write_text("{}", encoding="utf-8")
+            before = sorted(path.relative_to(shared_home) for path in shared_home.rglob("*"))
+            remote_homes = []
+
+            payload = build_profiles_payload(
+                profile_root,
+                shared_home,
+                remote_reader=lambda home: remote_homes.append(home)
+                or self.remote_snapshot(remaining=43),
+            )
+
+            self.assertEqual(payload["account_mode"], "local_default")
+            self.assertEqual(payload["active_profile"], "local-default")
+            self.assertEqual([row["name"] for row in payload["profiles"]], ["local-default"])
+            self.assertEqual(payload["profiles"][0]["path"], str(shared_home))
+            self.assertEqual(
+                payload["profiles"][0]["rate_limits"]["primary"]["remaining_percent"],
+                43,
+            )
+            self.assertEqual(remote_homes, [shared_home])
+            self.assertEqual(
+                before,
+                sorted(path.relative_to(shared_home) for path in shared_home.rglob("*")),
+            )
+            self.assertFalse(auth.is_symlink())
+            self.assertEqual(auth.read_text(encoding="utf-8"), "{}")
+            self.assertFalse(profile_root.exists())
+
+    def test_empty_profile_root_still_uses_the_local_default_account(self):
+        from codex_profile_dashboard import build_profiles_payload
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            profile_root = root / ".codex-profiles"
+            shared_home = root / ".codex"
+            profile_root.mkdir()
+            shared_home.mkdir()
+
+            payload = build_profiles_payload(profile_root, shared_home, read_remote=False)
+
+            self.assertEqual(payload["account_mode"], "local_default")
+            self.assertEqual(payload["active_profile"], "local-default")
+            self.assertEqual([row["name"] for row in payload["profiles"]], ["local-default"])
+
+    def test_existing_profiles_keep_managed_mode_and_physical_paths(self):
+        from codex_profile_dashboard import build_profiles_payload
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            profile_root = root / ".codex-profiles"
+            shared_home = root / ".codex"
+            profile = profile_root / "account-a"
+            profile.mkdir(parents=True)
+            shared_home.mkdir()
+
+            payload = build_profiles_payload(
+                profile_root,
+                shared_home,
+                read_remote=False,
+                active_profile="account-a",
+            )
+
+            self.assertEqual(payload["account_mode"], "managed_profiles")
+            self.assertEqual(payload["active_profile"], "account-a")
+            self.assertEqual([row["name"] for row in payload["profiles"]], ["account-a"])
+            self.assertEqual(payload["profiles"][0]["path"], str(profile))
+
+    def test_missing_profiles_and_default_home_are_unavailable(self):
+        from codex_profile_dashboard import build_profiles_payload
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+
+            payload = build_profiles_payload(
+                root / ".codex-profiles",
+                root / ".codex",
+                read_remote=False,
+            )
+
+            self.assertEqual(payload["account_mode"], "unavailable")
+            self.assertIsNone(payload["active_profile"])
+            self.assertEqual(payload["profiles"], [])
+
     def test_build_profiles_payload_does_not_include_secret_contents(self):
         from codex_profile_dashboard import build_profiles_payload
 
