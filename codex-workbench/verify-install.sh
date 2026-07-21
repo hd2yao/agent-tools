@@ -62,8 +62,8 @@ while IFS= read -r -d '' candidate; do
     description="$(file "$candidate")"
     [[ "$description" == *"Mach-O"* ]] || continue
     [[ "$description" == *"arm64"* && "$description" != *"x86_64"* ]] \
-        || { echo "FAIL: 账号后端包含非 arm64 Mach-O: $candidate" >&2; exit 1; }
-done < <(find "$ACCOUNT_BACKEND_PAYLOAD_DIR" -type f -print0)
+        || { echo "FAIL: App 包含非 arm64 Mach-O: $candidate" >&2; exit 1; }
+done < <(find "$APP_DIR" -type f -print0)
 
 SMOKE_HOME="$(mktemp -d)"
 trap 'rm -rf "$SMOKE_HOME"' EXIT
@@ -71,6 +71,11 @@ mkdir -p "$SMOKE_HOME/.codex"
 env -i HOME="$SMOKE_HOME" PATH=/usr/bin:/bin "$ACCOUNT_BACKEND_BINARY" --help >/dev/null
 
 codesign --verify --deep --strict "$APP_DIR"
+if [[ "${CODEX_WORKBENCH_REQUIRE_DEVELOPER_ID:-0}" == "1" ]]; then
+    codesign -dv --verbose=4 "$APP_DIR" 2>&1 | grep -Fq "Authority=Developer ID Application:" \
+        || { echo "FAIL: App 不是 Developer ID Application 签名" >&2; exit 1; }
+    spctl -a -vv --type execute "$APP_DIR"
+fi
 
 BUNDLE_ID="$(defaults read "$PLIST" CFBundleIdentifier)"
 VERSION="$(defaults read "$PLIST" CFBundleShortVersionString)"

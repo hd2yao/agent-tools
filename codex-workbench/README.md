@@ -45,4 +45,34 @@ swift build
 ./build-app.sh
 ```
 
-目标平台为 macOS 13 及以上。视觉契约见 [DESIGN.md](DESIGN.md)，功能与验收标准见 [specs/codex-workbench/spec.md](specs/codex-workbench/spec.md)。
+目标平台为 Apple Silicon（M 系列）和 macOS 13 及以上，不构建 Intel 或 Universal 版本。视觉契约见 [DESIGN.md](DESIGN.md)，功能与验收标准见 [specs/productization/spec.md](specs/productization/spec.md)。
+
+## GitHub Releases 发行
+
+首发只通过 GitHub Releases 提供手动下载安装的 DMG，不接 App Store、Homebrew 或自动更新。升级时重新下载新版 DMG 并覆盖安装。
+
+发布机必须在 Keychain 中已有 `Developer ID Application` 身份，并预先用 `notarytool store-credentials` 保存公证 profile；不要把证书、profile 凭据或密码写入仓库或命令输出。
+
+```bash
+./Tests/Scripts/test-release-guardrails.sh
+./scripts/release.sh --version 0.3.0 --dry-run
+
+./scripts/release.sh \
+  --version 0.3.0 \
+  --sign-identity "$CODEX_WORKBENCH_SIGN_IDENTITY" \
+  --notary-profile "$CODEX_WORKBENCH_NOTARY_PROFILE"
+```
+
+成功后会生成：
+
+- `dist/Codex-Workbench-v0.3.0-arm64.dmg`
+- `dist/Codex-Workbench-v0.3.0-arm64.dmg.sha256`
+
+GitHub 发布另有显式门禁；不传 `--publish` 不会调用 `gh release create`，已存在的 tag / Release 也不会被覆盖：
+
+```bash
+./scripts/publish-github-release.sh \
+  --version 0.3.0 \
+  --notes-file ./release-notes.md \
+  --publish
+```

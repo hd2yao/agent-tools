@@ -1,0 +1,174 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
+TEST_ROOT="$(mktemp -d)"
+MOCK_BIN="$TEST_ROOT/bin"
+MOCK_LOG="$TEST_ROOT/mock.log"
+FIXTURE_APP="$TEST_ROOT/Codex 工作台.app"
+DIST_DIR="$TEST_ROOT/dist"
+NOTES_FILE="$TEST_ROOT/notes.md"
+
+cleanup() {
+    rm -rf "$TEST_ROOT"
+}
+trap cleanup EXIT
+
+mkdir -p \
+    "$MOCK_BIN" \
+    "$FIXTURE_APP/Contents/MacOS" \
+    "$FIXTURE_APP/Contents/Resources/CodexAccountBackend" \
+    "$FIXTURE_APP/Contents/Library/LoginItems/Codex Workbench Login Helper.app/Contents/MacOS" \
+    "$DIST_DIR"
+printf '#!/bin/sh\nexit 0\n' > "$FIXTURE_APP/Contents/MacOS/CodexWorkbenchApp"
+chmod +x "$FIXTURE_APP/Contents/MacOS/CodexWorkbenchApp"
+cp "$FIXTURE_APP/Contents/MacOS/CodexWorkbenchApp" \
+    "$FIXTURE_APP/Contents/Resources/CodexAccountBackend/CodexAccountBackend"
+cp "$FIXTURE_APP/Contents/MacOS/CodexWorkbenchApp" \
+    "$FIXTURE_APP/Contents/Library/LoginItems/Codex Workbench Login Helper.app/Contents/MacOS/CodexWorkbenchLoginHelper"
+cat > "$FIXTURE_APP/Contents/Info.plist" <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleIdentifier</key><string>com.hd2yao.codex-workbench</string>
+<key>CFBundleShortVersionString</key><string>0.0.0</string>
+<key>CFBundleVersion</key><string>0</string>
+</dict></plist>
+PLIST
+printf '# Release fixture\n' > "$NOTES_FILE"
+
+for required_script in release.sh sign-app.sh create-dmg.sh publish-github-release.sh; do
+    [[ -x "$ROOT_DIR/scripts/$required_script" ]] \
+        || { echo "FAIL: 缺少发布脚本 scripts/$required_script" >&2; exit 1; }
+done
+if rg -n 'codesign .*--(force )?--deep.*--sign|codesign .*--sign.*--deep' \
+    "$ROOT_DIR/scripts/sign-app.sh" >/dev/null; then
+    echo "FAIL: sign-app.sh 不得用 --deep 执行签名" >&2
+    exit 1
+fi
+
+cat > "$MOCK_BIN/mock-command" <<'MOCK'
+#!/usr/bin/env bash
+set -euo pipefail
+name="$(basename "$0")"
+printf '%s %s\n' "$name" "$*" >> "${MOCK_LOG:?}"
+case "$name" in
+    security)
+        [[ "${MOCK_IDENTITY:-0}" == "1" ]] || exit 0
+        printf '  1) ABCDEF "Developer ID Application: Test (TEAMID)"\n'
+        ;;
+    xcrun)
+        if [[ "$*" == "notarytool history"* ]]; then
+            [[ "${MOCK_NOTARY:-0}" == "1" ]] || exit 1
+        elif [[ "$*" == "stapler staple"* ]]; then
+            [[ "${MOCK_STAPLER_FAIL:-0}" != "1" ]] || exit 1
+        fi
+        ;;
+    file)
+        if [[ "${MOCK_ARCH:-arm64}" == "x86_64" ]]; then
+            printf '%s: Mach-O 64-bit executable x86_64\n' "$1"
+        else
+            printf '%s: Mach-O 64-bit executable arm64\n' "$1"
+        fi
+        ;;
+    codesign)
+        [[ "${MOCK_CODESIGN_FAIL:-0}" != "1" ]] || exit 1
+        ;;
+    hdiutil)
+        if [[ "${1:-}" == "create" ]]; then
+            last="${@: -1}"
+            mkdir -p "$(dirname "$last")"
+            printf 'fixture-dmg\n' > "$last"
+        fi
+        ;;
+    spctl)
+        ;;
+    gh)
+        if [[ "${1:-}" == "release" && "${2:-}" == "view" ]]; then
+            exit 1
+        fi
+        ;;
+esac
+MOCK
+chmod +x "$MOCK_BIN/mock-command"
+for command_name in security xcrun file codesign hdiutil spctl gh; do
+    ln -s mock-command "$MOCK_BIN/$command_name"
+done
+
+run_release() {
+    env \
+        PATH="$MOCK_BIN:$PATH" \
+        MOCK_LOG="$MOCK_LOG" \
+        MOCK_IDENTITY="${MOCK_IDENTITY:-0}" \
+        MOCK_NOTARY="${MOCK_NOTARY:-0}" \
+        MOCK_ARCH="${MOCK_ARCH:-arm64}" \
+        MOCK_CODESIGN_FAIL="${MOCK_CODESIGN_FAIL:-0}" \
+        MOCK_STAPLER_FAIL="${MOCK_STAPLER_FAIL:-0}" \
+        CODEX_WORKBENCH_SKIP_BUILD=1 \
+        CODEX_WORKBENCH_RELEASE_APP="$FIXTURE_APP" \
+        CODEX_WORKBENCH_DIST_DIR="$DIST_DIR" \
+        "$ROOT_DIR/scripts/release.sh" "$@"
+}
+
+expect_failure() {
+    local label="$1"
+    shift
+    if "$@" >"$TEST_ROOT/output.log" 2>&1; then
+        echo "FAIL: $label 没有 fail closed" >&2
+        exit 1
+    fi
+}
+
+expect_failure "缺少 version" run_release --dry-run
+
+MOCK_IDENTITY=0 MOCK_NOTARY=1 \
+    expect_failure "缺少 Developer ID" run_release \
+        --version 9.9.1 --sign-identity "Developer ID Application: Test (TEAMID)" \
+        --notary-profile test-profile
+
+MOCK_IDENTITY=1 MOCK_NOTARY=0 \
+    expect_failure "缺少 notary profile" run_release \
+        --version 9.9.2 --sign-identity "Developer ID Application: Test (TEAMID)" \
+        --notary-profile missing-profile
+
+MOCK_IDENTITY=1 MOCK_NOTARY=1 MOCK_ARCH=x86_64 \
+    expect_failure "x86_64 binary" run_release \
+        --version 9.9.3 --sign-identity "Developer ID Application: Test (TEAMID)" \
+        --notary-profile test-profile
+
+MOCK_IDENTITY=1 MOCK_NOTARY=1 MOCK_ARCH=arm64 MOCK_CODESIGN_FAIL=1 \
+    expect_failure "codesign failure" run_release \
+        --version 9.9.4 --sign-identity "Developer ID Application: Test (TEAMID)" \
+        --notary-profile test-profile
+
+MOCK_IDENTITY=1 MOCK_NOTARY=1 MOCK_ARCH=arm64 MOCK_CODESIGN_FAIL=0 MOCK_STAPLER_FAIL=1 \
+    expect_failure "stapler failure" run_release \
+        --version 9.9.5 --sign-identity "Developer ID Application: Test (TEAMID)" \
+        --notary-profile test-profile
+
+MOCK_IDENTITY=1 MOCK_NOTARY=1 MOCK_ARCH=arm64 MOCK_CODESIGN_FAIL=0 MOCK_STAPLER_FAIL=0 \
+    run_release --version 9.9.7 \
+        --sign-identity "Developer ID Application: Test (TEAMID)" \
+        --notary-profile test-profile >/dev/null
+[[ -s "$DIST_DIR/Codex-Workbench-v9.9.7-arm64.dmg.sha256" ]] \
+    || { echo "FAIL: 完整 mock 发布链路没有生成 SHA256" >&2; exit 1; }
+
+PUBLISH_VERSION="9.9.6"
+PUBLISH_DMG="$DIST_DIR/Codex-Workbench-v$PUBLISH_VERSION-arm64.dmg"
+PUBLISH_SHA="$PUBLISH_DMG.sha256"
+printf 'fixture-dmg\n' > "$PUBLISH_DMG"
+expect_failure "缺少 SHA" env PATH="$MOCK_BIN:$PATH" MOCK_LOG="$MOCK_LOG" \
+    "$ROOT_DIR/scripts/publish-github-release.sh" \
+        --version "$PUBLISH_VERSION" --notes-file "$NOTES_FILE" --dist-dir "$DIST_DIR" --publish
+
+(cd "$DIST_DIR" && shasum -a 256 "$(basename "$PUBLISH_DMG")") > "$PUBLISH_SHA"
+expect_failure "未传 --publish" env PATH="$MOCK_BIN:$PATH" MOCK_LOG="$MOCK_LOG" \
+    "$ROOT_DIR/scripts/publish-github-release.sh" \
+        --version "$PUBLISH_VERSION" --notes-file "$NOTES_FILE" --dist-dir "$DIST_DIR"
+
+if [[ -f "$MOCK_LOG" ]] && grep -Fq "gh release create" "$MOCK_LOG"; then
+    echo "FAIL: 任一失败门禁仍调用了 gh release create" >&2
+    exit 1
+fi
+
+echo "PASS: release guardrails"
