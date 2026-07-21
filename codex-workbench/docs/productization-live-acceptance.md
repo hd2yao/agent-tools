@@ -11,11 +11,11 @@
 - 安装位置：`/Users/dysania/Applications/Codex 工作台.app`
 - Bundle ID：`com.hd2yao.codex-workbench`
 - 版本：`0.2.0`
-- 最终安装源码提交：`7877301`
+- 最终安装源码提交：`4a122d5`
 - Swift 源码指纹：`2c0431096693bd01a23ec5e23c36e4449ae31d4371a78dc92cbcdbda0303f82b`
-- 账号后端指纹：`8ac12b0663e329907b021e12d746cb7960cf38fc1e4ca2a52da267fdbcec5159`
-- 主二进制 SHA-256：`1ba517c91e57c040bbdd31b1bd6e23de0eea57fa79c63129a39b859dad0b39b8`
-- 构建时间：`2026-07-21T05:04:40Z`
+- 账号后端指纹：`1139508b63d7457ef956972ae37a017ad83b6d0a4b54e82c907589013411b5c2`
+- 主二进制 SHA-256：`a9435b9dd6f847098872310aa7fbba907a47fca648c64b67f3d4243b1ffb37e3`
+- 构建时间：`2026-07-21T05:25:39Z`
 
 旧 `Codex 观测站.app` 已原子迁移为唯一的 `Codex 工作台.app`；旧名称不再并存。安装前后的 Codex 主进程均为 PID `52370`，启动时间为 2026-07-20 17:35:13，证明覆盖安装没有中断或重启正在执行任务的 Codex。
 
@@ -32,16 +32,16 @@
 冻结后端在 `env -i HOME=<临时目录> PATH=/usr/bin:/bin` 下分别验证缺少认证入口和仅有测试认证入口两种状态，没有 Python、Homebrew、`.codex-profiles` 或源码路径。最终结果：
 
 - 缺少 `auth.json` 或只有空 `.codex` 时返回 `account_mode=unavailable`、`active_profile=null`，不会把空目录冒充当前账号。
-- 测试 `auth.json` 存在时返回 `account_mode=local_default`，但账号不可确认，因此 Swift 不显示当前账号；账号读取只把认证入口复制到权限为 0700/0600 的临时 `CODEX_HOME`，App Server 的初始化写入与源 HOME 完全隔离并在读取后清理。
-- 两种状态的源 HOME 前后文件树与文件 hash 一致，不创建 Profiles、软链、SQLite、系统 Skills、缓存或认证桥接。
-- 所有冻结后端 Mach-O 均为 arm64，无 x86_64；151 个 Python 测试和 App 源码级默认 home 测试覆盖上述回归。
+- 测试 `auth.json` 存在时返回 `account_mode=local_default`，但账号不可确认，因此 Swift 不显示当前账号。账号读取不会复制认证正文：权限为 0700 的临时 `CODEX_HOME` 只保存一个指向原认证入口的临时软链接，并由系统沙盒禁止 App Server 写入认证入口所在目录及其最终目标目录；沙盒不可用时失败关闭。
+- App Server 的 SQLite、Skills、日志和缓存只写入临时 home，读取结束后随临时目录清理；两种状态的源 HOME 前后文件树与文件 hash 一致，不创建 Profiles、SQLite、系统 Skills、缓存或认证副本。
+- 所有冻结后端 Mach-O 均为 arm64，无 x86_64；155 个 Python 测试和 App 源码级默认 home 测试覆盖上述回归。
 
 ## 最终对抗式复审
 
 - 复审发现 UI 的运行状态最多可能陈旧 60 秒。账号后端现在会在真正退出 Codex 前再次读取任务状态；`running`、`waiting` 或未知状态未获明确确认时以专用结果拒绝执行，工作台收到后回到风险确认，确认后的命令才携带 `--allow-active`。
 - 复审发现旧冻结包的 Homebrew Python / OpenSSL 依赖包含 `minos 26.0`，与 macOS 13+ 声明冲突。构建工具现在先校验构建 Python，再对冻结后端和完整 App 的每个 Mach-O 执行最低系统版本门禁。
 - 最终冻结后端使用 arm64 Python 3.12 构建；后端 2 个、完整 App 4 个 Mach-O 均为 arm64，且 `minos` 不高于 13.0。默认 Homebrew Python 不兼容时会在重建 venv 前失败关闭。
-- 单账号 App Server 读取曾可能把初始化数据库和系统 Skills 写回真实 `~/.codex`；现在每次读取只把 `auth.json` 复制到临时 `CODEX_HOME`，权限收紧并在退出时清理，真实默认 home 保持只读。
+- 单账号 App Server 读取曾可能把初始化数据库和系统 Skills 写回真实 `~/.codex`；初版隔离修复又会把完整 `auth.json` 复制到临时磁盘，违反 AC-PD-011。最终实现只创建临时软链接，不复制认证正文，并通过系统沙盒同时保护直接来源目录和认证文件最终目标目录；真实默认 home 保持只读，沙盒缺失时不读取账号。
 - GitHub 发布脚本曾只检查文件存在；现在上传前重新验证 SHA、DMG 结构、公证票据和 Gatekeeper，并要求工作树干净、HEAD 已是远端分支 tip、本地/远端 tag 与 Release 均不存在，最终 tag 通过 `--target` 绑定该 HEAD。
 - AppModel 新增源码级状态机 runner，直接覆盖实时拒绝后恢复确认、取消零命令、成功后验证与账号不一致失败；测试初始化不请求系统通知，也不触碰真实后台刷新。
 
@@ -53,6 +53,7 @@
 - 只读挂载、拖入隔离 Applications、再次覆盖安装均通过；两次主二进制 hash 一致。
 - 隔离用户的 `.codex` 与 `.codex-workbench` 保留，没有新增 `.codex-profiles` 或软链。
 - DMG 内所有 Mach-O 都是 arm64。
+- DMG 内 4 个 Mach-O 的 `minos` 均不高于 13.0；主二进制 SHA-256 与已安装最终 App 一致，为 `a9435b9dd6f847098872310aa7fbba907a47fca648c64b67f3d4243b1ffb37e3`。
 - `spctl` 返回拒绝，符合未签名结构包预期；该包不可分发。
 
 `security find-identity -v -p codesigning` 返回 `0 valid identities found`。`release.sh` 在缺少 Developer ID / notary profile 时以退出码 2 fail closed；`publish-github-release.sh` 对当前未公证结构包在任何 GitHub 调用前拒绝上传。正式恢复条件已登记为任务 follow-up `followup_50b377c91561ad`。
@@ -102,7 +103,7 @@
 |---|---|---|
 | AC-PD-001 | PASS | 唯一工作台、同 bundle id、原子旧名迁移与冷备说明。 |
 | AC-PD-002 | PASS | 五模块；项目/任务和工具/Skill/Hook/自动化真实证据。 |
-| AC-PD-003 | PASS | 空默认 home 返回 unavailable；认证入口存在时隔离读取且只在账号确认后展示，无 Profiles/软链/源 HOME 写入。 |
+| AC-PD-003 | PASS | 空默认 home 返回 unavailable；认证入口存在时以临时链接和写入沙盒隔离读取，只在账号确认后展示，无 Profiles、认证副本或源 HOME 写入。 |
 | AC-PD-004 | PASS | 既有 2 Profiles 识别、历史双向真实切换与全量回归。 |
 | AC-PD-005 | PASS | 重启策略、实时二次复核、确认、取消、事务、验证和脱敏日志测试；安装版对运行任务拒绝无确认重启并保持 PID。 |
 | AC-PD-006 | PASS | bundle id、重复 App、路径、默认 home、后端、账号模式和安全动作诊断。 |
@@ -110,6 +111,6 @@
 | AC-PD-008 | PASS | 自包含后端与 App 全部 arm64，无外部 Python 运行依赖。 |
 | AC-PD-009 | 外部门禁 | 工具链和无凭据门禁通过；缺 Developer ID 与 notary profile。 |
 | AC-PD-010 | 外部门禁 | 显式发布脚本、远端 HEAD/tag 绑定和公证资产二次校验已通过测试；没有可发布的公证 DMG，未创建 Release。 |
-| AC-PD-011 | PASS | 无认证正文输出、临时 home、真实运行任务未中断。 |
+| AC-PD-011 | PASS | 无认证正文输出或复制；临时链接只用于进程内读取，系统沙盒保护认证来源，真实运行任务未中断。 |
 | AC-PD-012 | PASS | 三档视觉、深浅色、错误/确认/新鲜诊断截图、基础 AX、直接 AppModel 状态机测试与完整回归。 |
 | AC-PD-013 | 外部门禁 | 干净 HOME 与结构性 DMG 通过；正式 Gatekeeper DMG 等待签名公证。 |
