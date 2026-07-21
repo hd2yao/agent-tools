@@ -10,8 +10,8 @@ public enum AppModule: String, CaseIterable, Hashable, Sendable {
         case .overview: "概览"
         case .activity: "操作日志"
         case .accounts: "账号管理"
-        case .projects: "项目分析"
-        case .toolsAndSkills: "工具 / Skill"
+        case .projects: "项目与任务"
+        case .toolsAndSkills: "工具与自动化"
         }
     }
 

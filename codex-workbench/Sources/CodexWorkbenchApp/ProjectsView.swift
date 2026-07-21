@@ -13,8 +13,8 @@ struct ProjectsView: View {
             VStack(alignment: .leading, spacing: WorkbenchSpacing.lg) {
                 PageHeader(
                     eyebrow: "Projects",
-                    title: "项目分析",
-                    description: "按本地任务历史查看各项目的对话数量、Token 用量和最近活动。",
+                    title: "项目与任务",
+                    description: "按真实工作区查看项目统计、最近任务、上下文摘要与接续关系。",
                     trailing: AnyView(
                         Button("刷新") { Task { await model.refreshAll() } }
                             .disabled(model.isRefreshing)
@@ -36,6 +36,8 @@ struct ProjectsView: View {
                         message: "工作台尚未从本地 Codex 历史库读取到项目排行；这不代表项目数量为 0。"
                     )
                 }
+
+                recentTasksContent
             }
             .padding(.horizontal, WorkbenchSpacing.lg)
             .padding(.vertical, WorkbenchSpacing.lg)
@@ -43,6 +45,59 @@ struct ProjectsView: View {
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }
         .accessibilityIdentifier("projects-page")
+    }
+
+    @ViewBuilder
+    private var recentTasksContent: some View {
+        VStack(alignment: .leading, spacing: WorkbenchSpacing.sm) {
+            SectionTitle(
+                "最近任务",
+                detail: "\(model.workspaceCatalog.recentThreads.count) 个任务 · \(model.workspaceCatalog.contextSummaryCount) 个有摘要"
+            )
+            if model.workspaceCatalog.projects.isEmpty {
+                SurfaceCard {
+                    QuietEmptyState(
+                        systemImage: "bubble.left.and.bubble.right",
+                        title: "还没有任务目录",
+                        message: "当前 metadata 目录中没有可展示的真实任务；不会用操作日志推断任务数量。"
+                    )
+                    .frame(maxWidth: .infinity)
+                }
+            } else {
+                ForEach(model.workspaceCatalog.projects.prefix(8), id: \.path) { project in
+                    SurfaceCard(padding: 0) {
+                        VStack(alignment: .leading, spacing: 0) {
+                            HStack(alignment: .firstTextBaseline) {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(project.name)
+                                        .font(.system(size: 12, weight: .semibold))
+                                    Text(project.path)
+                                        .font(.system(size: 9, design: .monospaced))
+                                        .foregroundStyle(.tertiary)
+                                        .lineLimit(1)
+                                        .truncationMode(.middle)
+                                }
+                                Spacer()
+                                Text("\(project.threads.count) 个任务")
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(.secondary)
+                            }
+                            .padding(.horizontal, WorkbenchSpacing.md)
+                            .padding(.vertical, WorkbenchSpacing.sm)
+                            Divider()
+                            ForEach(Array(project.threads.prefix(6).enumerated()), id: \.element.id) { index, thread in
+                                WorkspaceThreadRow(thread: thread) {
+                                    CodexIntegrationService.openThread(thread.id)
+                                }
+                                if index < min(project.threads.count, 6) - 1 {
+                                    Divider().padding(.leading, 48)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     @ViewBuilder
@@ -101,6 +156,56 @@ struct ProjectsView: View {
         if abs(number) >= 1_000_000 { return String(format: "%.1fM", number / 1_000_000) }
         if abs(number) >= 1_000 { return String(format: "%.1fK", number / 1_000) }
         return "\(value)"
+    }
+}
+
+private struct WorkspaceThreadRow: View {
+    let thread: WorkspaceThreadPresentation
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(alignment: .top, spacing: WorkbenchSpacing.sm) {
+                Image(systemName: thread.sourceThreadID == nil ? "bubble.left" : "arrow.triangle.branch")
+                    .foregroundStyle(Color.accentColor)
+                    .frame(width: 24, height: 24)
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: WorkbenchSpacing.xs) {
+                        Text(thread.title)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
+                        if thread.hasContextSummary {
+                            StatusChip("有摘要", color: .indigo, systemImage: "doc.text.fill")
+                        }
+                    }
+                    if let sourceTitle = thread.sourceThreadTitle {
+                        Text("接续自：\(sourceTitle)")
+                            .font(.system(size: 9))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    } else if let topic = thread.contextTopic {
+                        Text(topic)
+                            .font(.system(size: 9))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+                Spacer(minLength: WorkbenchSpacing.sm)
+                Text(thread.updatedAt.formatted(date: .abbreviated, time: .shortened))
+                    .font(.system(size: 9, design: .monospaced))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(.horizontal, WorkbenchSpacing.md)
+            .padding(.vertical, 9)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(
+            thread.sourceThreadTitle.map { "\(thread.title)，接续自 \($0)" }
+                ?? thread.title
+        )
+        .accessibilityHint("在 Codex 中打开这个任务")
     }
 }
 

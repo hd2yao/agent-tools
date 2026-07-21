@@ -13,8 +13,8 @@ struct ToolsSkillsView: View {
             VStack(alignment: .leading, spacing: WorkbenchSpacing.lg) {
                 PageHeader(
                     eyebrow: "Tools & Skills",
-                    title: "工具 / Skill",
-                    description: "查看本地任务中动态工具的调用次数，以及 Skill 的实际读取与使用排行。",
+                    title: "工具与自动化",
+                    description: "查看动态工具、Skill、Hook 与自动化的真实本地证据。",
                     trailing: AnyView(
                         Button("刷新") { Task { await model.refreshAll() } }
                             .disabled(model.isRefreshing)
@@ -57,6 +57,25 @@ struct ToolsSkillsView: View {
                     }
                 }
 
+                LazyVGrid(
+                    columns: [GridItem(.adaptive(minimum: 320, maximum: 560), spacing: WorkbenchSpacing.sm)],
+                    alignment: .leading,
+                    spacing: WorkbenchSpacing.sm
+                ) {
+                    workflowPanel(
+                        title: "Hooks",
+                        detail: "\(model.workspaceCatalog.workflows.hooks.count) 项",
+                        items: model.workspaceCatalog.workflows.hooks,
+                        emptyMessage: "没有从工作流文件中识别到 Hook"
+                    )
+                    workflowPanel(
+                        title: "自动化",
+                        detail: "\(model.workspaceCatalog.workflows.automations.count) 项",
+                        items: model.workspaceCatalog.workflows.automations,
+                        emptyMessage: "没有从工作流文件中识别到自动化"
+                    )
+                }
+
                 SurfaceCard {
                     HStack(alignment: .top, spacing: WorkbenchSpacing.sm) {
                         Image(systemName: "info.circle")
@@ -79,6 +98,33 @@ struct ToolsSkillsView: View {
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }
         .accessibilityIdentifier("tools-skills-page")
+    }
+
+    private func workflowPanel(
+        title: String,
+        detail: String,
+        items: [WorkflowItemPresentation],
+        emptyMessage: String
+    ) -> some View {
+        SurfaceCard(padding: 0) {
+            VStack(alignment: .leading, spacing: 0) {
+                SectionTitle(title, detail: detail)
+                    .padding(.horizontal, WorkbenchSpacing.md)
+                    .padding(.vertical, WorkbenchSpacing.sm)
+                Divider()
+                if items.isEmpty {
+                    Text(emptyMessage)
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, minHeight: 84)
+                } else {
+                    ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                        WorkflowItemRow(item: item)
+                        if index < items.count - 1 { Divider().padding(.leading, 44) }
+                    }
+                }
+            }
+        }
     }
 
     private var skillDetail: String {
@@ -119,6 +165,34 @@ struct ToolsSkillsView: View {
                 }
             }
         }
+    }
+}
+
+private struct WorkflowItemRow: View {
+    let item: WorkflowItemPresentation
+
+    var body: some View {
+        HStack(alignment: .top, spacing: WorkbenchSpacing.xs) {
+            Image(systemName: "bolt.horizontal.circle")
+                .foregroundStyle(Color.accentColor)
+                .frame(width: 28, height: 28)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(item.name)
+                    .font(.system(size: 11, weight: .semibold))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Text(item.purpose ?? "未声明用途")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: WorkbenchSpacing.sm)
+            RankedValue(title: "状态", value: item.status ?? "未声明")
+            RankedValue(title: "计划", value: item.schedule ?? "未声明")
+        }
+        .padding(.horizontal, WorkbenchSpacing.md)
+        .padding(.vertical, 9)
+        .accessibilityElement(children: .combine)
     }
 }
 

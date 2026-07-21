@@ -77,4 +77,9 @@ func runWorkbenchVisualAcceptanceTests(_ runner: inout TestRunner) {
         switching.payload?.profiles.contains(where: { $0.name == "hd-master" }) == true,
         "Fixture should cover the alternate account row"
     )
+    runner.expect(
+        switching.workspaceCatalog.recentThreads.count == 2
+            && switching.workspaceCatalog.workflows.hooks.count == 1,
+        "Visual fixtures should provide deterministic task and workflow evidence"
+    )
 }

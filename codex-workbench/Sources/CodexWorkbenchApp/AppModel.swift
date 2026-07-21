@@ -54,6 +54,11 @@ final class WorkbenchAppModel: ObservableObject {
             managedProfileCount: 0
         )
     )
+    @Published private(set) var workspaceCatalog = WorkspaceCatalogPresentationBuilder.build(
+        catalog: CodexMetadataCatalog(),
+        contextCards: [],
+        workflowFiles: []
+    )
     @Published private(set) var isCodexRunning = false
     @Published private(set) var isLegacyProfileSwitcherRunning = false
     @Published private(set) var lastUpdated: Date?
@@ -93,6 +98,7 @@ final class WorkbenchAppModel: ObservableObject {
             accountPayload = snapshot.payload
             accountError = snapshot.errorMessage
             accountSwitchStage = snapshot.switchingProfile.map { .switching(profile: $0) }
+            workspaceCatalog = snapshot.workspaceCatalog
             isCodexRunning = snapshot.isCodexRunning
             lastUpdated = snapshot.lastUpdatedAt
             if snapshot.payload != nil {
@@ -231,6 +237,11 @@ final class WorkbenchAppModel: ObservableObject {
 
         let ledger = await ledgerResult
         let account = await accountResult
+        workspaceCatalog = WorkspaceCatalogPresentationBuilder.build(
+            catalog: ledger.snapshot.threadCatalog,
+            contextCards: ledger.snapshot.contextCards,
+            workflowFiles: ledger.snapshot.workflowFiles
+        )
         let accountRefreshCompletedAt = Date()
         if let payload = account.payload {
             accountPayload = payload

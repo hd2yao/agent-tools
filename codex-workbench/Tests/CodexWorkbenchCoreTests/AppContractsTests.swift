@@ -8,8 +8,11 @@ func runAppContractsTests(_ runner: inout TestRunner) {
     runner.expect(AppModule.overview.title == "概览", "Overview title should be localized")
     runner.expect(AppModule.activity.title == "操作日志", "Activity title should be localized")
     runner.expect(AppModule.accounts.title == "账号管理", "Accounts title should be localized")
-    runner.expect(AppModule.projects.title == "项目分析", "Projects title should be localized")
-    runner.expect(AppModule.toolsAndSkills.title == "工具 / Skill", "Tools title should be localized")
+    runner.expect(AppModule.projects.title == "项目与任务", "Projects title should include real tasks")
+    runner.expect(
+        AppModule.toolsAndSkills.title == "工具与自动化",
+        "Tools title should include hooks and automations"
+    )
     runner.expect(
         AppModule.allCases.allSatisfy { !$0.systemImage.isEmpty },
         "Every module should have an SF Symbol"

@@ -77,15 +77,6 @@ struct WorkbenchShell: View {
             }
 
             Section {
-                Label("任务与线程", systemImage: "point.3.filled.connected.trianglepath.dotted")
-                Label("Hook 与自动化", systemImage: "bolt.horizontal.circle")
-                Label("上下文健康", systemImage: "waveform.path.ecg")
-            } header: {
-                Text("即将推出")
-            }
-            .foregroundStyle(.tertiary)
-
-            Section {
                 HStack(spacing: WorkbenchSpacing.xs) {
                     Circle()
                         .fill(model.ledgerWarnings.isEmpty ? Color.green : Color.orange)

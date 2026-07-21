@@ -66,6 +66,7 @@ public struct WorkbenchVisualAcceptanceSnapshot: Equatable, Sendable {
     public let isCodexRunning: Bool
     public let blocksLiveOperations: Bool
     public let banner: String
+    public let workspaceCatalog: WorkspaceCatalogPresentation
 
     public static func make(
         for fixture: WorkbenchVisualAcceptanceConfiguration.Fixture,
@@ -79,7 +80,8 @@ public struct WorkbenchVisualAcceptanceSnapshot: Equatable, Sendable {
             lastUpdatedAt: fixture == .stale ? now.addingTimeInterval(-600) : now,
             isCodexRunning: true,
             blocksLiveOperations: true,
-            banner: "视觉验收模式 · 不执行真实账号操作"
+            banner: "视觉验收模式 · 不执行真实账号操作",
+            workspaceCatalog: sampleWorkspaceCatalog(now: now)
         )
     }
 
@@ -206,6 +208,60 @@ public struct WorkbenchVisualAcceptanceSnapshot: Equatable, Sendable {
             ),
             resetCreditStale: false,
             resetCreditError: nil
+        )
+    }
+
+    private static func sampleWorkspaceCatalog(now: Date) -> WorkspaceCatalogPresentation {
+        let source = WorkspaceThreadPresentation(
+            id: "11111111-1111-4111-8111-111111111111",
+            title: "Codex 工作台产品化",
+            projectName: "tools",
+            projectPath: "/Users/example/program/tools",
+            updatedAt: now.addingTimeInterval(-3_600),
+            sourceThreadID: nil,
+            sourceThreadTitle: nil,
+            hasContextSummary: true,
+            contextTopic: "工作台产品化"
+        )
+        let continued = WorkspaceThreadPresentation(
+            id: "22222222-2222-4222-8222-222222222222",
+            title: "接续：工作台发行",
+            projectName: "tools",
+            projectPath: "/Users/example/program/tools",
+            updatedAt: now.addingTimeInterval(-600),
+            sourceThreadID: source.id,
+            sourceThreadTitle: source.title,
+            hasContextSummary: false,
+            contextTopic: nil
+        )
+        let hook = WorkflowItemPresentation(
+            id: "fixture-hook",
+            name: "上下文摘要 Hook",
+            status: "enabled",
+            schedule: nil,
+            purpose: "压缩前生成任务摘要",
+            modifiedAt: now.addingTimeInterval(-1_800)
+        )
+        let automation = WorkflowItemPresentation(
+            id: "fixture-automation",
+            name: "每周回顾",
+            status: "active",
+            schedule: "MON 09:00",
+            purpose: "整理本周任务证据",
+            modifiedAt: now.addingTimeInterval(-1_200)
+        )
+        return WorkspaceCatalogPresentation(
+            projects: [
+                WorkspaceProjectPresentation(
+                    name: "tools",
+                    path: "/Users/example/program/tools",
+                    updatedAt: continued.updatedAt,
+                    threads: [continued, source]
+                )
+            ],
+            recentThreads: [continued, source],
+            contextSummaryCount: 1,
+            workflows: WorkflowCatalogPresentation(hooks: [hook], automations: [automation])
         )
     }
 }

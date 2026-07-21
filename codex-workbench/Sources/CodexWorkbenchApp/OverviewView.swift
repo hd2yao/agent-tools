@@ -85,24 +85,31 @@ struct OverviewView: View {
                 HStack(alignment: .top, spacing: WorkbenchSpacing.sm) {
                     SurfaceCard {
                         VStack(alignment: .leading, spacing: WorkbenchSpacing.sm) {
-                            SectionTitle("数据源健康")
-                            DataSourceLine(
-                                title: "Operation ledger",
-                                detail: "\(model.events.count) 条事件",
-                                healthy: model.ledgerWarnings.isEmpty
+                            SectionTitle("证据覆盖")
+                            EvidenceFactLine(
+                                title: "任务目录",
+                                detail: "\(model.workspaceCatalog.recentThreads.count) 个真实任务"
                             )
-                            DataSourceLine(
-                                title: "账号模块",
-                                detail: model.accountError ?? "已读取真实账号状态",
-                                healthy: model.accountError == nil
+                            EvidenceFactLine(
+                                title: "上下文摘要",
+                                detail: "\(model.workspaceCatalog.contextSummaryCount) 个任务有摘要"
                             )
-                            DataSourceLine(
-                                title: "冷备进程",
-                                detail: model.isLegacyProfileSwitcherRunning
-                                    ? "旧 Profile Switcher 正在运行，账号自动化已暂停"
-                                    : "旧 App 已保留且未运行",
-                                healthy: !model.isLegacyProfileSwitcherRunning
+                            EvidenceFactLine(
+                                title: "工作流文件",
+                                detail: "\(model.workspaceCatalog.workflows.hooks.count) 个 Hook · \(model.workspaceCatalog.workflows.automations.count) 个自动化"
                             )
+                            if model.ledgerWarnings.isEmpty {
+                                Label("本轮没有证据读取警告", systemImage: "checkmark.circle")
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(.secondary)
+                            } else {
+                                ForEach(Array(model.ledgerWarnings.prefix(3).enumerated()), id: \.offset) { _, warning in
+                                    Label(warning, systemImage: "exclamationmark.circle.fill")
+                                        .font(.system(size: 10))
+                                        .foregroundStyle(Color.orange)
+                                        .lineLimit(2)
+                                }
+                            }
                         }
                     }
                     .frame(maxWidth: .infinity)
@@ -228,15 +235,14 @@ struct CompactEventRow: View {
     }
 }
 
-private struct DataSourceLine: View {
+private struct EvidenceFactLine: View {
     let title: String
     let detail: String
-    let healthy: Bool
 
     var body: some View {
         HStack(spacing: WorkbenchSpacing.xs) {
-            Image(systemName: healthy ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
-                .foregroundStyle(healthy ? Color.green : Color.orange)
+            Image(systemName: "doc.text.magnifyingglass")
+                .foregroundStyle(Color.accentColor)
             Text(title)
                 .font(.system(size: 11, weight: .medium))
             Spacer()
