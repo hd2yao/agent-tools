@@ -7,11 +7,14 @@ APP_DIR="$ROOT_DIR/build/$APP_NAME.app"
 CONTENTS_DIR="$APP_DIR/Contents"
 MACOS_DIR="$CONTENTS_DIR/MacOS"
 RESOURCES_DIR="$CONTENTS_DIR/Resources"
+HELPERS_DIR="$CONTENTS_DIR/Helpers"
 LOGIN_ITEMS_DIR="$CONTENTS_DIR/Library/LoginItems"
 LOGIN_HELPER_APP="$LOGIN_ITEMS_DIR/Codex Workbench Login Helper.app"
 LOGIN_HELPER_MACOS_DIR="$LOGIN_HELPER_APP/Contents/MacOS"
 ACCOUNT_SOURCE_DIR="$ROOT_DIR/../codex-profile-switcher"
-ACCOUNT_RESOURCE_DIR="$RESOURCES_DIR/codex-profile-switcher"
+ACCOUNT_BACKEND_SOURCE_DIR="$ROOT_DIR/.build/account-backend/dist/CodexAccountBackend"
+ACCOUNT_BACKEND_PAYLOAD_DIR="$RESOURCES_DIR/CodexAccountBackend"
+ACCOUNT_BACKEND_ENTRY_DIR="$HELPERS_DIR/CodexAccountBackend"
 ICON_SOURCE="$ROOT_DIR/Resources/AppIcon-1024.png"
 ICONSET_DIR="$ROOT_DIR/.build/CodexObservatory.iconset"
 
@@ -27,6 +30,10 @@ source_fingerprint() {
 }
 
 cd "$ROOT_DIR"
+[[ -x "$ACCOUNT_BACKEND_SOURCE_DIR/CodexAccountBackend" ]] || {
+    echo "FAIL: 缺少自包含账号后端；先运行 ./scripts/bootstrap-release-tools.sh 和 ./scripts/build-account-backend.sh" >&2
+    exit 1
+}
 mkdir -p "$ROOT_DIR/Resources"
 xcrun swift "$ROOT_DIR/scripts/generate-app-icon.swift" "$ICON_SOURCE"
 rm -rf "$ICONSET_DIR"
@@ -42,15 +49,16 @@ swift build -c release --product CodexWorkbenchLoginHelper
 BIN_DIR="$(swift build -c release --show-bin-path)"
 
 rm -rf "$APP_DIR"
-mkdir -p "$MACOS_DIR" "$ACCOUNT_RESOURCE_DIR" "$LOGIN_HELPER_MACOS_DIR"
+mkdir -p "$MACOS_DIR" "$RESOURCES_DIR" "$HELPERS_DIR" "$LOGIN_HELPER_MACOS_DIR"
 cp "$BIN_DIR/CodexWorkbenchApp" "$MACOS_DIR/CodexWorkbenchApp"
 cp "$ROOT_DIR/Resources/Info.plist" "$CONTENTS_DIR/Info.plist"
 cp "$ROOT_DIR/Resources/AppIcon.icns" "$RESOURCES_DIR/AppIcon.icns"
-cp "$ACCOUNT_SOURCE_DIR/codex_profile.py" "$ACCOUNT_RESOURCE_DIR/codex_profile.py"
-cp "$ACCOUNT_SOURCE_DIR/codex_profile_dashboard.py" "$ACCOUNT_RESOURCE_DIR/codex_profile_dashboard.py"
+cp -R "$ACCOUNT_BACKEND_SOURCE_DIR" "$ACCOUNT_BACKEND_PAYLOAD_DIR"
+ln -s ../Resources/CodexAccountBackend "$ACCOUNT_BACKEND_ENTRY_DIR"
 cp "$BIN_DIR/CodexWorkbenchLoginHelper" "$LOGIN_HELPER_MACOS_DIR/CodexWorkbenchLoginHelper"
 cp "$ROOT_DIR/Resources/LoginHelper-Info.plist" "$LOGIN_HELPER_APP/Contents/Info.plist"
 chmod +x "$MACOS_DIR/CodexWorkbenchApp"
+chmod +x "$ACCOUNT_BACKEND_PAYLOAD_DIR/CodexAccountBackend"
 chmod +x "$LOGIN_HELPER_MACOS_DIR/CodexWorkbenchLoginHelper"
 /usr/libexec/PlistBuddy -c "Add :WorkbenchSourceCommit string $(git rev-parse --short HEAD 2>/dev/null || echo unknown)" "$CONTENTS_DIR/Info.plist"
 /usr/libexec/PlistBuddy -c "Add :WorkbenchSourceFingerprint string $(source_fingerprint)" "$CONTENTS_DIR/Info.plist"

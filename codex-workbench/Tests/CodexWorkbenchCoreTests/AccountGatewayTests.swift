@@ -58,35 +58,83 @@ func runAccountGatewayTests(_ runner: inout TestRunner) {
     runner.expect(decoded?.profiles.first?.path == "/Users/dysania/.codex/profiles/hd-master", "Profile home should decode for the observer")
     runner.expect(decoded?.profiles.first?.rateLimits.reachedType == "primary", "Official reached state should decode")
 
-    let pythonURL = URL(fileURLWithPath: "/usr/bin/python3")
-    let helperURL = URL(fileURLWithPath: "/Applications/Codex 观测站.app/Contents/Resources/codex-profile-switcher/codex_profile.py")
-    let builder = AccountCommandBuilder(pythonURL: pythonURL, helperURL: helperURL)
-    let status = builder.statusCommand(refreshResetCredits: false)
-    runner.expect(status.executableURL == pythonURL, "Status should use the selected Python runtime")
-    runner.expect(status.arguments == [helperURL.path, "status", "--json"], "Status should call the JSON contract")
+    let frozenExecutable = URL(
+        fileURLWithPath: "/Applications/Codex 观测站.app/Contents/Helpers/CodexAccountBackend/CodexAccountBackend"
+    )
+    let frozen = AccountCommandBuilder(executableURL: frozenExecutable, argumentPrefix: [])
+    let status = frozen.statusCommand(refreshResetCredits: false)
+    runner.expect(status.executableURL == frozenExecutable, "Release status must use the bundled executable")
+    runner.expect(status.arguments == ["status", "--json"], "Frozen status should call the JSON contract directly")
     runner.expect(
-        builder.statusCommand(refreshResetCredits: true).arguments.last == "--refresh-reset-credits",
+        frozen.statusCommand(refreshResetCredits: true).arguments.last == "--refresh-reset-credits",
         "Explicit refresh should request fresh reset credits"
     )
     runner.expect(
-        builder.switchCommand(profile: "hd-master")?.arguments == [helperURL.path, "app", "hd-master"],
-        "Switch should reuse the existing app command"
+        frozen.switchCommand(profile: "hd-master")?.arguments == ["app", "hd-master"],
+        "Frozen switch should reuse the existing app command"
     )
     runner.expect(
-        builder.consumeResetCreditCommand(profile: "hd-master", idempotencyKey: "stable-key")?.arguments
-            == [helperURL.path, "consume-reset-credit", "hd-master", "--idempotency-key", "stable-key"],
-        "Reset consumption should reuse the sanitized Python command contract"
+        frozen.consumeResetCreditCommand(profile: "hd-master", idempotencyKey: "stable-key")?.arguments
+            == ["consume-reset-credit", "hd-master", "--idempotency-key", "stable-key"],
+        "Frozen reset consumption should reuse the sanitized command contract"
     )
     runner.expect(
-        builder.consumeResetCreditCommand(profile: "../../bad", idempotencyKey: "stable-key") == nil,
+        frozen.consumeResetCreditCommand(profile: "../../bad", idempotencyKey: "stable-key") == nil,
         "Reset consumption must reject unsafe profile names"
     )
     runner.expect(
-        builder.consumeResetCreditCommand(profile: "hd-master", idempotencyKey: "") == nil,
+        frozen.consumeResetCreditCommand(profile: "hd-master", idempotencyKey: "") == nil,
         "Reset consumption must reject an empty idempotency key"
     )
-    runner.expect(builder.switchCommand(profile: "../../bad") == nil, "Unsafe profile names must be rejected")
-    runner.expect(builder.switchCommand(profile: "name with space") == nil, "Whitespace profile names must be rejected")
+    runner.expect(frozen.switchCommand(profile: "../../bad") == nil, "Unsafe profile names must be rejected")
+    runner.expect(frozen.switchCommand(profile: "name with space") == nil, "Whitespace profile names must be rejected")
+
+    let pythonURL = URL(fileURLWithPath: "/usr/bin/python3")
+    let helperURL = URL(fileURLWithPath: "/repo/codex-profile-switcher/codex_profile.py")
+    let development = AccountCommandBuilder(
+        executableURL: pythonURL,
+        argumentPrefix: [helperURL.path],
+        requiredResourceURL: helperURL
+    )
+    runner.expect(
+        development.statusCommand(refreshResetCredits: false).arguments
+            == [helperURL.path, "status", "--json"],
+        "Development status should retain the source helper prefix"
+    )
+
+    let locatorRoot = FileManager.default.temporaryDirectory
+        .appendingPathComponent("codex-account-locator-\(UUID().uuidString)")
+    let resourceURL = locatorRoot.appendingPathComponent("Contents/Resources", isDirectory: true)
+    let bundledExecutable = locatorRoot
+        .appendingPathComponent("Contents/Helpers/CodexAccountBackend", isDirectory: true)
+        .appendingPathComponent("CodexAccountBackend")
+    try? FileManager.default.createDirectory(
+        at: bundledExecutable.deletingLastPathComponent(),
+        withIntermediateDirectories: true
+    )
+    try? FileManager.default.createDirectory(at: resourceURL, withIntermediateDirectories: true)
+    FileManager.default.createFile(atPath: bundledExecutable.path, contents: Data())
+    try? FileManager.default.setAttributes(
+        [.posixPermissions: 0o755],
+        ofItemAtPath: bundledExecutable.path
+    )
+    defer { try? FileManager.default.removeItem(at: locatorRoot) }
+
+    let bundled = AccountBackendLocator.bundled(resourceURL: resourceURL)
+    runner.expect(
+        bundled?.commandBuilder.executableURL == bundledExecutable,
+        "Release locator must resolve only the fixed bundled backend path"
+    )
+    runner.expect(
+        bundled?.commandBuilder.argumentPrefix.isEmpty == true,
+        "Release locator must not carry a Python source prefix"
+    )
+    runner.expect(
+        AccountBackendLocator.bundled(
+            resourceURL: locatorRoot.appendingPathComponent("Missing/Contents/Resources")
+        ) == nil,
+        "A missing bundled executable must allow the development locator to run"
+    )
 
     let environment = AccountCommandBuilder.processEnvironment(base: ["PATH": "/custom/bin"])
     runner.expect(

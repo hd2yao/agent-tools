@@ -11,27 +11,33 @@ public struct AccountCommand: Equatable, Sendable {
 }
 
 public struct AccountCommandBuilder: Equatable, Sendable {
-    public let pythonURL: URL
-    public let helperURL: URL
+    public let executableURL: URL
+    public let argumentPrefix: [String]
+    public let requiredResourceURL: URL?
 
-    public init(pythonURL: URL, helperURL: URL) {
-        self.pythonURL = pythonURL
-        self.helperURL = helperURL
+    public init(
+        executableURL: URL,
+        argumentPrefix: [String],
+        requiredResourceURL: URL? = nil
+    ) {
+        self.executableURL = executableURL
+        self.argumentPrefix = argumentPrefix
+        self.requiredResourceURL = requiredResourceURL
     }
 
     public func statusCommand(refreshResetCredits: Bool) -> AccountCommand {
-        var arguments = [helperURL.path, "status", "--json"]
+        var arguments = argumentPrefix + ["status", "--json"]
         if refreshResetCredits {
             arguments.append("--refresh-reset-credits")
         }
-        return AccountCommand(executableURL: pythonURL, arguments: arguments)
+        return AccountCommand(executableURL: executableURL, arguments: arguments)
     }
 
     public func switchCommand(profile: String) -> AccountCommand? {
         guard Self.isSafeProfileName(profile) else { return nil }
         return AccountCommand(
-            executableURL: pythonURL,
-            arguments: [helperURL.path, "app", profile]
+            executableURL: executableURL,
+            arguments: argumentPrefix + ["app", profile]
         )
     }
 
@@ -46,9 +52,8 @@ public struct AccountCommandBuilder: Equatable, Sendable {
             return nil
         }
         return AccountCommand(
-            executableURL: pythonURL,
-            arguments: [
-                helperURL.path,
+            executableURL: executableURL,
+            arguments: argumentPrefix + [
                 "consume-reset-credit",
                 profile,
                 "--idempotency-key",
@@ -164,10 +169,11 @@ public struct AccountGateway: Sendable {
     }
 
     private func run(_ command: AccountCommand) throws -> Data {
-        guard
-            FileManager.default.isExecutableFile(atPath: command.executableURL.path),
-            FileManager.default.fileExists(atPath: commandBuilder.helperURL.path)
-        else {
+        guard FileManager.default.isExecutableFile(atPath: command.executableURL.path) else {
+            throw AccountGatewayError.backendMissing
+        }
+        if let requiredResourceURL = commandBuilder.requiredResourceURL,
+           !FileManager.default.fileExists(atPath: requiredResourceURL.path) {
             throw AccountGatewayError.backendMissing
         }
 
@@ -204,12 +210,19 @@ public struct AccountGateway: Sendable {
 public enum AccountBackendLocator {
     public static func bundled(resourceURL: URL? = Bundle.main.resourceURL) -> AccountGateway? {
         guard let resourceURL else { return nil }
-        let helperURL = resourceURL
-            .appendingPathComponent("codex-profile-switcher", isDirectory: true)
-            .appendingPathComponent("codex_profile.py")
-        guard let pythonURL = resolvePython() else { return nil }
+        let executableURL = resourceURL
+            .deletingLastPathComponent()
+            .appendingPathComponent("Helpers", isDirectory: true)
+            .appendingPathComponent("CodexAccountBackend", isDirectory: true)
+            .appendingPathComponent("CodexAccountBackend")
+        guard FileManager.default.isExecutableFile(atPath: executableURL.path) else {
+            return nil
+        }
         return AccountGateway(
-            commandBuilder: AccountCommandBuilder(pythonURL: pythonURL, helperURL: helperURL)
+            commandBuilder: AccountCommandBuilder(
+                executableURL: executableURL,
+                argumentPrefix: []
+            )
         )
     }
 
@@ -219,7 +232,11 @@ public enum AccountBackendLocator {
             .appendingPathComponent("codex_profile.py")
         guard let pythonURL = resolvePython() else { return nil }
         return AccountGateway(
-            commandBuilder: AccountCommandBuilder(pythonURL: pythonURL, helperURL: helperURL)
+            commandBuilder: AccountCommandBuilder(
+                executableURL: pythonURL,
+                argumentPrefix: [helperURL.path],
+                requiredResourceURL: helperURL
+            )
         )
     }
 
