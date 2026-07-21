@@ -6,6 +6,7 @@ from http.client import HTTPConnection
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 from threading import Thread
+from unittest import mock
 from zoneinfo import ZoneInfo
 
 
@@ -1171,6 +1172,28 @@ class ProfileApiTests(unittest.TestCase):
             self.assertFalse(auth.is_symlink())
             self.assertEqual(auth.read_text(encoding="utf-8"), "{}")
             self.assertFalse(profile_root.exists())
+
+    def test_app_server_snapshot_does_not_spawn_without_local_auth(self):
+        from codex_profile_dashboard import read_app_server_account_snapshot
+
+        with tempfile.TemporaryDirectory() as tmp:
+            shared_home = Path(tmp) / ".codex"
+            shared_home.mkdir()
+            with (
+                mock.patch(
+                    "codex_profile_dashboard.resolve_codex_binary",
+                    return_value="/usr/bin/codex",
+                ),
+                mock.patch(
+                    "codex_profile_dashboard.subprocess.Popen",
+                    side_effect=AssertionError("app-server must not start without auth"),
+                ) as popen,
+            ):
+                result = read_app_server_account_snapshot(shared_home)
+
+            self.assertFalse(result["ok"])
+            self.assertEqual(result["error"], "authentication unavailable")
+            popen.assert_not_called()
 
     def test_empty_profile_root_still_uses_the_local_default_account(self):
         from codex_profile_dashboard import build_profiles_payload

@@ -1386,6 +1386,14 @@ def read_app_server_account_snapshot(
     profile_home: Path,
     timeout_seconds: float = 8.0,
 ) -> dict:
+    if not (profile_home / "auth.json").is_file():
+        return {
+            "ok": False,
+            "account": None,
+            "rate_limits": None,
+            "usage": None,
+            "error": "authentication unavailable",
+        }
     codex = resolve_codex_binary()
     if not codex:
         return {"ok": False, "account": None, "rate_limits": None, "usage": None, "error": "codex not found"}
