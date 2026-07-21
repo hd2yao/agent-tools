@@ -62,6 +62,8 @@ case "$name" in
             [[ "${MOCK_NOTARY:-0}" == "1" ]] || exit 1
         elif [[ "$*" == "vtool -show-build"* ]]; then
             printf 'platform MACOS\n    minos %s\n      sdk 26.0\n' "${MOCK_MINOS:-13.0}"
+        elif [[ "$*" == "stapler validate"* ]]; then
+            [[ "${MOCK_STAPLER_VALIDATE_FAIL:-0}" != "1" ]] || exit 1
         elif [[ "$*" == "stapler staple"* ]]; then
             [[ "${MOCK_STAPLER_FAIL:-0}" != "1" ]] || exit 1
         fi
@@ -90,10 +92,29 @@ case "$name" in
             exit 1
         fi
         ;;
+    git)
+        case "$*" in
+            *"status --porcelain"*) ;;
+            *"rev-parse HEAD"*) printf '%s\n' "${MOCK_HEAD_SHA:-1111111111111111111111111111111111111111}" ;;
+            *"rev-parse -q --verify refs/tags/"*) exit 1 ;;
+            *"ls-remote --tags origin refs/tags/"*)
+                if [[ "${MOCK_REMOTE_TAG:-0}" == "1" ]]; then
+                    printf '%s\trefs/tags/codex-workbench-v9.9.8\n' "${MOCK_HEAD_SHA:-1111111111111111111111111111111111111111}"
+                fi
+                ;;
+            *"ls-remote --heads origin"*)
+                if [[ "${MOCK_HEAD_PUSHED:-1}" == "1" ]]; then
+                    printf '%s\trefs/heads/main\n' "${MOCK_HEAD_SHA:-1111111111111111111111111111111111111111}"
+                else
+                    printf '%040d\trefs/heads/main\n' 2
+                fi
+                ;;
+        esac
+        ;;
 esac
 MOCK
 chmod +x "$MOCK_BIN/mock-command"
-for command_name in security xcrun file codesign hdiutil spctl gh; do
+for command_name in security xcrun file codesign hdiutil spctl gh git; do
     ln -s mock-command "$MOCK_BIN/$command_name"
 done
 
@@ -170,8 +191,12 @@ expect_failure "缺少 SHA" env PATH="$MOCK_BIN:$PATH" MOCK_LOG="$MOCK_LOG" \
         --version "$PUBLISH_VERSION" --notes-file "$NOTES_FILE" --dist-dir "$DIST_DIR" --publish
 
 (cd "$DIST_DIR" && shasum -a 256 "$(basename "$PUBLISH_DMG")") > "$PUBLISH_SHA"
+expect_failure "未公证 DMG" env PATH="$MOCK_BIN:$PATH" MOCK_LOG="$MOCK_LOG" \
+    MOCK_STAPLER_VALIDATE_FAIL=1 "$ROOT_DIR/scripts/publish-github-release.sh" \
+        --version "$PUBLISH_VERSION" --notes-file "$NOTES_FILE" \
+        --dist-dir "$DIST_DIR" --publish
 expect_failure "未传 --publish" env PATH="$MOCK_BIN:$PATH" MOCK_LOG="$MOCK_LOG" \
-    "$ROOT_DIR/scripts/publish-github-release.sh" \
+    MOCK_STAPLER_VALIDATE_FAIL=0 "$ROOT_DIR/scripts/publish-github-release.sh" \
         --version "$PUBLISH_VERSION" --notes-file "$NOTES_FILE" --dist-dir "$DIST_DIR"
 grep -Fq "tag=codex-workbench-v$PUBLISH_VERSION" "$TEST_ROOT/output.log" \
     || { echo "FAIL: 工作台 Release tag 没有使用独立命名空间" >&2; exit 1; }
@@ -181,7 +206,17 @@ if [[ -f "$MOCK_LOG" ]] && grep -Fq "gh release create" "$MOCK_LOG"; then
     exit 1
 fi
 
+expect_failure "远端 tag 已存在" env PATH="$MOCK_BIN:$PATH" MOCK_LOG="$MOCK_LOG" \
+    MOCK_REMOTE_TAG=1 MOCK_HEAD_PUSHED=1 "$ROOT_DIR/scripts/publish-github-release.sh" \
+        --version "$PUBLISH_VERSION" --notes-file "$NOTES_FILE" \
+        --dist-dir "$DIST_DIR" --publish
+expect_failure "当前 HEAD 未推送" env PATH="$MOCK_BIN:$PATH" MOCK_LOG="$MOCK_LOG" \
+    MOCK_REMOTE_TAG=0 MOCK_HEAD_PUSHED=0 "$ROOT_DIR/scripts/publish-github-release.sh" \
+        --version "$PUBLISH_VERSION" --notes-file "$NOTES_FILE" \
+        --dist-dir "$DIST_DIR" --publish
+
 env PATH="$MOCK_BIN:$PATH" MOCK_LOG="$MOCK_LOG" \
+    MOCK_REMOTE_TAG=0 MOCK_HEAD_PUSHED=1 \
     "$ROOT_DIR/scripts/publish-github-release.sh" \
         --version "$PUBLISH_VERSION" --notes-file "$NOTES_FILE" \
         --dist-dir "$DIST_DIR" --publish >/dev/null
@@ -189,5 +224,7 @@ grep -Fq "gh release view codex-workbench-v$PUBLISH_VERSION" "$MOCK_LOG" \
     || { echo "FAIL: 发布前没有检查工作台命名空间中的 Release" >&2; exit 1; }
 grep -Fq "gh release create codex-workbench-v$PUBLISH_VERSION" "$MOCK_LOG" \
     || { echo "FAIL: GitHub Release 没有使用工作台独立 tag" >&2; exit 1; }
+grep -Fq -- "--target 1111111111111111111111111111111111111111" "$MOCK_LOG" \
+    || { echo "FAIL: GitHub Release tag 没有绑定已推送的当前 HEAD" >&2; exit 1; }
 
 echo "PASS: release guardrails"

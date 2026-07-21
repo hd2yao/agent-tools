@@ -78,7 +78,7 @@ CODEX_WORKBENCH_BUILD_PYTHON="/path/to/compatible/python3.12" \
 - `dist/Codex-Workbench-v0.3.0-arm64.dmg`
 - `dist/Codex-Workbench-v0.3.0-arm64.dmg.sha256`
 
-GitHub 发布另有显式门禁；工作台使用独立 tag `codex-workbench-v<version>`，避免与同仓库的 Profile Switcher `v<version>` 冲突。不传 `--publish` 不会调用 `gh release create`，已存在的 tag / Release 也不会被覆盖：
+GitHub 发布另有显式门禁；工作台使用独立 tag `codex-workbench-v<version>`，避免与同仓库的 Profile Switcher `v<version>` 冲突。不传 `--publish` 不会调用 `gh release create`，已存在的 tag / Release 也不会被覆盖。上传前会重新执行 DMG、stapler 和 Gatekeeper 校验，并要求工作树干净、当前 HEAD 已成为远端分支 tip；新 tag 会通过 `--target` 明确绑定该提交：
 
 ```bash
 ./scripts/publish-github-release.sh \
