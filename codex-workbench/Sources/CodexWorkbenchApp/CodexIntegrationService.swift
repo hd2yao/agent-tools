@@ -27,4 +27,14 @@ enum CodexIntegrationService {
         guard let url = CodexIntegration.threadURL(for: threadID) else { return }
         NSWorkspace.shared.open(url)
     }
+
+    static func revealDiagnosticTarget(_ target: DiagnosticRevealTarget) {
+        NSWorkspace.shared.activateFileViewerSelecting([target.url])
+    }
+
+    static func copyDiagnosticSummary(_ snapshot: WorkbenchDiagnosticSnapshot) {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(snapshot.copyableSummary, forType: .string)
+    }
 }

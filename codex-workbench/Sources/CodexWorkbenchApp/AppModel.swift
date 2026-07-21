@@ -45,6 +45,15 @@ final class WorkbenchAppModel: ObservableObject {
     @Published private(set) var accountSwitchStage: AccountSwitchStage?
     @Published private(set) var accountRestartStage: AccountRestartStage?
     @Published private(set) var accountRestartConfirmation: AccountRestartConfirmationReason?
+    @Published private(set) var diagnosticSnapshot = WorkbenchDiagnosticsBuilder.build(
+        WorkbenchDiagnosticInput(
+            installedApps: [],
+            selectedAppURL: nil,
+            backendAvailable: false,
+            accountMode: .unavailable,
+            managedProfileCount: 0
+        )
+    )
     @Published private(set) var isCodexRunning = false
     @Published private(set) var isLegacyProfileSwitcherRunning = false
     @Published private(set) var lastUpdated: Date?
@@ -65,6 +74,7 @@ final class WorkbenchAppModel: ObservableObject {
     private let officialRateLimitObserver = OfficialRateLimitObserver()
     private let automaticResetCoordinator = AutomaticResetCoordinator()
     private var accountRefreshFreshness = AccountRefreshFreshness()
+    private var recentAccountFailureStage: String?
 
     init() {
         let configuration = WorkbenchVisualAcceptanceConfiguration.parse(
@@ -94,6 +104,7 @@ final class WorkbenchAppModel: ObservableObject {
             accountGateway = AccountBackendLocator.bundled() ?? Self.developmentAccountGateway()
             updateRunningApplicationState()
         }
+        refreshDiagnostics()
     }
 
     var filteredEvents: [OperationEvent] {
@@ -292,6 +303,7 @@ final class WorkbenchAppModel: ObservableObject {
         events = observationResult.events
         ledgerWarnings = observationResult.warnings
         configureOfficialRateLimitObserver()
+        refreshDiagnostics()
         lastUpdated = Date()
         isRefreshing = false
         if let payload = account.payload {
@@ -445,13 +457,23 @@ final class WorkbenchAppModel: ObservableObject {
         isLegacyProfileSwitcherRunning = AccountRuntimeServices.legacyProfileSwitcherIsRunning()
     }
 
-    private func recordAccountSwitch(from previousProfile: String?, to profile: String) {
-        appendAccountOperationEvent(
-            AccountOperationEventFactory.switchSucceeded(from: previousProfile, to: profile)
+    func refreshDiagnostics() {
+        diagnosticSnapshot = AccountRuntimeServices.diagnosticSnapshot(
+            payload: accountPayload,
+            recentFailureStage: recentAccountFailureStage
         )
     }
 
+    private func recordAccountSwitch(from previousProfile: String?, to profile: String) {
+        recentAccountFailureStage = nil
+        appendAccountOperationEvent(
+            AccountOperationEventFactory.switchSucceeded(from: previousProfile, to: profile)
+        )
+        refreshDiagnostics()
+    }
+
     private func recordAccountSwitchFailure(expected: String, actual: String?, reason: String) {
+        recentAccountFailureStage = reason
         appendAccountOperationEvent(
             AccountOperationEventFactory.switchFailed(
                 expected: expected,
@@ -459,6 +481,7 @@ final class WorkbenchAppModel: ObservableObject {
                 reason: reason
             )
         )
+        refreshDiagnostics()
     }
 
     private func performRestartCurrentCodex(expectedMode: AccountMode, profile: String) {
@@ -483,6 +506,8 @@ final class WorkbenchAppModel: ObservableObject {
                         reason: "restart_command_failed"
                     )
                 )
+                recentAccountFailureStage = "restart_command_failed"
+                refreshDiagnostics()
                 accountRestartStage = nil
                 accountError = errorMessage
                 return
@@ -514,6 +539,8 @@ final class WorkbenchAppModel: ObservableObject {
                         reason: "verification_unavailable"
                     )
                 )
+                recentAccountFailureStage = "verification_unavailable"
+                refreshDiagnostics()
                 accountRestartStage = nil
                 accountError = result.errorMessage ?? "无法验证重启后的账号。"
                 return
@@ -534,6 +561,8 @@ final class WorkbenchAppModel: ObservableObject {
                 appendAccountOperationEvent(
                     AccountOperationEventFactory.restartSucceeded(profile: profile)
                 )
+                recentAccountFailureStage = nil
+                refreshDiagnostics()
                 await refreshAll(refreshResetCredits: true)
             case .mismatch(let expected, let actual):
                 appendAccountOperationEvent(
@@ -542,6 +571,8 @@ final class WorkbenchAppModel: ObservableObject {
                         reason: "verification_mismatch"
                     )
                 )
+                recentAccountFailureStage = "verification_mismatch"
+                refreshDiagnostics()
                 accountRestartStage = nil
                 accountError = "Codex 重启未通过验证：预期账号为 \(expected ?? "未知")，实际为 \(actual ?? "未知")。"
             }

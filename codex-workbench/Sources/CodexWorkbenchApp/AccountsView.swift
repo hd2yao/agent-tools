@@ -3,6 +3,7 @@ import SwiftUI
 
 struct AccountsView: View {
     @ObservedObject var model: WorkbenchAppModel
+    @State private var showingDiagnostics = false
 
     private var details: AccountDetailsPresentation {
         AccountPresentationBuilder.details(payload: model.accountPayload)
@@ -44,6 +45,15 @@ struct AccountsView: View {
                         message: "目标账号：\(AccountPresentationBuilder.profileDisplayName(stage.profile))。请稍候，不要重复操作。",
                         color: .blue,
                         systemImage: "arrow.triangle.2.circlepath"
+                    )
+                }
+
+                if let stage = model.accountRestartStage {
+                    AccountNotice(
+                        title: restartNoticeTitle(stage),
+                        message: "工作台正在安全重启 Codex，并确认当前登录账号保持不变。",
+                        color: .blue,
+                        systemImage: "arrow.clockwise.circle.fill"
                     )
                 }
 
@@ -107,12 +117,21 @@ struct AccountsView: View {
                     onSwitch: model.switchProfile
                 )
 
-                AccountDiagnosticsSection(payload: model.accountPayload)
+                AccountDiagnosticsSection(
+                    payload: model.accountPayload,
+                    onOpen: {
+                        model.refreshDiagnostics()
+                        showingDiagnostics = true
+                    }
+                )
             }
             .padding(.horizontal, WorkbenchSpacing.lg)
             .padding(.vertical, WorkbenchSpacing.lg)
             .frame(maxWidth: 1_180, alignment: .leading)
             .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
+        .sheet(isPresented: $showingDiagnostics) {
+            DiagnosticsView(model: model)
         }
         .accessibilityIdentifier("accounts-page")
     }
@@ -123,6 +142,15 @@ struct AccountsView: View {
             "正在切换登录账号"
         case .verifying:
             "正在验证登录账号"
+        }
+    }
+
+    private func restartNoticeTitle(_ stage: AccountRestartStage) -> String {
+        switch stage {
+        case .preparing: "正在准备重启"
+        case .quitting: "正在安全退出 Codex"
+        case .launching: "正在重新启动 Codex"
+        case .verifying: "正在验证当前账号"
         }
     }
 }
@@ -587,9 +615,10 @@ private struct CompactAccountValue: View {
 
 private struct AccountDiagnosticsSection: View {
     let payload: AccountDashboardPayload?
+    let onOpen: () -> Void
 
     var body: some View {
-        DisclosureGroup("高级诊断") {
+        DisclosureGroup("账号来源说明") {
             VStack(alignment: .leading, spacing: WorkbenchSpacing.xs) {
                 if let roles = payload?.profileRoles {
                     DiagnosticLine(title: "最近任务（可能为推断）", role: roles.task)
@@ -604,8 +633,13 @@ private struct AccountDiagnosticsSection: View {
                             .lineLimit(1)
                     }
                 }
-                Text("这些诊断值不会用于决定页面顶部的当前登录账号。")
+                Text("这些来源说明不会替代页面顶部经过验证的当前登录账号。")
                     .foregroundStyle(.tertiary)
+                HStack {
+                    Spacer()
+                    Button("打开诊断与修复") { onOpen() }
+                        .accessibilityHint("检查 Codex 安装、账号来源和内置后端")
+                }
             }
             .font(.system(size: 10))
             .padding(.top, WorkbenchSpacing.xs)
