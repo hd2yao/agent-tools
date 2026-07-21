@@ -1261,6 +1261,7 @@ def _app_server_read_command(
         linked_auth = auth_link.readlink()
         if not linked_auth.is_absolute():
             linked_auth = auth_link.parent / linked_auth
+        isolated_root = profile_home.resolve(strict=True)
         protected_roots = sorted(
             {
                 str(linked_auth.parent.resolve(strict=True)),
@@ -1272,13 +1273,38 @@ def _app_server_read_command(
     if not sandbox_binary.is_file() or not os.access(sandbox_binary, os.X_OK):
         return None
 
+    # Keep the root read-only so auth refresh cannot stage a credential copy.
+    sqlite_names = (
+        "goals_1.sqlite",
+        "logs_2.sqlite",
+        "memories_1.sqlite",
+        "state_5.sqlite",
+    )
+    writable_files = [isolated_root / "installation_id"] + [
+        isolated_root / suffix
+        for name in sqlite_names
+        for suffix in (
+            name,
+            f"{name}-journal",
+            f"{name}-shm",
+            f"{name}-wal",
+        )
+    ]
     profile = "(version 1)(allow default)" + "".join(
         f'(deny file-write* (subpath (param "CODEX_PROTECTED_{index}")))'
         for index in range(len(protected_roots))
     )
+    profile += '(deny file-write* (subpath (param "CODEX_ISOLATED_HOME")))'
+    profile += "".join(
+        f'(allow file-write* (literal (param "CODEX_SCRATCH_{index}")))'
+        for index in range(len(writable_files))
+    )
     command = [str(sandbox_binary)]
     for index, root in enumerate(protected_roots):
         command += ["-D", f"CODEX_PROTECTED_{index}={root}"]
+    command += ["-D", f"CODEX_ISOLATED_HOME={isolated_root}"]
+    for index, path in enumerate(writable_files):
+        command += ["-D", f"CODEX_SCRATCH_{index}={path}"]
     return command + ["-p", profile, codex, "app-server"]
 
 

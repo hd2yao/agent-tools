@@ -1049,6 +1049,83 @@ class AppServerClientTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertFalse(blocked.exists())
 
+    def test_read_only_app_server_sandbox_blocks_atomic_auth_replacement(self):
+        import subprocess
+
+        from codex_profile_dashboard import _app_server_read_command
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source_home = root / "source"
+            isolated_home = root / "isolated"
+            source_home.mkdir()
+            isolated_home.mkdir()
+            source_auth = source_home / "auth.json"
+            source_auth.write_text("original-secret", encoding="utf-8")
+            isolated_auth = isolated_home / "auth.json"
+            isolated_auth.symlink_to(source_auth)
+            replacement = isolated_home / "auth.json.new"
+            command = _app_server_read_command("/usr/bin/true", isolated_home)
+
+            self.assertIsNotNone(command)
+            result = subprocess.run(
+                command[:-2]
+                + [
+                    "/bin/sh",
+                    "-c",
+                    'printf %s "$1" > "$2" && /bin/mv "$2" "$3"',
+                    "sandbox-auth-replacement",
+                    "credential-copy",
+                    str(replacement),
+                    str(isolated_auth),
+                ],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertTrue(isolated_auth.is_symlink())
+            self.assertFalse(replacement.exists())
+            self.assertEqual(source_auth.read_text(encoding="utf-8"), "original-secret")
+
+    def test_read_only_app_server_sandbox_only_allows_known_scratch_files(self):
+        import subprocess
+
+        from codex_profile_dashboard import _app_server_read_command
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source_home = root / "source"
+            isolated_home = root / "isolated"
+            source_home.mkdir()
+            isolated_home.mkdir()
+            source_auth = source_home / "auth.json"
+            source_auth.write_text("{}", encoding="utf-8")
+            (isolated_home / "auth.json").symlink_to(source_auth)
+            allowed = isolated_home / "state_5.sqlite"
+            blocked = isolated_home / "unexpected-credential-stage"
+            command = _app_server_read_command("/usr/bin/true", isolated_home)
+
+            self.assertIsNotNone(command)
+            allowed_result = subprocess.run(
+                command[:-2] + ["/usr/bin/touch", str(allowed)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
+            blocked_result = subprocess.run(
+                command[:-2] + ["/usr/bin/touch", str(blocked)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
+
+            self.assertEqual(allowed_result.returncode, 0)
+            self.assertTrue(allowed.exists())
+            self.assertNotEqual(blocked_result.returncode, 0)
+            self.assertFalse(blocked.exists())
+
     def test_app_server_command_keeps_managed_profile_behavior(self):
         from codex_profile_dashboard import _app_server_read_command
 
