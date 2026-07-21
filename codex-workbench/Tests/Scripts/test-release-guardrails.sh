@@ -165,10 +165,21 @@ expect_failure "缺少 SHA" env PATH="$MOCK_BIN:$PATH" MOCK_LOG="$MOCK_LOG" \
 expect_failure "未传 --publish" env PATH="$MOCK_BIN:$PATH" MOCK_LOG="$MOCK_LOG" \
     "$ROOT_DIR/scripts/publish-github-release.sh" \
         --version "$PUBLISH_VERSION" --notes-file "$NOTES_FILE" --dist-dir "$DIST_DIR"
+grep -Fq "tag=codex-workbench-v$PUBLISH_VERSION" "$TEST_ROOT/output.log" \
+    || { echo "FAIL: 工作台 Release tag 没有使用独立命名空间" >&2; exit 1; }
 
 if [[ -f "$MOCK_LOG" ]] && grep -Fq "gh release create" "$MOCK_LOG"; then
     echo "FAIL: 任一失败门禁仍调用了 gh release create" >&2
     exit 1
 fi
+
+env PATH="$MOCK_BIN:$PATH" MOCK_LOG="$MOCK_LOG" \
+    "$ROOT_DIR/scripts/publish-github-release.sh" \
+        --version "$PUBLISH_VERSION" --notes-file "$NOTES_FILE" \
+        --dist-dir "$DIST_DIR" --publish >/dev/null
+grep -Fq "gh release view codex-workbench-v$PUBLISH_VERSION" "$MOCK_LOG" \
+    || { echo "FAIL: 发布前没有检查工作台命名空间中的 Release" >&2; exit 1; }
+grep -Fq "gh release create codex-workbench-v$PUBLISH_VERSION" "$MOCK_LOG" \
+    || { echo "FAIL: GitHub Release 没有使用工作台独立 tag" >&2; exit 1; }
 
 echo "PASS: release guardrails"

@@ -31,7 +31,7 @@ SHA_PATH="$DMG_PATH.sha256"
 (cd "$DIST_DIR" && shasum -a 256 -c "$(basename "$SHA_PATH")") >/dev/null \
     || { echo "FAIL: DMG 与 SHA256 不匹配" >&2; exit 1; }
 
-TAG="v$VERSION"
+TAG="codex-workbench-v$VERSION"
 echo "tag=$TAG"
 echo "asset=$DMG_PATH"
 echo "asset=$SHA_PATH"
