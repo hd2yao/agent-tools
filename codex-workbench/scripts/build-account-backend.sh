@@ -52,4 +52,6 @@ while IFS= read -r -d '' candidate; do
     }
 done < <(find "$BACKEND_DIR" -type f -print0)
 
+"$ROOT_DIR/scripts/verify-macos-deployment-target.sh" "$BACKEND_DIR" 13.0
+
 echo "PASS: $BACKEND_DIR"

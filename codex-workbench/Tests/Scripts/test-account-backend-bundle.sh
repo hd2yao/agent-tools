@@ -12,6 +12,7 @@ EXECUTABLE="$BACKEND/CodexAccountBackend"
 
 file "$EXECUTABLE" | grep -q 'arm64'
 ! file "$EXECUTABLE" | grep -q 'x86_64'
+"$ROOT_DIR/scripts/verify-macos-deployment-target.sh" "$BACKEND" 13.0 >/dev/null
 
 FIXTURE_HOME="$(mktemp -d)"
 trap 'rm -rf "$FIXTURE_HOME"' EXIT

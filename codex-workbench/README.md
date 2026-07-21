@@ -55,6 +55,14 @@ swift build
 
 发布机必须在 Keychain 中已有 `Developer ID Application` 身份，并预先用 `notarytool store-credentials` 保存公证 profile；不要把证书、profile 凭据或密码写入仓库或命令输出。
 
+冻结后端的构建 Python 也必须是 arm64，且自身最低系统版本不高于 macOS 13。脚本会检查 App 内每个 Mach-O 的 `minos`，不兼容的 Homebrew / 系统 Python 会直接失败；发布机可显式指定已验证的 Python 3.12 运行时：
+
+```bash
+CODEX_WORKBENCH_BUILD_PYTHON="/path/to/compatible/python3.12" \
+  ./scripts/bootstrap-release-tools.sh
+./scripts/build-account-backend.sh
+```
+
 ```bash
 ./Tests/Scripts/test-release-guardrails.sh
 ./scripts/release.sh --version 0.3.0 --dry-run

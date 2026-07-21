@@ -41,7 +41,7 @@ for required_script in release.sh sign-app.sh create-dmg.sh publish-github-relea
     [[ -x "$ROOT_DIR/scripts/$required_script" ]] \
         || { echo "FAIL: 缺少发布脚本 scripts/$required_script" >&2; exit 1; }
 done
-if rg -n 'codesign .*--(force )?--deep.*--sign|codesign .*--sign.*--deep' \
+if /usr/bin/grep -E -n 'codesign .*--(force )?--deep.*--sign|codesign .*--sign.*--deep' \
     "$ROOT_DIR/scripts/sign-app.sh" >/dev/null; then
     echo "FAIL: sign-app.sh 不得用 --deep 执行签名" >&2
     exit 1
@@ -60,6 +60,8 @@ case "$name" in
     xcrun)
         if [[ "$*" == "notarytool history"* ]]; then
             [[ "${MOCK_NOTARY:-0}" == "1" ]] || exit 1
+        elif [[ "$*" == "vtool -show-build"* ]]; then
+            printf 'platform MACOS\n    minos %s\n      sdk 26.0\n' "${MOCK_MINOS:-13.0}"
         elif [[ "$*" == "stapler staple"* ]]; then
             [[ "${MOCK_STAPLER_FAIL:-0}" != "1" ]] || exit 1
         fi
@@ -102,6 +104,7 @@ run_release() {
         MOCK_IDENTITY="${MOCK_IDENTITY:-0}" \
         MOCK_NOTARY="${MOCK_NOTARY:-0}" \
         MOCK_ARCH="${MOCK_ARCH:-arm64}" \
+        MOCK_MINOS="${MOCK_MINOS:-13.0}" \
         MOCK_CODESIGN_FAIL="${MOCK_CODESIGN_FAIL:-0}" \
         MOCK_STAPLER_FAIL="${MOCK_STAPLER_FAIL:-0}" \
         CODEX_WORKBENCH_SKIP_BUILD=1 \
@@ -136,24 +139,29 @@ MOCK_IDENTITY=1 MOCK_NOTARY=1 MOCK_ARCH=x86_64 \
         --version 9.9.3 --sign-identity "Developer ID Application: Test (TEAMID)" \
         --notary-profile test-profile
 
-MOCK_IDENTITY=1 MOCK_NOTARY=1 MOCK_ARCH=arm64 MOCK_CODESIGN_FAIL=1 \
-    expect_failure "codesign failure" run_release \
+MOCK_IDENTITY=1 MOCK_NOTARY=1 MOCK_ARCH=arm64 MOCK_MINOS=14.0 \
+    expect_failure "macOS 14 minimum deployment" run_release \
         --version 9.9.4 --sign-identity "Developer ID Application: Test (TEAMID)" \
         --notary-profile test-profile
 
-MOCK_IDENTITY=1 MOCK_NOTARY=1 MOCK_ARCH=arm64 MOCK_CODESIGN_FAIL=0 MOCK_STAPLER_FAIL=1 \
-    expect_failure "stapler failure" run_release \
+MOCK_IDENTITY=1 MOCK_NOTARY=1 MOCK_ARCH=arm64 MOCK_MINOS=13.0 MOCK_CODESIGN_FAIL=1 \
+    expect_failure "codesign failure" run_release \
         --version 9.9.5 --sign-identity "Developer ID Application: Test (TEAMID)" \
         --notary-profile test-profile
 
-MOCK_IDENTITY=1 MOCK_NOTARY=1 MOCK_ARCH=arm64 MOCK_CODESIGN_FAIL=0 MOCK_STAPLER_FAIL=0 \
+MOCK_IDENTITY=1 MOCK_NOTARY=1 MOCK_ARCH=arm64 MOCK_MINOS=13.0 MOCK_CODESIGN_FAIL=0 MOCK_STAPLER_FAIL=1 \
+    expect_failure "stapler failure" run_release \
+        --version 9.9.6 --sign-identity "Developer ID Application: Test (TEAMID)" \
+        --notary-profile test-profile
+
+MOCK_IDENTITY=1 MOCK_NOTARY=1 MOCK_ARCH=arm64 MOCK_MINOS=13.0 MOCK_CODESIGN_FAIL=0 MOCK_STAPLER_FAIL=0 \
     run_release --version 9.9.7 \
         --sign-identity "Developer ID Application: Test (TEAMID)" \
         --notary-profile test-profile >/dev/null
 [[ -s "$DIST_DIR/Codex-Workbench-v9.9.7-arm64.dmg.sha256" ]] \
     || { echo "FAIL: 完整 mock 发布链路没有生成 SHA256" >&2; exit 1; }
 
-PUBLISH_VERSION="9.9.6"
+PUBLISH_VERSION="9.9.8"
 PUBLISH_DMG="$DIST_DIR/Codex-Workbench-v$PUBLISH_VERSION-arm64.dmg"
 PUBLISH_SHA="$PUBLISH_DMG.sha256"
 printf 'fixture-dmg\n' > "$PUBLISH_DMG"

@@ -69,6 +69,8 @@ while IFS= read -r -d '' candidate; do
         || { echo "FAIL: Release 包含非 arm64 Mach-O：$candidate" >&2; exit 1; }
 done < <(find "$APP_PATH" -type f -print0)
 
+./scripts/verify-macos-deployment-target.sh "$APP_PATH" 13.0
+
 ./scripts/sign-app.sh --app "$APP_PATH" --identity "$SIGN_IDENTITY"
 ./scripts/create-dmg.sh --app "$APP_PATH" --version "$VERSION" --output-dir "$DIST_DIR"
 

@@ -64,6 +64,7 @@ chmod +x "$LOGIN_HELPER_MACOS_DIR/CodexWorkbenchLoginHelper"
 /usr/libexec/PlistBuddy -c "Add :WorkbenchSourceFingerprint string $(source_fingerprint)" "$CONTENTS_DIR/Info.plist"
 /usr/libexec/PlistBuddy -c "Add :WorkbenchAccountBackendFingerprint string $(bash "$ROOT_DIR/scripts/account-resource-fingerprint.sh" "$ACCOUNT_SOURCE_DIR")" "$CONTENTS_DIR/Info.plist"
 /usr/libexec/PlistBuddy -c "Add :WorkbenchBuildTimestamp string $(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$CONTENTS_DIR/Info.plist"
+"$ROOT_DIR/scripts/verify-macos-deployment-target.sh" "$APP_DIR" 13.0
 codesign --force --sign - "$LOGIN_HELPER_APP"
 codesign --force --deep --sign - "$APP_DIR"
 touch "$APP_DIR"

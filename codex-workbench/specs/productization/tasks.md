@@ -43,7 +43,7 @@
 - [ ] **T009 Developer ID、DMG 与手动 Release 工具链**
   映射：AC-PD-008、AC-PD-009、AC-PD-010
   验收：arm64 DMG、SHA、内外签名、公证、fail-closed 发布脚本；无更新器。
-  验证：无凭据失败、结构性 DMG、SHA、arm64、独立 `codex-workbench-v<version>` tag 和显式发布门禁已通过；正式 `codesign` / `spctl` / `notarytool` / `stapler` 等待 Developer ID 与 notary profile。
+  验证：无凭据失败、结构性 DMG、SHA、arm64、Mach-O `minos <= 13.0`、独立 `codex-workbench-v<version>` tag 和显式发布门禁已通过；正式 `codesign` / `spctl` / `notarytool` / `stapler` 等待 Developer ID 与 notary profile。
 
 - [x] **T010 真实行为、视觉和无障碍验收**
   映射：AC-PD-004 至 AC-PD-007、AC-PD-011、AC-PD-012

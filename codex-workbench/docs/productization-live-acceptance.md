@@ -34,7 +34,13 @@
 - 返回 `account_mode=local_default`、`active_profile=local-default`。
 - 所有 Mach-O 均为 arm64，无 x86_64。
 - 前后文件树一致，不创建 Profiles、软链、缓存或认证桥接。
-- 没有 `auth.json` 时不启动 Codex App Server，避免首次初始化向空 home 写入 SQLite、系统 Skills 和临时链接；149 个 Python 测试覆盖该回归。
+- 没有 `auth.json` 时不启动 Codex App Server，避免首次初始化向空 home 写入 SQLite、系统 Skills 和临时链接；151 个 Python 测试覆盖该回归。
+
+## 最终对抗式复审
+
+- 复审发现 UI 的运行状态最多可能陈旧 60 秒。账号后端现在会在真正退出 Codex 前再次读取任务状态；`running`、`waiting` 或未知状态未获明确确认时以专用结果拒绝执行，工作台收到后回到风险确认，确认后的命令才携带 `--allow-active`。
+- 复审发现旧冻结包的 Homebrew Python / OpenSSL 依赖包含 `minos 26.0`，与 macOS 13+ 声明冲突。构建工具现在先校验构建 Python，再对冻结后端和完整 App 的每个 Mach-O 执行最低系统版本门禁。
+- 最终冻结后端使用 arm64 Python 3.12 构建；后端 2 个、完整 App 4 个 Mach-O 均为 arm64，且 `minos` 不高于 13.0。默认 Homebrew Python 不兼容时会在重建 venv 前失败关闭。
 
 ## 结构性 DMG 与正式发行门禁
 
@@ -102,5 +108,5 @@
 | AC-PD-009 | 外部门禁 | 工具链和无凭据门禁通过；缺 Developer ID 与 notary profile。 |
 | AC-PD-010 | 外部门禁 | 显式发布脚本已通过测试；没有可发布的公证 DMG，未创建 Release。 |
 | AC-PD-011 | PASS | 无认证正文输出、临时 home、真实运行任务未中断。 |
-| AC-PD-012 | PASS | 三档视觉、深浅色、错误/确认/诊断、基础 AX 与完整回归。 |
+| AC-PD-012 | PASS | 三档视觉、深浅色、错误/确认/诊断、基础 AX、实时重启复核与完整回归。 |
 | AC-PD-013 | 外部门禁 | 干净 HOME 与结构性 DMG 通过；正式 Gatekeeper DMG 等待签名公证。 |
