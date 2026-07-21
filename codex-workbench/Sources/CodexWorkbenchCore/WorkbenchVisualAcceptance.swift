@@ -378,7 +378,8 @@ public struct WorkbenchVisualAcceptanceSnapshot: Equatable, Sendable {
                 selectedAppURL: URL(fileURLWithPath: "/Applications/ChatGPT.app"),
                 backendAvailable: true,
                 accountMode: .managedProfiles,
-                managedProfileCount: 2
+                managedProfileCount: 2,
+                defaultHomeAvailable: true
             )
         )
     }

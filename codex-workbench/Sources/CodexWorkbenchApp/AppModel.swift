@@ -60,7 +60,8 @@ final class WorkbenchAppModel: ObservableObject {
             selectedAppURL: nil,
             backendAvailable: false,
             accountMode: .unavailable,
-            managedProfileCount: 0
+            managedProfileCount: 0,
+            defaultHomeAvailable: false
         )
     )
     @Published private(set) var workspaceCatalog = WorkspaceCatalogPresentationBuilder.build(

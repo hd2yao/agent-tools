@@ -78,6 +78,7 @@ enum AccountRuntimeServices {
                 managedProfileCount: payload?.accountMode == .managedProfiles
                     ? payload?.profiles.filter { $0.name != "local-default" }.count ?? 0
                     : 0,
+                defaultHomeAvailable: defaultAccountHomeAvailable(),
                 recentFailureStage: recentFailureStage
             )
         )
@@ -93,5 +94,13 @@ enum AccountRuntimeServices {
             .appendingPathComponent("CodexAccountBackend", isDirectory: true)
             .appendingPathComponent("CodexAccountBackend")
         return FileManager.default.isExecutableFile(atPath: executableURL.path)
+    }
+
+    static func defaultAccountHomeAvailable(
+        homeURL: URL = FileManager.default.homeDirectoryForCurrentUser,
+        fileManager: FileManager = .default
+    ) -> Bool {
+        let authURL = homeURL.appendingPathComponent(".codex/auth.json")
+        return fileManager.isReadableFile(atPath: authURL.path)
     }
 }

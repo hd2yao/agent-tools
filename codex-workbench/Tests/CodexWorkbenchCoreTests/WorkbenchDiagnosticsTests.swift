@@ -22,6 +22,7 @@ func runWorkbenchDiagnosticsTests(_ runner: inout TestRunner) {
             backendAvailable: true,
             accountMode: .managedProfiles,
             managedProfileCount: 2,
+            defaultHomeAvailable: true,
             recentFailureStage: "verification_mismatch"
         )
     )
@@ -32,6 +33,16 @@ func runWorkbenchDiagnosticsTests(_ runner: inout TestRunner) {
     runner.expect(
         duplicate.findings.contains { $0.id == "account-managed-profiles" },
         "Managed profile mode should be explicit"
+    )
+    runner.expect(
+        duplicate.findings.contains { $0.id == "default-home-readable" },
+        "Diagnostics should report default Codex home availability independently of account mode"
+    )
+    runner.expect(
+        duplicate.appSummaries.allSatisfy {
+            $0.contains("bundle \(CodexIntegration.bundleIdentifier)")
+        },
+        "Every app summary should report the parsed bundle identifier"
     )
     runner.expect(
         duplicate.findings.contains { $0.id == "recent-account-failure" },
@@ -67,7 +78,8 @@ func runWorkbenchDiagnosticsTests(_ runner: inout TestRunner) {
             selectedAppURL: URL(fileURLWithPath: "/Applications/Codex.app"),
             backendAvailable: true,
             accountMode: .localDefault,
-            managedProfileCount: 0
+            managedProfileCount: 0,
+            defaultHomeAvailable: true
         )
     )
     runner.expect(
@@ -85,7 +97,8 @@ func runWorkbenchDiagnosticsTests(_ runner: inout TestRunner) {
             selectedAppURL: nil,
             backendAvailable: false,
             accountMode: .unavailable,
-            managedProfileCount: 0
+            managedProfileCount: 0,
+            defaultHomeAvailable: false
         )
     )
     runner.expect(
@@ -99,5 +112,9 @@ func runWorkbenchDiagnosticsTests(_ runner: inout TestRunner) {
     runner.expect(
         missing.findings.contains { $0.id == "account-unavailable" && $0.level == .error },
         "An unavailable account source should remain explicit"
+    )
+    runner.expect(
+        missing.findings.contains { $0.id == "default-home-unavailable" && $0.level == .warning },
+        "Diagnostics should distinguish a missing default Codex home"
     )
 }

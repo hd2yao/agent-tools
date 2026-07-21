@@ -59,6 +59,7 @@ private struct WorkbenchAppModelRestartTests {
         cancellation(runner)
         await successfulRestart(runner)
         await verificationMismatch(runner)
+        defaultHomeAvailability(runner)
         guard runner.failures == 0 else { exit(1) }
         print("PASS: CodexWorkbenchAppTests")
     }
@@ -249,6 +250,38 @@ private struct WorkbenchAppModelRestartTests {
               "profiles":[{"name":"\(active)","path":"/tmp/\(active)","auth":"present","config":"present","account":{"available":true,"type":"chatgpt"},"rate_limits":{}}]
             }
             """.utf8
+        )
+    }
+
+    private static func defaultHomeAvailability(_ runner: AppTestRunner) {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("workbench-default-home-\(UUID().uuidString)")
+        defer { try? fileManager.removeItem(at: root) }
+
+        runner.expect(
+            !AccountRuntimeServices.defaultAccountHomeAvailable(
+                homeURL: root,
+                fileManager: fileManager
+            ),
+            "A missing default home should be unavailable"
+        )
+        let codexHome = root.appendingPathComponent(".codex", isDirectory: true)
+        try? fileManager.createDirectory(at: codexHome, withIntermediateDirectories: true)
+        runner.expect(
+            !AccountRuntimeServices.defaultAccountHomeAvailable(
+                homeURL: root,
+                fileManager: fileManager
+            ),
+            "An empty default home should not imply an available account"
+        )
+        try? Data("{}".utf8).write(to: codexHome.appendingPathComponent("auth.json"))
+        runner.expect(
+            AccountRuntimeServices.defaultAccountHomeAvailable(
+                homeURL: root,
+                fileManager: fileManager
+            ),
+            "A readable auth entry should make the default account home available"
         )
     }
 }

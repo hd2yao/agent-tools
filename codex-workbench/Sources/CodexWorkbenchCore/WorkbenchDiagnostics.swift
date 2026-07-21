@@ -61,6 +61,7 @@ public struct WorkbenchDiagnosticInput: Equatable, Sendable {
     public let backendAvailable: Bool
     public let accountMode: AccountMode
     public let managedProfileCount: Int
+    public let defaultHomeAvailable: Bool
     public let recentFailureStage: String?
 
     public init(
@@ -69,6 +70,7 @@ public struct WorkbenchDiagnosticInput: Equatable, Sendable {
         backendAvailable: Bool,
         accountMode: AccountMode,
         managedProfileCount: Int,
+        defaultHomeAvailable: Bool,
         recentFailureStage: String? = nil
     ) {
         self.installedApps = installedApps
@@ -76,6 +78,7 @@ public struct WorkbenchDiagnosticInput: Equatable, Sendable {
         self.backendAvailable = backendAvailable
         self.accountMode = accountMode
         self.managedProfileCount = max(0, managedProfileCount)
+        self.defaultHomeAvailable = defaultHomeAvailable
         self.recentFailureStage = recentFailureStage
     }
 }
@@ -175,6 +178,22 @@ public enum WorkbenchDiagnosticsBuilder {
                 )
         )
 
+        findings.append(
+            input.defaultHomeAvailable
+                ? DiagnosticFinding(
+                    id: "default-home-readable",
+                    level: .info,
+                    title: "默认 Codex home 可用",
+                    detail: "已确认默认账号入口可读；诊断不会读取或展示认证正文。"
+                )
+                : DiagnosticFinding(
+                    id: "default-home-unavailable",
+                    level: .warning,
+                    title: "默认 Codex home 不可用",
+                    detail: "未找到可读的默认账号入口；既有 Profiles 仍可独立工作。"
+                )
+        )
+
         switch input.accountMode {
         case .localDefault:
             findings.append(
@@ -263,7 +282,7 @@ public enum WorkbenchDiagnosticsBuilder {
         let selected = selectedURL?.standardizedFileURL.path == app.url.path ? " · 系统选择" : ""
         let running = app.isRunning ? " · 运行中" : ""
         let version = app.version.map { " · 版本 \(redacted($0))" } ?? ""
-        return "应用：\(redacted(app.displayName)) · \(app.location.rawValue) · #\(app.redactedFingerprint)\(version)\(running)\(selected)"
+        return "应用：\(redacted(app.displayName)) · bundle \(redacted(app.bundleIdentifier)) · \(app.location.rawValue) · #\(app.redactedFingerprint)\(version)\(running)\(selected)"
     }
 
     private static func safeFailureStage(_ value: String?) -> String? {

@@ -113,7 +113,7 @@ public enum AccountGatewayError: Error, Equatable, LocalizedError, Sendable {
 
     public var errorDescription: String? {
         switch self {
-        case .backendMissing: "账号模块不可用，请重新构建观测站。"
+        case .backendMissing: "账号模块不可用，请重新构建 Codex 工作台。"
         case .codexDesktopBusy: "Codex 仍有任务正在运行，未能安全退出。请等任务结束后再切换账号。"
         case .codexDesktopLaunchFailed: "账号已准备，但 Codex 未能重新启动。请手动打开 Codex 后刷新状态。"
         case .restartConfirmationRequired(let reason):
