@@ -59,7 +59,7 @@
 ### 数据约束
 
 - 单账号适配只读默认 home，不写 active profile 记录。
-- 不把 `auth.json` 或认证正文复制到临时磁盘；只允许在 0700 临时 home 中创建短生命周期符号链接，并以系统沙盒拒绝 App Server 对原默认 home 与认证实际目标的写入。沙盒缺失时失败关闭。
+- 不把 `auth.json` 或认证正文复制到临时磁盘；只允许在 0700 临时 home 中创建短生命周期符号链接，并以系统沙盒拒绝 App Server 对原默认 home、认证实际目标及临时 home 非白名单路径的写入。白名单只包含已核实的状态 SQLite 文件与 `installation_id`；沙盒缺失时失败关闭。
 - 诊断摘要不包含认证正文、email、token、Cookie 或完整重置卡 ID。
 - 测试默认使用临时 home；真实 home 只做只读验收和已批准的既有切换 / 空闲重启。
 
@@ -85,7 +85,7 @@
 - 每条 AC 至少映射一个自动化或真实证据。
 - Python 完整测试、Swift Core 完整测试、Release build 和安装 verifier。
 - 临时单账号 home 前后文件树一致。
-- 临时单账号读取必须断言认证入口为符号链接而非普通文件，App Server 写入仅出现在临时 home，源 home 文件树与 hash 不变。
+- 临时单账号读取必须断言认证入口始终为符号链接而非普通文件，原子替换与任意未知暂存文件均被沙盒拒绝；App Server 写入只出现在临时 home 的非认证白名单，源 home 文件树与 hash 不变。
 - Profiles 双向切换恢复初始账号。
 - 自包含 helper 在无外部 Python 环境运行。
 - 每个嵌套 Mach-O 架构与签名、Hardened Runtime、DMG 和公证。

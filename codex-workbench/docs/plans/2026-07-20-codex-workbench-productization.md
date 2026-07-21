@@ -134,7 +134,7 @@ else:
 
 所有 cache key、remote reader、reset details 和 output name 使用逻辑名称；文件读取使用实际 home。`local_default` 只读，不记录 attribution baseline，不进入 profile bridge repair。
 
-App Server 不得直接写默认 home，也不得把认证正文复制到临时文件。读取时在权限为 0700 的临时 `CODEX_HOME` 中只建立指向原 `auth.json` 的短生命周期符号链接，并用 `/usr/bin/sandbox-exec` 禁止子进程写入原默认 home 和认证实际目标；SQLite、Skills 与日志只写临时 home。沙盒不可用或无法建立链接时返回账号不可用，不回退为复制或直接运行。
+App Server 不得直接写默认 home，也不得把认证正文复制到临时文件。读取时在权限为 0700 的临时 `CODEX_HOME` 中只建立指向原 `auth.json` 的短生命周期符号链接，并用 `/usr/bin/sandbox-exec` 禁止子进程写入原默认 home、认证实际目标和临时 home 的其他路径；只允许已核实的状态 SQLite 文件与 `installation_id` 写入，`auth.json` 原子替换和任意未知暂存文件都必须失败。沙盒不可用或无法建立链接时返回账号不可用，不回退为复制或直接运行。
 
 **Step 4：让 status 顶层语义一致**
 
