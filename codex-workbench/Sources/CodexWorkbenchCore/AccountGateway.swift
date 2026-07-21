@@ -41,11 +41,14 @@ public struct AccountCommandBuilder: Equatable, Sendable {
         )
     }
 
-    public func restartCommand(profile: String?) -> AccountCommand? {
+    public func restartCommand(profile: String?, allowActive: Bool) -> AccountCommand? {
         var arguments = argumentPrefix + ["restart"]
         if let profile {
             guard Self.isSafeProfileName(profile) else { return nil }
             arguments += ["--profile", profile]
+        }
+        if allowActive {
+            arguments.append("--allow-active")
         }
         return AccountCommand(executableURL: executableURL, arguments: arguments)
     }
@@ -101,6 +104,7 @@ public enum AccountGatewayError: Error, Equatable, LocalizedError, Sendable {
     case backendMissing
     case codexDesktopBusy
     case codexDesktopLaunchFailed
+    case restartConfirmationRequired(AccountRestartConfirmationReason)
     case accountConflict
     case invalidProfile
     case launchFailed
@@ -112,6 +116,12 @@ public enum AccountGatewayError: Error, Equatable, LocalizedError, Sendable {
         case .backendMissing: "账号模块不可用，请重新构建观测站。"
         case .codexDesktopBusy: "Codex 仍有任务正在运行，未能安全退出。请等任务结束后再切换账号。"
         case .codexDesktopLaunchFailed: "账号已准备，但 Codex 未能重新启动。请手动打开 Codex 后刷新状态。"
+        case .restartConfirmationRequired(let reason):
+            switch reason {
+            case .runningTask: "检测到任务刚刚开始运行，请确认后再重启 Codex。"
+            case .waitingTask: "检测到待接手任务，请确认后再重启 Codex。"
+            case .unknownState: "无法确认最新任务状态，请确认后再重启 Codex。"
+            }
         case .accountConflict: "检测到 Codex 认证账号意外变化。为保护两个账号，切换已中止。"
         case .invalidProfile: "账号名称不符合安全规则。"
         case .launchFailed: "无法启动账号模块。"
@@ -121,6 +131,15 @@ public enum AccountGatewayError: Error, Equatable, LocalizedError, Sendable {
     }
 
     public static func processFailure(code: Int32, standardError: String) -> AccountGatewayError {
+        if standardError.contains("Codex restart confirmation required: running") {
+            return .restartConfirmationRequired(.runningTask)
+        }
+        if standardError.contains("Codex restart confirmation required: waiting") {
+            return .restartConfirmationRequired(.waitingTask)
+        }
+        if standardError.contains("Codex restart confirmation required: unknown") {
+            return .restartConfirmationRequired(.unknownState)
+        }
         if standardError.contains("Codex Desktop did not quit within 12 seconds; switch aborted.") {
             return .codexDesktopBusy
         }
@@ -159,8 +178,11 @@ public struct AccountGateway: Sendable {
         _ = try run(command)
     }
 
-    public func restartCurrentAccount(profile: String?) throws {
-        guard let command = commandBuilder.restartCommand(profile: profile) else {
+    public func restartCurrentAccount(profile: String?, allowActive: Bool) throws {
+        guard let command = commandBuilder.restartCommand(
+            profile: profile,
+            allowActive: allowActive
+        ) else {
             throw AccountGatewayError.invalidProfile
         }
         _ = try run(command)

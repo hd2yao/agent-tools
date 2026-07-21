@@ -566,6 +566,49 @@ class CommandTests(unittest.TestCase):
         record.assert_not_called()
         reconcile.assert_not_called()
 
+    def test_restart_command_requires_confirmation_when_runtime_is_running(self):
+        import codex_profile
+
+        err = io.StringIO()
+        with (
+            patch("codex_profile.current_restart_runtime_state", return_value="running"),
+            patch("codex_profile.quit_codex_desktop") as quit_desktop,
+            redirect_stderr(err),
+        ):
+            code = codex_profile.main(["restart"])
+
+        self.assertEqual(code, 3)
+        self.assertIn("restart confirmation required: running", err.getvalue())
+        quit_desktop.assert_not_called()
+
+    def test_restart_command_allows_explicitly_confirmed_active_runtime(self):
+        import codex_profile
+
+        calls = []
+        with (
+            patch("codex_profile.current_restart_runtime_state", return_value="running"),
+            patch(
+                "codex_profile.quit_codex_desktop",
+                side_effect=lambda: calls.append("quit"),
+            ),
+            patch(
+                "codex_profile.wait_for_codex_desktop_exit",
+                side_effect=lambda: calls.append("wait-exit") or True,
+            ),
+            patch(
+                "codex_profile.run_codex_default_home",
+                side_effect=lambda args: calls.append(("default", list(args))) or 0,
+            ),
+            patch(
+                "codex_profile.wait_for_codex_desktop_launch",
+                side_effect=lambda: calls.append("wait-launch") or True,
+            ),
+        ):
+            code = codex_profile.main(["restart", "--allow-active"])
+
+        self.assertEqual(code, 0)
+        self.assertEqual(calls, ["quit", "wait-exit", ("default", ["app"]), "wait-launch"])
+
     def test_restart_command_reports_local_default_quit_timeout(self):
         import codex_profile
 

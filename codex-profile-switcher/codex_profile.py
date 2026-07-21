@@ -933,7 +933,27 @@ def cmd_app(args: argparse.Namespace) -> int:
     return 0
 
 
+def current_restart_runtime_state() -> str:
+    from codex_profile_dashboard import read_runtime_status
+
+    try:
+        status = read_runtime_status(get_shared_home(), get_profile_root())
+    except Exception:
+        return "unknown"
+    state = status.get("state")
+    return state if state in {"idle", "running", "waiting"} else "unknown"
+
+
 def cmd_restart(args: argparse.Namespace) -> int:
+    if not args.allow_active:
+        runtime_state = current_restart_runtime_state()
+        if runtime_state != "idle":
+            print(
+                f"Codex restart confirmation required: {runtime_state}",
+                file=sys.stderr,
+            )
+            return 3
+
     if args.profile:
         return cmd_app(argparse.Namespace(name=args.profile, restart=True))
 
@@ -1110,6 +1130,11 @@ def build_parser() -> argparse.ArgumentParser:
     restart_parser.add_argument(
         "--profile",
         help="restart an existing managed profile through the app command",
+    )
+    restart_parser.add_argument(
+        "--allow-active",
+        action="store_true",
+        help="restart after the caller explicitly confirms active or unknown work",
     )
     restart_parser.set_defaults(func=cmd_restart)
 

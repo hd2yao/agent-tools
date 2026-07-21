@@ -74,16 +74,21 @@ func runAccountGatewayTests(_ runner: inout TestRunner) {
         "Frozen switch should reuse the existing app command"
     )
     runner.expect(
-        frozen.restartCommand(profile: "hd-master")?.arguments
+        frozen.restartCommand(profile: "hd-master", allowActive: false)?.arguments
             == ["restart", "--profile", "hd-master"],
         "Managed restart should preserve the current profile"
     )
     runner.expect(
-        frozen.restartCommand(profile: nil)?.arguments == ["restart"],
+        frozen.restartCommand(profile: nil, allowActive: false)?.arguments == ["restart"],
         "Local restart should not invent a managed profile"
     )
     runner.expect(
-        frozen.restartCommand(profile: "../../bad") == nil,
+        frozen.restartCommand(profile: "hd-master", allowActive: true)?.arguments
+            == ["restart", "--profile", "hd-master", "--allow-active"],
+        "A user-confirmed restart should carry an explicit backend override"
+    )
+    runner.expect(
+        frozen.restartCommand(profile: "../../bad", allowActive: false) == nil,
         "Restart must reject unsafe profile names"
     )
     runner.expect(
@@ -173,6 +178,14 @@ func runAccountGatewayTests(_ runner: inout TestRunner) {
     runner.expect(
         busyFailure.errorDescription?.contains("任务") == true,
         "The user should understand why Codex could not switch accounts"
+    )
+    let confirmationFailure = AccountGatewayError.processFailure(
+        code: 3,
+        standardError: "Codex restart confirmation required: waiting\n"
+    )
+    runner.expect(
+        confirmationFailure == .restartConfirmationRequired(.waitingTask),
+        "A live backend preflight should return the matching restart confirmation"
     )
     let unknownFailure = AccountGatewayError.processFailure(
         code: 42,

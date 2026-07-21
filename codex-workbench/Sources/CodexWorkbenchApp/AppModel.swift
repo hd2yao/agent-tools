@@ -452,7 +452,11 @@ final class WorkbenchAppModel: ObservableObject {
 
         switch AccountRestartPolicy.decision(runtimeState: payload.runtimeStatus?.state) {
         case .restartNow:
-            performRestartCurrentCodex(expectedMode: payload.accountMode, profile: profile)
+            performRestartCurrentCodex(
+                expectedMode: payload.accountMode,
+                profile: profile,
+                allowActive: false
+            )
         case .confirm(let reason):
             accountRestartConfirmation = reason
         }
@@ -469,7 +473,11 @@ final class WorkbenchAppModel: ObservableObject {
         else { return }
         accountRestartConfirmation = nil
         guard visualAcceptanceConfiguration.liveOperationsAllowed else { return }
-        performRestartCurrentCodex(expectedMode: payload.accountMode, profile: profile)
+        performRestartCurrentCodex(
+            expectedMode: payload.accountMode,
+            profile: profile,
+            allowActive: true
+        )
     }
 
     func cancelRestartCurrentCodex() {
@@ -515,22 +523,38 @@ final class WorkbenchAppModel: ObservableObject {
         refreshDiagnostics()
     }
 
-    private func performRestartCurrentCodex(expectedMode: AccountMode, profile: String) {
+    private func performRestartCurrentCodex(
+        expectedMode: AccountMode,
+        profile: String,
+        allowActive: Bool
+    ) {
         guard let gateway = accountGateway else { return }
         accountRestartStage = .preparing
         let managedProfile = expectedMode == .managedProfiles ? profile : nil
 
         Task {
             accountRestartStage = .quitting
-            let restartError = await Task.detached(priority: .userInitiated) {
+            let restartError: AccountGatewayError? = await Task.detached(priority: .userInitiated) {
                 do {
-                    try gateway.restartCurrentAccount(profile: managedProfile)
-                    return nil as String?
+                    try gateway.restartCurrentAccount(
+                        profile: managedProfile,
+                        allowActive: allowActive
+                    )
+                    return nil
+                } catch let error as AccountGatewayError {
+                    return error
                 } catch {
-                    return (error as? LocalizedError)?.errorDescription ?? "Codex 重启失败。"
+                    return .launchFailed
                 }
             }.value
-            if let errorMessage = restartError {
+            if let restartError,
+               case .restartConfirmationRequired(let reason) = restartError {
+                accountRestartStage = nil
+                accountRestartConfirmation = reason
+                accountError = nil
+                return
+            }
+            if let restartError {
                 appendAccountOperationEvent(
                     AccountOperationEventFactory.restartFailed(
                         profile: profile,
@@ -540,7 +564,7 @@ final class WorkbenchAppModel: ObservableObject {
                 recentAccountFailureStage = "restart_command_failed"
                 refreshDiagnostics()
                 accountRestartStage = nil
-                accountError = errorMessage
+                accountError = restartError.errorDescription ?? "Codex 重启失败。"
                 return
             }
 
