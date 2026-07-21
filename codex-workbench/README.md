@@ -51,6 +51,8 @@ swift build
 
 首发只通过 GitHub Releases 提供手动下载安装的 DMG，不接 App Store、Homebrew 或自动更新。升级时重新下载新版 DMG 并覆盖安装。
 
+当前代码、arm64 自包含构建、结构性 DMG、SHA 和 fail-closed 发布脚本已经完成；当前开发机没有有效 Developer ID Application 身份，因此仓库尚未产出或发布正式公证 DMG。`.build/productization-acceptance-*` 中的未签名结构包只用于本地挂载和覆盖安装验证，不能上传或分发。正式状态见 [产品化真实验收记录](docs/productization-live-acceptance.md)。
+
 发布机必须在 Keychain 中已有 `Developer ID Application` 身份，并预先用 `notarytool store-credentials` 保存公证 profile；不要把证书、profile 凭据或密码写入仓库或命令输出。
 
 ```bash
@@ -68,7 +70,7 @@ swift build
 - `dist/Codex-Workbench-v0.3.0-arm64.dmg`
 - `dist/Codex-Workbench-v0.3.0-arm64.dmg.sha256`
 
-GitHub 发布另有显式门禁；不传 `--publish` 不会调用 `gh release create`，已存在的 tag / Release 也不会被覆盖：
+GitHub 发布另有显式门禁；工作台使用独立 tag `codex-workbench-v<version>`，避免与同仓库的 Profile Switcher `v<version>` 冲突。不传 `--publish` 不会调用 `gh release create`，已存在的 tag / Release 也不会被覆盖：
 
 ```bash
 ./scripts/publish-github-release.sh \
@@ -76,3 +78,5 @@ GitHub 发布另有显式门禁；不传 `--publish` 不会调用 `gh release cr
   --notes-file ./release-notes.md \
   --publish
 ```
+
+正式发布说明可从 [v0.3.0 草案](docs/release-notes-v0.3.0-draft.md) 复核并复制；发布前必须替换草案状态、核对版本号，并确认 DMG 已完成 Apple 公证和 stapling。

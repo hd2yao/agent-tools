@@ -48,6 +48,10 @@
 
 `security find-identity -v -p codesigning` 返回 `0 valid identities found`。`release.sh` 在缺少 Developer ID / notary profile 时 fail closed，`publish-github-release.sh` 在缺少显式 `--publish` 时 fail closed。正式恢复条件已登记为任务 follow-up `followup_50b377c91561ad`。
 
+发布前说明已经准备为 [`release-notes-v0.3.0-draft.md`](release-notes-v0.3.0-draft.md)，明确 Apple Silicon、macOS 13+、手动升级、无新增账号和隐私边界；文件仍标记“草案，未发布”。
+
+对抗式复核发现同仓库已有 Profile Switcher 的 `v0.3.0` tag 和公开 Release。发布脚本已改用 `codex-workbench-v<version>` 独立命名空间，并通过 mock 成功发布与不覆盖测试；本地、远端和 GitHub 当前均未发现 `codex-workbench-v0.3.0`。
+
 ## 视觉证据
 
 - [本机单账号 900×640 浅色](../screenshots/productization/accounts-local-900-light.png)
@@ -100,4 +104,3 @@
 | AC-PD-011 | PASS | 无认证正文输出、临时 home、真实运行任务未中断。 |
 | AC-PD-012 | PASS | 三档视觉、深浅色、错误/确认/诊断、基础 AX 与完整回归。 |
 | AC-PD-013 | 外部门禁 | 干净 HOME 与结构性 DMG 通过；正式 Gatekeeper DMG 等待签名公证。 |
-
