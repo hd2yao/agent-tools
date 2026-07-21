@@ -41,6 +41,15 @@ public struct AccountCommandBuilder: Equatable, Sendable {
         )
     }
 
+    public func restartCommand(profile: String?) -> AccountCommand? {
+        var arguments = argumentPrefix + ["restart"]
+        if let profile {
+            guard Self.isSafeProfileName(profile) else { return nil }
+            arguments += ["--profile", profile]
+        }
+        return AccountCommand(executableURL: executableURL, arguments: arguments)
+    }
+
     public func consumeResetCreditCommand(
         profile: String,
         idempotencyKey: String
@@ -145,6 +154,13 @@ public struct AccountGateway: Sendable {
 
     public func switchProfile(_ profile: String) throws {
         guard let command = commandBuilder.switchCommand(profile: profile) else {
+            throw AccountGatewayError.invalidProfile
+        }
+        _ = try run(command)
+    }
+
+    public func restartCurrentAccount(profile: String?) throws {
+        guard let command = commandBuilder.restartCommand(profile: profile) else {
             throw AccountGatewayError.invalidProfile
         }
         _ = try run(command)

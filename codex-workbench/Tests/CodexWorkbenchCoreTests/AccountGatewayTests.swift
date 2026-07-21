@@ -74,6 +74,19 @@ func runAccountGatewayTests(_ runner: inout TestRunner) {
         "Frozen switch should reuse the existing app command"
     )
     runner.expect(
+        frozen.restartCommand(profile: "hd-master")?.arguments
+            == ["restart", "--profile", "hd-master"],
+        "Managed restart should preserve the current profile"
+    )
+    runner.expect(
+        frozen.restartCommand(profile: nil)?.arguments == ["restart"],
+        "Local restart should not invent a managed profile"
+    )
+    runner.expect(
+        frozen.restartCommand(profile: "../../bad") == nil,
+        "Restart must reject unsafe profile names"
+    )
+    runner.expect(
         frozen.consumeResetCreditCommand(profile: "hd-master", idempotencyKey: "stable-key")?.arguments
             == ["consume-reset-credit", "hd-master", "--idempotency-key", "stable-key"],
         "Frozen reset consumption should reuse the sanitized command contract"

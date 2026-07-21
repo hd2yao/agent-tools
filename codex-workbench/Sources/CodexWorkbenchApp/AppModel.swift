@@ -27,6 +27,13 @@ enum AccountSwitchStage: Equatable {
     }
 }
 
+enum AccountRestartStage: Equatable {
+    case preparing
+    case quitting
+    case launching
+    case verifying
+}
+
 @MainActor
 final class WorkbenchAppModel: ObservableObject {
     @Published var selectedModule: AppModule? = .overview
@@ -36,6 +43,8 @@ final class WorkbenchAppModel: ObservableObject {
     @Published private(set) var accountError: String?
     @Published private(set) var isRefreshing = false
     @Published private(set) var accountSwitchStage: AccountSwitchStage?
+    @Published private(set) var accountRestartStage: AccountRestartStage?
+    @Published private(set) var accountRestartConfirmation: AccountRestartConfirmationReason?
     @Published private(set) var isCodexRunning = false
     @Published private(set) var isLegacyProfileSwitcherRunning = false
     @Published private(set) var lastUpdated: Date?
@@ -305,7 +314,12 @@ final class WorkbenchAppModel: ObservableObject {
 
     func switchProfile(_ profile: String) {
         guard visualAcceptanceConfiguration.liveOperationsAllowed else { return }
-        guard accountSwitchStage == nil, let gateway = accountGateway else { return }
+        guard
+            accountSwitchStage == nil,
+            accountRestartStage == nil,
+            accountRestartConfirmation == nil,
+            let gateway = accountGateway
+        else { return }
         accountSwitchStage = .switching(profile: profile)
         let previousProfile = currentProfileName
         Task {
@@ -383,6 +397,47 @@ final class WorkbenchAppModel: ObservableObject {
         }
     }
 
+    func requestRestartCurrentCodex() {
+        guard visualAcceptanceConfiguration.liveOperationsAllowed else { return }
+        guard
+            accountSwitchStage == nil,
+            accountRestartStage == nil,
+            accountRestartConfirmation == nil,
+            accountGateway != nil,
+            let payload = accountPayload,
+            payload.accountMode != .unavailable,
+            let profile = currentProfileName
+        else { return }
+
+        switch AccountRestartPolicy.decision(runtimeState: payload.runtimeStatus?.state) {
+        case .restartNow:
+            performRestartCurrentCodex(expectedMode: payload.accountMode, profile: profile)
+        case .confirm(let reason):
+            accountRestartConfirmation = reason
+        }
+    }
+
+    func confirmRestartCurrentCodex() {
+        guard
+            accountRestartConfirmation != nil,
+            accountRestartStage == nil,
+            accountSwitchStage == nil,
+            let payload = accountPayload,
+            payload.accountMode != .unavailable,
+            let profile = currentProfileName
+        else { return }
+        accountRestartConfirmation = nil
+        performRestartCurrentCodex(expectedMode: payload.accountMode, profile: profile)
+    }
+
+    func cancelRestartCurrentCodex() {
+        guard accountRestartConfirmation != nil else { return }
+        accountRestartConfirmation = nil
+        appendAccountOperationEvent(
+            AccountOperationEventFactory.restartCancelled(profile: currentProfileName)
+        )
+    }
+
     func updateRunningApplicationState() {
         isCodexRunning = !NSRunningApplication.runningApplications(
             withBundleIdentifier: CodexIntegration.bundleIdentifier
@@ -404,6 +459,93 @@ final class WorkbenchAppModel: ObservableObject {
                 reason: reason
             )
         )
+    }
+
+    private func performRestartCurrentCodex(expectedMode: AccountMode, profile: String) {
+        guard let gateway = accountGateway else { return }
+        accountRestartStage = .preparing
+        let managedProfile = expectedMode == .managedProfiles ? profile : nil
+
+        Task {
+            accountRestartStage = .quitting
+            let restartError = await Task.detached(priority: .userInitiated) {
+                do {
+                    try gateway.restartCurrentAccount(profile: managedProfile)
+                    return nil as String?
+                } catch {
+                    return (error as? LocalizedError)?.errorDescription ?? "Codex 重启失败。"
+                }
+            }.value
+            if let errorMessage = restartError {
+                appendAccountOperationEvent(
+                    AccountOperationEventFactory.restartFailed(
+                        profile: profile,
+                        reason: "restart_command_failed"
+                    )
+                )
+                accountRestartStage = nil
+                accountError = errorMessage
+                return
+            }
+
+            accountRestartStage = .launching
+            updateRunningApplicationState()
+            await Task.yield()
+            accountRestartStage = .verifying
+            let result = await Task.detached(priority: .userInitiated) {
+                do {
+                    return AccountRefreshResult(
+                        payload: try gateway.loadStatus(refreshResetCredits: true),
+                        errorMessage: nil
+                    )
+                } catch {
+                    return AccountRefreshResult(
+                        payload: nil,
+                        errorMessage: (error as? LocalizedError)?.errorDescription
+                            ?? "无法验证重启后的账号。"
+                    )
+                }
+            }.value
+
+            guard let payload = result.payload else {
+                appendAccountOperationEvent(
+                    AccountOperationEventFactory.restartFailed(
+                        profile: profile,
+                        reason: "verification_unavailable"
+                    )
+                )
+                accountRestartStage = nil
+                accountError = result.errorMessage ?? "无法验证重启后的账号。"
+                return
+            }
+
+            switch AccountRestartVerifier.verify(
+                payload: payload,
+                expectedMode: expectedMode,
+                expectedProfile: profile
+            ) {
+            case .verified:
+                accountPayload = payload
+                let verifiedAt = Date()
+                accountRefreshFreshness.recordSuccess(at: verifiedAt)
+                accountLastSuccessfulRefresh = verifiedAt
+                accountError = nil
+                accountRestartStage = nil
+                appendAccountOperationEvent(
+                    AccountOperationEventFactory.restartSucceeded(profile: profile)
+                )
+                await refreshAll(refreshResetCredits: true)
+            case .mismatch(let expected, let actual):
+                appendAccountOperationEvent(
+                    AccountOperationEventFactory.restartFailed(
+                        profile: expected,
+                        reason: "verification_mismatch"
+                    )
+                )
+                accountRestartStage = nil
+                accountError = "Codex 重启未通过验证：预期账号为 \(expected ?? "未知")，实际为 \(actual ?? "未知")。"
+            }
+        }
     }
 
     private func appendAccountOperationEvent(_ event: OperationEvent) {

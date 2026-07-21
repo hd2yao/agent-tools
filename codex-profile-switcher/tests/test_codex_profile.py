@@ -524,6 +524,80 @@ class CommandTests(unittest.TestCase):
         self.assertEqual(code, 2)
         self.assertIn("profile not found", err.getvalue())
 
+    def test_restart_command_reuses_managed_profile_app_path(self):
+        import codex_profile
+
+        with patch("codex_profile.cmd_app", return_value=0) as app:
+            code = codex_profile.main(["restart", "--profile", "account-a"])
+
+        self.assertEqual(code, 0)
+        app.assert_called_once()
+        args = app.call_args.args[0]
+        self.assertEqual(args.name, "account-a")
+        self.assertTrue(args.restart)
+
+    def test_restart_command_restarts_local_default_without_profile_bridge(self):
+        import codex_profile
+
+        calls = []
+        with (
+            patch("codex_profile.quit_codex_desktop", side_effect=lambda: calls.append("quit")),
+            patch(
+                "codex_profile.wait_for_codex_desktop_exit",
+                side_effect=lambda: calls.append("wait-exit") or True,
+            ),
+            patch(
+                "codex_profile.run_codex_default_home",
+                side_effect=lambda args: calls.append(("default", list(args))) or 0,
+            ),
+            patch(
+                "codex_profile.wait_for_codex_desktop_launch",
+                side_effect=lambda: calls.append("wait-launch") or True,
+            ),
+            patch("codex_profile.activate_default_home_profile") as bridge,
+            patch("codex_profile.record_active_profile") as record,
+            patch("codex_profile.reconcile_default_home_auth_for_active_profile") as reconcile,
+        ):
+            code = codex_profile.main(["restart"])
+
+        self.assertEqual(code, 0)
+        self.assertEqual(calls, ["quit", "wait-exit", ("default", ["app"]), "wait-launch"])
+        bridge.assert_not_called()
+        record.assert_not_called()
+        reconcile.assert_not_called()
+
+    def test_restart_command_reports_local_default_quit_timeout(self):
+        import codex_profile
+
+        err = io.StringIO()
+        with (
+            patch("codex_profile.quit_codex_desktop"),
+            patch("codex_profile.wait_for_codex_desktop_exit", return_value=False),
+            patch("codex_profile.run_codex_default_home") as launch,
+            redirect_stderr(err),
+        ):
+            code = codex_profile.main(["restart"])
+
+        self.assertEqual(code, 1)
+        self.assertIn("did not quit within 12 seconds", err.getvalue())
+        launch.assert_not_called()
+
+    def test_restart_command_reports_local_default_launch_timeout(self):
+        import codex_profile
+
+        err = io.StringIO()
+        with (
+            patch("codex_profile.quit_codex_desktop"),
+            patch("codex_profile.wait_for_codex_desktop_exit", return_value=True),
+            patch("codex_profile.run_codex_default_home", return_value=0),
+            patch("codex_profile.wait_for_codex_desktop_launch", return_value=False),
+            redirect_stderr(err),
+        ):
+            code = codex_profile.main(["restart"])
+
+        self.assertEqual(code, 1)
+        self.assertIn("did not launch within 12 seconds", err.getvalue())
+
     def test_app_command_restarts_desktop_and_launches_app(self):
         import codex_profile
         from codex_profile import main

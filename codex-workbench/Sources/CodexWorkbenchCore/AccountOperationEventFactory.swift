@@ -64,6 +64,94 @@ public enum AccountOperationEventFactory {
         )
     }
 
+    public static func restartSucceeded(
+        profile: String?,
+        at date: Date = Date()
+    ) -> OperationEvent {
+        OperationEvent(
+            schemaVersion: 1,
+            id: StableEventID.make(parts: [
+                "account-restart",
+                "success",
+                profile ?? "unknown",
+                timestamp(date),
+            ]),
+            occurredAt: date,
+            recordedAt: date,
+            category: .account,
+            action: "account_restarted",
+            title: "已重启 Codex",
+            summary: "工作台已安全重启 Codex，并验证当前账号保持不变。",
+            status: .success,
+            importance: .important,
+            certainty: .confirmed,
+            actor: workbenchActor,
+            account: EventAccount(profile: profile),
+            sourceChain: [workbenchActor, accountEngineActor],
+            evidence: [EventEvidence(kind: "app_action", label: "安全重启并验证完成")]
+        )
+    }
+
+    public static func restartFailed(
+        profile: String?,
+        reason: String,
+        at date: Date = Date()
+    ) -> OperationEvent {
+        OperationEvent(
+            schemaVersion: 1,
+            id: StableEventID.make(parts: [
+                "account-restart",
+                "failure",
+                profile ?? "unknown",
+                safeRestartReason(reason),
+                timestamp(date),
+            ]),
+            occurredAt: date,
+            recordedAt: date,
+            category: .account,
+            action: "account_restart_failed",
+            title: "Codex 重启未完成",
+            summary: "工作台未能完成安全重启，当前账号状态仍需确认。",
+            status: .failure,
+            importance: .important,
+            certainty: .confirmed,
+            actor: workbenchActor,
+            account: EventAccount(profile: profile),
+            sourceChain: [workbenchActor, accountEngineActor],
+            evidence: [
+                EventEvidence(kind: "app_action", label: restartFailureEvidenceLabel(reason))
+            ]
+        )
+    }
+
+    public static func restartCancelled(
+        profile: String?,
+        at date: Date = Date()
+    ) -> OperationEvent {
+        OperationEvent(
+            schemaVersion: 1,
+            id: StableEventID.make(parts: [
+                "account-restart",
+                "cancelled",
+                profile ?? "unknown",
+                timestamp(date),
+            ]),
+            occurredAt: date,
+            recordedAt: date,
+            category: .account,
+            action: "restart_cancelled",
+            title: "已取消 Codex 重启",
+            summary: "保留当前 Codex 运行状态，未执行退出或启动操作。",
+            status: .skipped,
+            importance: .routine,
+            certainty: .confirmed,
+            actor: workbenchActor,
+            account: EventAccount(profile: profile),
+            sourceChain: [workbenchActor],
+            evidence: [EventEvidence(kind: "app_action", label: "用户取消风险确认")]
+        )
+    }
+
     private static let workbenchActor = EventActor(
         type: .app,
         id: "codex-workbench",
@@ -83,6 +171,22 @@ public enum AccountOperationEventFactory {
         case "verification_mismatch": "切换后账号不匹配"
         case "unmanaged_login": "切换后账号未被工作台接管"
         default: "账号切换未通过验证"
+        }
+    }
+
+    private static func safeRestartReason(_ reason: String) -> String {
+        switch reason {
+        case "restart_command_failed", "verification_unavailable", "verification_mismatch": reason
+        default: "unknown"
+        }
+    }
+
+    private static func restartFailureEvidenceLabel(_ reason: String) -> String {
+        switch safeRestartReason(reason) {
+        case "restart_command_failed": "安全重启命令失败"
+        case "verification_unavailable": "无法读取重启后状态"
+        case "verification_mismatch": "重启后账号不匹配"
+        default: "安全重启未通过验证"
         }
     }
 

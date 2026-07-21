@@ -933,6 +933,29 @@ def cmd_app(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_restart(args: argparse.Namespace) -> int:
+    if args.profile:
+        return cmd_app(argparse.Namespace(name=args.profile, restart=True))
+
+    quit_codex_desktop()
+    if not wait_for_codex_desktop_exit():
+        print(
+            "Codex Desktop did not quit within 12 seconds; switch aborted.",
+            file=sys.stderr,
+        )
+        return 1
+    code = run_codex_default_home(["app"])
+    if code != 0:
+        return code
+    if not wait_for_codex_desktop_launch():
+        print(
+            "Codex Desktop did not launch within 12 seconds after `codex app`.",
+            file=sys.stderr,
+        )
+        return 1
+    return 0
+
+
 def cmd_login(args: argparse.Namespace) -> int:
     path = ensure_profile(get_profile_root(), args.name)
     return run_codex(path, ["login"])
@@ -1079,6 +1102,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="do not quit an already-running Codex Desktop app before opening it",
     )
     app_parser.set_defaults(func=cmd_app)
+
+    restart_parser = subparsers.add_parser(
+        "restart",
+        help="safely restart Codex Desktop with the current account",
+    )
+    restart_parser.add_argument(
+        "--profile",
+        help="restart an existing managed profile through the app command",
+    )
+    restart_parser.set_defaults(func=cmd_restart)
 
     login_parser = subparsers.add_parser("login", help="run codex login with a profile")
     login_parser.add_argument("name")

@@ -38,4 +38,24 @@ func runAccountOperationEventFactoryTests(_ runner: inout TestRunner) {
         failure.after == .object(["actual_profile": .string("hd-master")]),
         "Failure evidence should retain the actual account without credentials"
     )
+
+    let restart = AccountOperationEventFactory.restartSucceeded(profile: "hd-master", at: at)
+    runner.expect(restart.action == "account_restarted", "Verified restart should use its own action")
+    runner.expect(restart.status == .success, "Verified restart should be a success")
+    runner.expect(restart.importance == .important, "Restart should be visible without being critical")
+
+    let cancelled = AccountOperationEventFactory.restartCancelled(profile: "hd-master", at: at)
+    runner.expect(cancelled.action == "restart_cancelled", "Cancelled restart should be explicit")
+    runner.expect(cancelled.status == .skipped, "Cancelled restart should not look like a failure")
+    runner.expect(cancelled.importance == .routine, "Cancellation should remain a routine event")
+
+    let restartFailure = AccountOperationEventFactory.restartFailed(
+        profile: "hd-master",
+        reason: "/Users/private/.codex/auth.json token=secret",
+        at: at
+    )
+    let safeText = restartFailure.title + restartFailure.summary
+        + restartFailure.evidence.map(\.label).joined(separator: " ")
+    runner.expect(!safeText.contains("auth.json"), "Restart logs must not expose auth paths")
+    runner.expect(!safeText.lowercased().contains("token"), "Restart logs must not expose token details")
 }
