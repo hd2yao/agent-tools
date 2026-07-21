@@ -1149,11 +1149,17 @@ class ProfileApiTests(unittest.TestCase):
             before = sorted(path.relative_to(shared_home) for path in shared_home.rglob("*"))
             remote_homes = []
 
+            def read_isolated_remote(home):
+                remote_homes.append(home)
+                self.assertNotEqual(home, shared_home)
+                self.assertEqual((home / "auth.json").read_text(encoding="utf-8"), "{}")
+                (home / "state_5.sqlite").write_text("isolated", encoding="utf-8")
+                return self.remote_snapshot(remaining=43)
+
             payload = build_profiles_payload(
                 profile_root,
                 shared_home,
-                remote_reader=lambda home: remote_homes.append(home)
-                or self.remote_snapshot(remaining=43),
+                remote_reader=read_isolated_remote,
             )
 
             self.assertEqual(payload["account_mode"], "local_default")
@@ -1164,7 +1170,8 @@ class ProfileApiTests(unittest.TestCase):
                 payload["profiles"][0]["rate_limits"]["primary"]["remaining_percent"],
                 43,
             )
-            self.assertEqual(remote_homes, [shared_home])
+            self.assertEqual(len(remote_homes), 1)
+            self.assertFalse(remote_homes[0].exists())
             self.assertEqual(
                 before,
                 sorted(path.relative_to(shared_home) for path in shared_home.rglob("*")),
@@ -1195,7 +1202,7 @@ class ProfileApiTests(unittest.TestCase):
             self.assertEqual(result["error"], "authentication unavailable")
             popen.assert_not_called()
 
-    def test_empty_profile_root_still_uses_the_local_default_account(self):
+    def test_empty_profile_root_without_auth_is_unavailable(self):
         from codex_profile_dashboard import build_profiles_payload
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -1207,9 +1214,9 @@ class ProfileApiTests(unittest.TestCase):
 
             payload = build_profiles_payload(profile_root, shared_home, read_remote=False)
 
-            self.assertEqual(payload["account_mode"], "local_default")
-            self.assertEqual(payload["active_profile"], "local-default")
-            self.assertEqual([row["name"] for row in payload["profiles"]], ["local-default"])
+            self.assertEqual(payload["account_mode"], "unavailable")
+            self.assertIsNone(payload["active_profile"])
+            self.assertEqual(payload["profiles"], [])
 
     def test_existing_profiles_keep_managed_mode_and_physical_paths(self):
         from codex_profile_dashboard import build_profiles_payload

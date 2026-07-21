@@ -85,7 +85,8 @@ func runAccountDetailPresentationTests(_ runner: inout TestRunner) {
         path: "/tmp/.codex",
         auth: "present",
         config: "present",
-        rateLimits: AccountRateLimits(primary: AccountQuotaWindow(remainingPercent: 43))
+        rateLimits: AccountRateLimits(primary: AccountQuotaWindow(remainingPercent: 43)),
+        account: AccountStatusSummary(available: true, type: "chatgpt")
     )
     let localPayload = AccountDashboardPayload(
         generatedAt: Date(timeIntervalSince1970: 1_002),

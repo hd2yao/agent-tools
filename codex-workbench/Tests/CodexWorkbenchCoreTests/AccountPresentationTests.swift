@@ -74,7 +74,7 @@ func runAccountPresentationTests(_ runner: inout TestRunner) {
       "runtime_status":{"state":"idle","light":"red","label":"空闲","active_process_count":0,"recent_process_count":0},
       "desktop_status":{"running":false,"managed":false,"state":"local_default","message":"使用本机默认 Codex 账号","active_profile":"local-default"},
       "profiles":[
-        {"name":"local-default","path":"/tmp/.codex","auth":"present","config":"present","rate_limits":{"primary":{"remaining_percent":43,"window_minutes":300}}}
+        {"name":"local-default","path":"/tmp/.codex","auth":"present","config":"present","account":{"available":true,"type":"chatgpt"},"rate_limits":{"primary":{"remaining_percent":43,"window_minutes":300}}}
       ]
     }
     """#
@@ -98,6 +98,18 @@ func runAccountPresentationTests(_ runner: inout TestRunner) {
     runner.expect(
         localDetails.otherProfiles.isEmpty,
         "Local mode must not expose a switch target"
+    )
+
+    let unconfirmedLocalJSON = localDefaultJSON.replacingOccurrences(
+        of: "\"available\":true",
+        with: "\"available\":false"
+    )
+    let unconfirmedLocalPayload = try? AccountDashboardPayload.decode(
+        data: Data(unconfirmedLocalJSON.utf8)
+    )
+    runner.expect(
+        AccountPresentationBuilder.confirmedCurrentProfileName(payload: unconfirmedLocalPayload) == nil,
+        "A local auth file without a confirmed App Server account must not become the current account"
     )
 
     let unknownModeJSON = localDefaultJSON.replacingOccurrences(

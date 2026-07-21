@@ -12,6 +12,7 @@ import selectors
 import shutil
 import sqlite3
 import subprocess
+import tempfile
 import time
 import webbrowser
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -1601,6 +1602,33 @@ def _read_remote_status_with_cache(
     return {**remote, "stale": False, "cached_at": None}
 
 
+def _read_local_default_status_in_isolated_home(
+    profile_home: Path,
+    reader: Callable[[Path], dict],
+) -> dict:
+    source_auth = profile_home / "auth.json"
+    if not source_auth.is_file():
+        return {
+            "ok": False,
+            "account": None,
+            "rate_limits": None,
+            "usage": None,
+            "error": "authentication unavailable",
+        }
+
+    with tempfile.TemporaryDirectory(prefix="codex-workbench-account-read-") as tmp:
+        isolated_home = Path(tmp)
+        destination_auth = isolated_home / "auth.json"
+        descriptor = os.open(
+            destination_auth,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+            0o600,
+        )
+        with source_auth.open("rb") as source, os.fdopen(descriptor, "wb") as destination:
+            shutil.copyfileobj(source, destination)
+        return reader(isolated_home)
+
+
 def _write_reset_credit_details_cache(
     shared_home: Path,
     profile_name: str,
@@ -1722,7 +1750,7 @@ def build_profiles_payload(
         account_mode = "managed_profiles"
         account_sources = [(path.name, path) for path in managed_paths]
         effective_active_profile = active_profile
-    elif shared_home.is_dir():
+    elif (shared_home / "auth.json").is_file():
         account_mode = "local_default"
         account_sources = [("local-default", shared_home)]
         effective_active_profile = "local-default"
@@ -1733,7 +1761,14 @@ def build_profiles_payload(
     cache_enabled = account_mode == "managed_profiles"
     remote_by_name: dict[str, dict | None] = {}
     if read_remote and account_sources:
-        reader = remote_reader or read_app_server_account_snapshot
+        base_reader = remote_reader or read_app_server_account_snapshot
+        if account_mode == "local_default":
+            reader = lambda home: _read_local_default_status_in_isolated_home(
+                home,
+                base_reader,
+            )
+        else:
+            reader = base_reader
         with ThreadPoolExecutor(max_workers=min(4, len(account_sources))) as executor:
             futures = {
                 executor.submit(

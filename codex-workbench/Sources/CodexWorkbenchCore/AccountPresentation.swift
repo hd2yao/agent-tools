@@ -99,7 +99,11 @@ public enum AccountPresentationBuilder {
         case .localDefault:
             guard
                 payload.activeProfile == "local-default",
-                payload.profiles.contains(where: { $0.name == "local-default" })
+                payload.profiles.contains(where: {
+                    $0.name == "local-default"
+                        && $0.auth == "present"
+                        && $0.account?.available == true
+                })
             else {
                 return nil
             }
