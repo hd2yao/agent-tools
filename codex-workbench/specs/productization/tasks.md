@@ -7,7 +7,7 @@
 
 - [x] **T002 本机单账号后端契约**
   映射：AC-PD-003、AC-PD-004、AC-PD-011
-  验收：无 profiles 时返回 `local_default` 只读账号；不创建 profile、active record 或软链；Profiles fixture 无回归。
+  验收：无 profiles 且默认认证入口存在时返回 `local_default` 只读账号；空 home 返回 unavailable；不创建 profile、active record 或软链；Profiles fixture 无回归。
   验证：Python RED/GREEN、临时目录文件树 diff、完整 Python tests。
 
 - [x] **T003 Swift 双模式账号展示与自动化门禁**
@@ -23,12 +23,12 @@
 - [x] **T005 当前账号安全重启**
   映射：AC-PD-005、AC-PD-007、AC-PD-011
   验收：空闲直接执行，高风险确认，取消无副作用；后端安全重启并验证；日志不含凭据。
-  验证：Python / Core RED/GREEN、AppModel 注入测试、空闲真实重启。
+  验证：Python / Core RED/GREEN、直接 AppModel 源码级状态机测试、历史空闲真实重启和本轮运行态拒绝实测。
 
 - [x] **T006 诊断与修复**
   映射：AC-PD-006、AC-PD-011、AC-PD-012
   验收：可点击诊断 sheet 显示真实脱敏结果和安全动作；识别重复官方 App；无删除 / 认证修复。
-  验证：Core fixture、App 服务注入、AX、当前机器真实诊断截图。
+  验证：Core fixture、默认 home 只读探测、bundle id 解析、App 服务注入、AX、当前机器真实诊断截图。
 
 - [x] **T007 信息架构与工作区目录**
   映射：AC-PD-002、AC-PD-012
@@ -43,7 +43,7 @@
 - [ ] **T009 Developer ID、DMG 与手动 Release 工具链**
   映射：AC-PD-008、AC-PD-009、AC-PD-010
   验收：arm64 DMG、SHA、内外签名、公证、fail-closed 发布脚本；无更新器。
-  验证：无凭据失败、结构性 DMG、SHA、arm64、Mach-O `minos <= 13.0`、独立 `codex-workbench-v<version>` tag 和显式发布门禁已通过；正式 `codesign` / `spctl` / `notarytool` / `stapler` 等待 Developer ID 与 notary profile。
+  验证：无凭据失败、结构性 DMG、SHA、arm64、Mach-O `minos <= 13.0`、上传前公证/Gatekeeper 二次校验、远端 HEAD/tag 绑定、独立 `codex-workbench-v<version>` tag 和显式发布门禁已通过；正式 `codesign` / `spctl` / `notarytool` / `stapler` 等待 Developer ID 与 notary profile。
 
 - [x] **T010 真实行为、视觉和无障碍验收**
   映射：AC-PD-004 至 AC-PD-007、AC-PD-011、AC-PD-012
@@ -53,7 +53,7 @@
 - [ ] **T011 干净用户与 DMG 验收**
   映射：AC-PD-003、AC-PD-008、AC-PD-009、AC-PD-013
   验收：无 Python / Homebrew / profiles 的 Apple Silicon 干净用户可直接安装并识别默认账号；覆盖安装保留数据。
-  验证：隔离 HOME 文件树前后 diff、自包含运行、结构性 DMG 挂载/覆盖/arm64/SHA 已通过；正式 Gatekeeper 放行等待签名公证。
+  验证：无认证与测试认证两种隔离 HOME 的文件树/hash 前后 diff、自包含运行、结构性 DMG 挂载/两次覆盖/arm64/minOS/SHA 已通过；正式 Gatekeeper 放行等待签名公证。
 
 - [ ] **T012 文档、GitHub Release 与收敛**
   映射：AC-PD-001 至 AC-PD-013
