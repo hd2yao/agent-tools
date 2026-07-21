@@ -1,4 +1,14 @@
-# Codex 观测站 V1.1 视觉与验收报告
+# Codex 工作台视觉与验收报告
+
+## 2026-07-21 产品化增量验收
+
+**PASS，Visual Verdict：96 / 100。** 正式安装 App 已覆盖本机单账号、既有 Profiles、重启确认/进度/错误、诊断 sheet、项目与任务、工具与自动化及菜单明暗模式；900×640、1160×780、1440×900 三档没有重叠、横向裁切或根横向滚动。
+
+证据目录：[`screenshots/productization`](../screenshots/productization/)。完整安装身份、真实账号安全边界、干净 HOME、基础无障碍和 AC 对照见 [`productization-live-acceptance.md`](productization-live-acceptance.md)。
+
+当前机器缺少 Developer ID 与公证 profile，因此视觉验收对象是最新正式安装结构的本地构建，不是已公证公开发行包；没有把未签名 DMG 当成 Gatekeeper 通过证据。
+
+## 2026-07-15 V1.1 历史记录
 
 验收日期：2026-07-15
 
