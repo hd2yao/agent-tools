@@ -85,8 +85,9 @@ final class WorkbenchAppModel: ObservableObject {
     private let accountGateway: AccountGateway?
     private let visualAcceptanceConfiguration: WorkbenchVisualAcceptanceConfiguration
     private let visualAcceptanceSnapshot: WorkbenchVisualAcceptanceSnapshot?
+    private let postRestartRefreshEnabled: Bool
     private let officialRateLimitObserver = OfficialRateLimitObserver()
-    private let automaticResetCoordinator = AutomaticResetCoordinator()
+    private let automaticResetCoordinator: AutomaticResetCoordinator?
     private var accountRefreshFreshness = AccountRefreshFreshness()
     private var recentAccountFailureStage: String?
 
@@ -95,6 +96,8 @@ final class WorkbenchAppModel: ObservableObject {
             environment: ProcessInfo.processInfo.environment
         )
         visualAcceptanceConfiguration = configuration
+        postRestartRefreshEnabled = true
+        automaticResetCoordinator = AutomaticResetCoordinator()
         ledgerURL = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".codex/operation-ledger/events.jsonl")
         observationStateURL = FileManager.default.homeDirectoryForCurrentUser
@@ -125,6 +128,30 @@ final class WorkbenchAppModel: ObservableObject {
         if visualAcceptanceSnapshot == nil {
             refreshDiagnostics()
         }
+    }
+
+    init(
+        testingGateway: AccountGateway,
+        payload: AccountDashboardPayload,
+        ledgerURL: URL
+    ) {
+        visualAcceptanceConfiguration = WorkbenchVisualAcceptanceConfiguration(
+            fixture: nil,
+            appearance: nil,
+            surface: nil
+        )
+        visualAcceptanceSnapshot = nil
+        postRestartRefreshEnabled = false
+        automaticResetCoordinator = nil
+        self.ledgerURL = ledgerURL
+        observationStateURL = ledgerURL.deletingLastPathComponent()
+            .appendingPathComponent("observation-state.json")
+        accountGateway = testingGateway
+        accountPayload = payload
+        accountRefreshFreshness.recordSuccess(at: payload.generatedAt)
+        accountLastSuccessfulRefresh = payload.generatedAt
+        updateRunningApplicationState()
+        refreshDiagnostics()
     }
 
     var filteredEvents: [OperationEvent] {
@@ -199,7 +226,7 @@ final class WorkbenchAppModel: ObservableObject {
         guard !hasBootstrapped else { return }
         hasBootstrapped = true
         guard visualAcceptanceConfiguration.liveOperationsAllowed else { return }
-        automaticResetCoordinator.start()
+        automaticResetCoordinator?.start()
         Task { await refreshAll() }
         pollingTask = Task { [weak self] in
             while !Task.isCancelled {
@@ -336,7 +363,7 @@ final class WorkbenchAppModel: ObservableObject {
         lastUpdated = Date()
         isRefreshing = false
         if let payload = account.payload {
-            automaticResetCoordinator.process(
+            automaticResetCoordinator?.process(
                 payload: payload,
                 gateway: accountGateway
             ) { [weak self] _, _ in
@@ -417,7 +444,9 @@ final class WorkbenchAppModel: ObservableObject {
                 accountError = nil
                 accountSwitchStage = nil
                 recordAccountSwitch(from: previousProfile, to: profile)
-                await refreshAll(refreshResetCredits: true)
+                if postRestartRefreshEnabled {
+                    await refreshAll(refreshResetCredits: true)
+                }
             case .mismatch(let expected, let actual):
                 recordAccountSwitchFailure(
                     expected: expected,
@@ -618,7 +647,9 @@ final class WorkbenchAppModel: ObservableObject {
                 )
                 recentAccountFailureStage = nil
                 refreshDiagnostics()
-                await refreshAll(refreshResetCredits: true)
+                if postRestartRefreshEnabled {
+                    await refreshAll(refreshResetCredits: true)
+                }
             case .mismatch(let expected, let actual):
                 appendAccountOperationEvent(
                     AccountOperationEventFactory.restartFailed(

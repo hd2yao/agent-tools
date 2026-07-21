@@ -157,9 +157,14 @@ public enum AccountGatewayError: Error, Equatable, LocalizedError, Sendable {
 
 public struct AccountGateway: Sendable {
     public let commandBuilder: AccountCommandBuilder
+    private let commandRunner: (@Sendable (AccountCommand) throws -> Data)?
 
-    public init(commandBuilder: AccountCommandBuilder) {
+    public init(
+        commandBuilder: AccountCommandBuilder,
+        commandRunner: (@Sendable (AccountCommand) throws -> Data)? = nil
+    ) {
         self.commandBuilder = commandBuilder
+        self.commandRunner = commandRunner
     }
 
     public func loadStatus(refreshResetCredits: Bool = false) throws -> AccountDashboardPayload {
@@ -207,6 +212,9 @@ public struct AccountGateway: Sendable {
     }
 
     private func run(_ command: AccountCommand) throws -> Data {
+        if let commandRunner {
+            return try commandRunner(command)
+        }
         guard FileManager.default.isExecutableFile(atPath: command.executableURL.path) else {
             throw AccountGatewayError.backendMissing
         }
