@@ -82,4 +82,56 @@ func runWorkbenchVisualAcceptanceTests(_ runner: inout TestRunner) {
             && switching.workspaceCatalog.workflows.hooks.count == 1,
         "Visual fixtures should provide deterministic task and workflow evidence"
     )
+
+    let local = WorkbenchVisualAcceptanceSnapshot.make(for: .local)
+    runner.expect(local.payload?.accountMode == .localDefault, "Local fixture should use default-home mode")
+    runner.expect(
+        local.payload?.profiles.map(\.name) == ["local-default"],
+        "Local fixture must not invent another switch target"
+    )
+
+    let confirmation = WorkbenchVisualAcceptanceSnapshot.make(for: .restartConfirmation)
+    runner.expect(
+        confirmation.restartConfirmationReason == .runningTask,
+        "Restart confirmation fixture should expose a running-task risk"
+    )
+
+    let restarting = WorkbenchVisualAcceptanceSnapshot.make(for: .restarting)
+    runner.expect(
+        restarting.restartStage == .verifying,
+        "Restart progress fixture should expose a concrete stage"
+    )
+
+    let diagnostics = WorkbenchVisualAcceptanceSnapshot.make(for: .diagnostics)
+    runner.expect(diagnostics.presentsDiagnostics, "Diagnostics fixture should open the real sheet")
+    runner.expect(
+        diagnostics.diagnosticSnapshot.findings.contains { $0.id == "duplicate-codex-apps" },
+        "Diagnostics fixture should provide a deterministic actionable finding"
+    )
+
+    var packageRoot = URL(fileURLWithPath: #filePath)
+    for _ in 0..<3 { packageRoot.deleteLastPathComponent() }
+    let accountsSource = try? String(
+        contentsOf: packageRoot.appendingPathComponent("Sources/CodexWorkbenchApp/AccountsView.swift"),
+        encoding: .utf8
+    )
+    let menuSource = try? String(
+        contentsOf: packageRoot.appendingPathComponent("Sources/CodexWorkbenchApp/MenuBarView.swift"),
+        encoding: .utf8
+    )
+    runner.expect(
+        accountsSource?.contains("Label(\"重启 Codex\"") == true
+            && accountsSource?.contains("confirmationDialog(") == true,
+        "Accounts page should expose restart and risk confirmation controls"
+    )
+    runner.expect(
+        menuSource?.contains("Label(\"重启\"") == true
+            && menuSource?.contains("confirmationDialog(") == true,
+        "Menu bar should expose the compact restart and risk confirmation controls"
+    )
+    runner.expect(
+        accountsSource?.contains("accountMode == .managedProfiles") == true
+            && menuSource?.contains("accountMode == .managedProfiles") == true,
+        "Local account mode should hide managed profile switching in both surfaces"
+    )
 }

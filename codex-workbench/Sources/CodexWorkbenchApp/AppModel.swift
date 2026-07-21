@@ -32,6 +32,15 @@ enum AccountRestartStage: Equatable {
     case quitting
     case launching
     case verifying
+
+    init(_ stage: WorkbenchVisualRestartStage) {
+        switch stage {
+        case .preparing: self = .preparing
+        case .quitting: self = .quitting
+        case .launching: self = .launching
+        case .verifying: self = .verifying
+        }
+    }
 }
 
 @MainActor
@@ -98,6 +107,9 @@ final class WorkbenchAppModel: ObservableObject {
             accountPayload = snapshot.payload
             accountError = snapshot.errorMessage
             accountSwitchStage = snapshot.switchingProfile.map { .switching(profile: $0) }
+            accountRestartStage = snapshot.restartStage.map(AccountRestartStage.init)
+            accountRestartConfirmation = snapshot.restartConfirmationReason
+            diagnosticSnapshot = snapshot.diagnosticSnapshot
             workspaceCatalog = snapshot.workspaceCatalog
             isCodexRunning = snapshot.isCodexRunning
             lastUpdated = snapshot.lastUpdatedAt
@@ -110,7 +122,9 @@ final class WorkbenchAppModel: ObservableObject {
             accountGateway = AccountBackendLocator.bundled() ?? Self.developmentAccountGateway()
             updateRunningApplicationState()
         }
-        refreshDiagnostics()
+        if visualAcceptanceSnapshot == nil {
+            refreshDiagnostics()
+        }
     }
 
     var filteredEvents: [OperationEvent] {
@@ -161,6 +175,10 @@ final class WorkbenchAppModel: ObservableObject {
 
     var visualAcceptanceSurface: WorkbenchVisualAcceptanceConfiguration.Surface? {
         visualAcceptanceConfiguration.surface
+    }
+
+    var visualAcceptanceShowsDiagnostics: Bool {
+        visualAcceptanceSnapshot?.presentsDiagnostics == true
     }
 
     var windowSceneID: String {
@@ -450,12 +468,14 @@ final class WorkbenchAppModel: ObservableObject {
             let profile = currentProfileName
         else { return }
         accountRestartConfirmation = nil
+        guard visualAcceptanceConfiguration.liveOperationsAllowed else { return }
         performRestartCurrentCodex(expectedMode: payload.accountMode, profile: profile)
     }
 
     func cancelRestartCurrentCodex() {
         guard accountRestartConfirmation != nil else { return }
         accountRestartConfirmation = nil
+        guard visualAcceptanceConfiguration.liveOperationsAllowed else { return }
         appendAccountOperationEvent(
             AccountOperationEventFactory.restartCancelled(profile: currentProfileName)
         )

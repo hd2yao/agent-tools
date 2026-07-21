@@ -44,6 +44,14 @@ struct MenuBarView: View {
                 )
             }
 
+            if let stage = model.accountRestartStage {
+                MenuNotice(
+                    text: restartStageText(stage),
+                    color: .blue,
+                    systemImage: "arrow.clockwise.circle.fill"
+                )
+            }
+
             if model.isLegacyProfileSwitcherRunning {
                 MenuNotice(
                     text: "旧 Profile Switcher 正在运行，提醒和自动重置已暂停",
@@ -58,7 +66,9 @@ struct MenuBarView: View {
                 )
             }
 
-            profileSwitcher
+            if model.accountPayload?.accountMode == .managedProfiles {
+                profileSwitcher
+            }
 
             HStack(spacing: WorkbenchSpacing.xs) {
                 Button {
@@ -68,6 +78,29 @@ struct MenuBarView: View {
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
+
+                Button {
+                    model.requestRestartCurrentCodex()
+                } label: {
+                    if model.accountRestartStage != nil {
+                        ProgressView().controlSize(.mini)
+                            .frame(maxWidth: .infinity)
+                    } else {
+                        Label("重启", systemImage: "arrow.clockwise.circle")
+                            .frame(maxWidth: .infinity)
+                    }
+                }
+                .buttonStyle(.bordered)
+                .disabled(
+                    model.currentProfileName == nil
+                        || model.accountRestartStage != nil
+                        || model.accountSwitchStage != nil
+                        || model.isVisualAcceptanceMode
+                )
+                .accessibilityLabel(
+                    model.accountRestartStage == nil ? "重启当前 Codex 账号" : "正在重启 Codex"
+                )
+                .accessibilityHint("有运行中或待接手任务时会先确认风险")
 
                 Button {
                     showWorkbench(module: .overview)
@@ -122,6 +155,16 @@ struct MenuBarView: View {
         }
         .padding(WorkbenchSpacing.md)
         .frame(width: 360)
+        .confirmationDialog(
+            "确认重启 Codex",
+            isPresented: restartConfirmationBinding,
+            titleVisibility: .visible
+        ) {
+            Button("取消", role: .cancel) { model.cancelRestartCurrentCodex() }
+            Button("仍然重启", role: .destructive) { model.confirmRestartCurrentCodex() }
+        } message: {
+            Text(restartConfirmationMessage)
+        }
         .task { model.bootstrap() }
         .onReceive(
             NSWorkspace.shared.notificationCenter.publisher(
@@ -218,6 +261,7 @@ struct MenuBarView: View {
                     .disabled(
                         model.isVisualAcceptanceMode
                             || model.switchingProfile != nil
+                            || model.accountRestartStage != nil
                             || profile.name == model.currentProfileName
                     )
                     .accessibilityLabel(profileAccessibilityLabel(profile))
@@ -278,6 +322,39 @@ struct MenuBarView: View {
     private func openPreferences() {
         NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    private var restartConfirmationBinding: Binding<Bool> {
+        Binding(
+            get: { model.accountRestartConfirmation != nil },
+            set: { isPresented in
+                if !isPresented, model.accountRestartConfirmation != nil {
+                    model.cancelRestartCurrentCodex()
+                }
+            }
+        )
+    }
+
+    private var restartConfirmationMessage: String {
+        switch model.accountRestartConfirmation {
+        case .runningTask:
+            "Codex 正在运行任务。重启会中断当前任务，确认仍要继续吗？"
+        case .waitingTask:
+            "Codex 有待接手任务。重启可能中断尚未完成的状态，确认仍要继续吗？"
+        case .unknownState:
+            "当前运行状态无法可靠确认。为避免误中断，只有明确确认后才会重启。"
+        case nil:
+            ""
+        }
+    }
+
+    private func restartStageText(_ stage: AccountRestartStage) -> String {
+        switch stage {
+        case .preparing: "正在准备重启 Codex"
+        case .quitting: "正在安全退出 Codex"
+        case .launching: "正在重新启动 Codex"
+        case .verifying: "正在验证当前账号"
+        }
     }
 
     private var runtimeColor: Color {

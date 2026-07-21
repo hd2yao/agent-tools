@@ -9,6 +9,10 @@ public struct WorkbenchVisualAcceptanceConfiguration: Equatable, Sendable {
         case stale
         case error
         case switching
+        case local
+        case restartConfirmation = "restart-confirmation"
+        case restarting
+        case diagnostics
     }
 
     public enum Appearance: String, Equatable, Sendable {
@@ -50,6 +54,13 @@ public struct WorkbenchVisualAcceptanceConfiguration: Equatable, Sendable {
     }
 }
 
+public enum WorkbenchVisualRestartStage: Equatable, Sendable {
+    case preparing
+    case quitting
+    case launching
+    case verifying
+}
+
 public enum WorkbenchStartupPolicy {
     public static func shouldMigrateLoginItem(
         configuration: WorkbenchVisualAcceptanceConfiguration
@@ -67,12 +78,24 @@ public struct WorkbenchVisualAcceptanceSnapshot: Equatable, Sendable {
     public let blocksLiveOperations: Bool
     public let banner: String
     public let workspaceCatalog: WorkspaceCatalogPresentation
+    public let restartConfirmationReason: AccountRestartConfirmationReason?
+    public let restartStage: WorkbenchVisualRestartStage?
+    public let presentsDiagnostics: Bool
+    public let diagnosticSnapshot: WorkbenchDiagnosticSnapshot
 
     public static func make(
         for fixture: WorkbenchVisualAcceptanceConfiguration.Fixture,
         now: Date = Date()
     ) -> Self {
-        let payload = fixture == .error ? nil : samplePayload(now: now)
+        let payload: AccountDashboardPayload?
+        switch fixture {
+        case .error:
+            payload = nil
+        case .local:
+            payload = sampleLocalPayload(now: now)
+        default:
+            payload = samplePayload(now: now)
+        }
         return Self(
             payload: payload,
             errorMessage: errorMessage(for: fixture, now: now),
@@ -81,7 +104,11 @@ public struct WorkbenchVisualAcceptanceSnapshot: Equatable, Sendable {
             isCodexRunning: true,
             blocksLiveOperations: true,
             banner: "视觉验收模式 · 不执行真实账号操作",
-            workspaceCatalog: sampleWorkspaceCatalog(now: now)
+            workspaceCatalog: sampleWorkspaceCatalog(now: now),
+            restartConfirmationReason: fixture == .restartConfirmation ? .runningTask : nil,
+            restartStage: fixture == .restarting ? .verifying : nil,
+            presentsDiagnostics: fixture == .diagnostics,
+            diagnosticSnapshot: sampleDiagnosticSnapshot()
         )
     }
 
@@ -99,9 +126,39 @@ public struct WorkbenchVisualAcceptanceSnapshot: Equatable, Sendable {
                 )
         case .error:
             "无法读取账号状态；请检查内置账号模块。"
-        case .switching:
+        case .switching, .local, .restartConfirmation, .restarting, .diagnostics:
             nil
         }
+    }
+
+    private static func sampleLocalPayload(now: Date) -> AccountDashboardPayload {
+        let local = sampleProfile(
+            name: "local-default",
+            remainingPercent: 64,
+            resetCreditCount: 0,
+            now: now
+        )
+        return AccountDashboardPayload(
+            generatedAt: now,
+            activeProfile: local.name,
+            accountMode: .localDefault,
+            desktopStatus: AccountDesktopStatus(
+                running: true,
+                managed: false,
+                state: "local_default",
+                message: "本机当前账号",
+                activeProfile: local.name
+            ),
+            profileRoles: nil,
+            profiles: [local],
+            runtimeStatus: AccountRuntimeStatus(
+                state: "idle",
+                light: "red",
+                label: "空闲",
+                activeProcessCount: 0,
+                recentProcessCount: 0
+            )
+        )
     }
 
     private static func samplePayload(now: Date) -> AccountDashboardPayload {
@@ -262,6 +319,31 @@ public struct WorkbenchVisualAcceptanceSnapshot: Equatable, Sendable {
             recentThreads: [continued, source],
             contextSummaryCount: 1,
             workflows: WorkflowCatalogPresentation(hooks: [hook], automations: [automation])
+        )
+    }
+
+    private static func sampleDiagnosticSnapshot() -> WorkbenchDiagnosticSnapshot {
+        WorkbenchDiagnosticsBuilder.build(
+            WorkbenchDiagnosticInput(
+                installedApps: [
+                    DiagnosticAppInstallation(
+                        url: URL(fileURLWithPath: "/Applications/ChatGPT.app"),
+                        bundleIdentifier: CodexIntegration.bundleIdentifier,
+                        version: "1.2026.190",
+                        isRunning: true
+                    ),
+                    DiagnosticAppInstallation(
+                        url: URL(fileURLWithPath: "/Applications/Codex.app"),
+                        bundleIdentifier: CodexIntegration.bundleIdentifier,
+                        version: "1.2026.180",
+                        isRunning: false
+                    ),
+                ],
+                selectedAppURL: URL(fileURLWithPath: "/Applications/ChatGPT.app"),
+                backendAvailable: true,
+                accountMode: .managedProfiles,
+                managedProfileCount: 2
+            )
         )
     }
 }

@@ -79,7 +79,11 @@ struct AccountsView: View {
                     CurrentAccountSection(
                         profile: current,
                         payload: model.accountPayload,
-                        runtime: model.runtimePresentation
+                        runtime: model.runtimePresentation,
+                        restartStage: model.accountRestartStage,
+                        restartDisabled: model.isVisualAcceptanceMode
+                            || model.accountSwitchStage != nil,
+                        onRestart: model.requestRestartCurrentCodex
                     )
 
                     ResetCreditsSection(
@@ -109,13 +113,16 @@ struct AccountsView: View {
                     }
                 }
 
-                OtherAccountsSection(
-                    profiles: details.otherProfiles,
-                    currentProfile: model.currentProfileName,
-                    switchStage: model.accountSwitchStage,
-                    switchingDisabled: model.isVisualAcceptanceMode,
-                    onSwitch: model.switchProfile
-                )
+                if model.accountPayload?.accountMode == .managedProfiles {
+                    OtherAccountsSection(
+                        profiles: details.otherProfiles,
+                        currentProfile: model.currentProfileName,
+                        switchStage: model.accountSwitchStage,
+                        switchingDisabled: model.isVisualAcceptanceMode
+                            || model.accountRestartStage != nil,
+                        onSwitch: model.switchProfile
+                    )
+                }
 
                 AccountDiagnosticsSection(
                     payload: model.accountPayload,
@@ -132,6 +139,21 @@ struct AccountsView: View {
         }
         .sheet(isPresented: $showingDiagnostics) {
             DiagnosticsView(model: model)
+        }
+        .confirmationDialog(
+            "确认重启 Codex",
+            isPresented: restartConfirmationBinding,
+            titleVisibility: .visible
+        ) {
+            Button("取消", role: .cancel) { model.cancelRestartCurrentCodex() }
+            Button("仍然重启", role: .destructive) { model.confirmRestartCurrentCodex() }
+        } message: {
+            Text(restartConfirmationMessage)
+        }
+        .onAppear {
+            if model.visualAcceptanceShowsDiagnostics {
+                showingDiagnostics = true
+            }
         }
         .accessibilityIdentifier("accounts-page")
     }
@@ -153,12 +175,39 @@ struct AccountsView: View {
         case .verifying: "正在验证当前账号"
         }
     }
+
+    private var restartConfirmationBinding: Binding<Bool> {
+        Binding(
+            get: { model.accountRestartConfirmation != nil },
+            set: { isPresented in
+                if !isPresented, model.accountRestartConfirmation != nil {
+                    model.cancelRestartCurrentCodex()
+                }
+            }
+        )
+    }
+
+    private var restartConfirmationMessage: String {
+        switch model.accountRestartConfirmation {
+        case .runningTask:
+            "Codex 正在运行任务。重启会中断当前任务，确认仍要继续吗？"
+        case .waitingTask:
+            "Codex 有待接手任务。重启可能中断尚未完成的状态，确认仍要继续吗？"
+        case .unknownState:
+            "当前运行状态无法可靠确认。为避免误中断，只有明确确认后才会重启。"
+        case nil:
+            ""
+        }
+    }
 }
 
 private struct CurrentAccountSection: View {
     let profile: AccountProfile
     let payload: AccountDashboardPayload?
     let runtime: AccountRuntimePresentation
+    let restartStage: AccountRestartStage?
+    let restartDisabled: Bool
+    let onRestart: () -> Void
 
     var body: some View {
         SurfaceCard(selected: true) {
@@ -175,7 +224,7 @@ private struct CurrentAccountSection: View {
                                 .truncationMode(.middle)
                             StatusChip("当前登录账号", color: .accentColor, systemImage: "checkmark.circle.fill")
                         }
-                        Text(profile.name)
+                        Text(profile.name == "local-default" ? "默认 Codex home" : profile.name)
                             .font(.system(size: 9, design: .monospaced))
                             .foregroundStyle(.tertiary)
                             .textSelection(.enabled)
@@ -190,6 +239,20 @@ private struct CurrentAccountSection: View {
                         Text(managedText)
                             .font(.system(size: 9))
                             .foregroundStyle(.tertiary)
+                        Button(action: onRestart) {
+                            if restartStage != nil {
+                                HStack(spacing: 5) {
+                                    ProgressView().controlSize(.mini)
+                                    Text("正在重启")
+                                }
+                            } else {
+                                Label("重启 Codex", systemImage: "arrow.clockwise.circle")
+                            }
+                        }
+                        .controlSize(.small)
+                        .disabled(restartDisabled || restartStage != nil)
+                        .accessibilityLabel(restartStage == nil ? "重启当前 Codex 账号" : "正在重启 Codex")
+                        .accessibilityHint("空闲时直接重启；有运行中或待接手任务时先确认风险")
                     }
                 }
 
@@ -226,7 +289,8 @@ private struct CurrentAccountSection: View {
     }
 
     private var managedText: String {
-        payload?.desktopStatus?.managed == true ? "登录状态已接管" : "登录状态未接管"
+        if payload?.accountMode == .localDefault { return "本机当前账号" }
+        return payload?.desktopStatus?.managed == true ? "登录状态已接管" : "登录状态未接管"
     }
 
     private var planText: String {

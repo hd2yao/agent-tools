@@ -114,6 +114,7 @@ struct DiagnosticsView: View {
                 } label: {
                     Label("复制脱敏摘要", systemImage: "doc.on.doc")
                 }
+                .accessibilityHint("复制不含完整路径和认证内容的诊断摘要")
             }
             .padding(WorkbenchSpacing.md)
         }
