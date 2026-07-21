@@ -82,6 +82,16 @@ func runWorkbenchVisualAcceptanceTests(_ runner: inout TestRunner) {
             && switching.workspaceCatalog.workflows.hooks.count == 1,
         "Visual fixtures should provide deterministic task and workflow evidence"
     )
+    let insights = AccountPresentationBuilder.workspaceInsights(payload: switching.payload)
+    runner.expect(
+        insights.projectsAvailable && !insights.projects.isEmpty,
+        "Visual fixtures should make project rankings available when project evidence is shown"
+    )
+    runner.expect(
+        insights.toolsAvailable && !insights.tools.isEmpty
+            && insights.skillsAvailable && !insights.skills.isEmpty,
+        "Visual fixtures should make tool and skill rankings available when workflow evidence is shown"
+    )
 
     let local = WorkbenchVisualAcceptanceSnapshot.make(for: .local)
     runner.expect(local.payload?.accountMode == .localDefault, "Local fixture should use default-home mode")

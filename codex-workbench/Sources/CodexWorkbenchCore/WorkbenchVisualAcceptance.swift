@@ -207,6 +207,42 @@ public struct WorkbenchVisualAcceptanceSnapshot: Equatable, Sendable {
             attributionSummary: AccountAttributionSummary(
                 activeProfile: blackwell.name,
                 managed: true
+            ),
+            projectRankings: AccountProjectRankings(
+                available: true,
+                projects: [
+                    AccountProjectRankingItem(
+                        name: "tools",
+                        path: "/Users/example/program/tools",
+                        threadCount: 2,
+                        tokensUsed: 324_000,
+                        latestUpdatedAt: Int(now.addingTimeInterval(-600).timeIntervalSince1970)
+                    ),
+                ]
+            ),
+            toolRankings: AccountToolRankings(
+                available: true,
+                tools: [
+                    AccountToolRankingItem(
+                        id: "functions.exec_command",
+                        namespace: "functions",
+                        name: "exec_command",
+                        callCount: 18,
+                        latestUpdatedAt: Int(now.addingTimeInterval(-900).timeIntervalSince1970),
+                        threadTokens: 42_000
+                    ),
+                ]
+            ),
+            skillRankings: AccountSkillRankings(
+                available: true,
+                skills: [
+                    AccountSkillRankingItem(
+                        name: "executing-plans",
+                        useCount: 4,
+                        latestTimestamp: ISO8601DateFormatter().string(from: now.addingTimeInterval(-1_200))
+                    ),
+                ],
+                badLineCount: 0
             )
         )
     }
