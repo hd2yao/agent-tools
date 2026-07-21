@@ -957,6 +957,110 @@ class AppServerClientTests(unittest.TestCase):
             {"jsonrpc": "2.0", "id": 3, "method": "account/rateLimits/read"},
         )
 
+    def test_read_only_app_server_command_protects_auth_source_roots(self):
+        from codex_profile_dashboard import _app_server_read_command
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            default_home = root / "default" / ".codex"
+            managed_home = root / "profiles" / "account-a"
+            isolated_home = root / "isolated"
+            sandbox = root / "sandbox-exec"
+            codex = root / "codex"
+            default_home.mkdir(parents=True)
+            managed_home.mkdir(parents=True)
+            isolated_home.mkdir()
+            sandbox.write_text("", encoding="utf-8")
+            sandbox.chmod(0o700)
+            codex.write_text("", encoding="utf-8")
+            managed_auth = managed_home / "auth.json"
+            managed_auth.write_text("secret-token", encoding="utf-8")
+            default_auth = default_home / "auth.json"
+            default_auth.symlink_to(managed_auth)
+            (isolated_home / "auth.json").symlink_to(default_auth)
+
+            command = _app_server_read_command(
+                str(codex),
+                isolated_home,
+                sandbox_binary=sandbox,
+            )
+
+            self.assertIsNotNone(command)
+            self.assertEqual(command[0], str(sandbox))
+            self.assertEqual(command[-2:], [str(codex), "app-server"])
+            protected = {
+                item.split("=", 1)[1]
+                for item in command
+                if item.startswith("CODEX_PROTECTED_")
+            }
+            self.assertEqual(
+                protected,
+                {str(default_home.resolve()), str(managed_home.resolve())},
+            )
+            self.assertIn("deny file-write*", command[command.index("-p") + 1])
+            self.assertNotIn("secret-token", " ".join(command))
+
+    def test_read_only_app_server_command_fails_closed_without_sandbox(self):
+        from codex_profile_dashboard import _app_server_read_command
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source_home = root / "source"
+            isolated_home = root / "isolated"
+            source_home.mkdir()
+            isolated_home.mkdir()
+            source_auth = source_home / "auth.json"
+            source_auth.write_text("{}", encoding="utf-8")
+            (isolated_home / "auth.json").symlink_to(source_auth)
+
+            command = _app_server_read_command(
+                "/usr/bin/codex",
+                isolated_home,
+                sandbox_binary=root / "missing-sandbox",
+            )
+
+            self.assertIsNone(command)
+
+    def test_read_only_app_server_sandbox_blocks_source_home_writes(self):
+        import subprocess
+
+        from codex_profile_dashboard import _app_server_read_command
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source_home = root / "source"
+            isolated_home = root / "isolated"
+            source_home.mkdir()
+            isolated_home.mkdir()
+            source_auth = source_home / "auth.json"
+            source_auth.write_text("{}", encoding="utf-8")
+            (isolated_home / "auth.json").symlink_to(source_auth)
+            blocked = source_home / "blocked"
+            command = _app_server_read_command("/usr/bin/true", isolated_home)
+
+            self.assertIsNotNone(command)
+            result = subprocess.run(
+                command[:-2] + ["/usr/bin/touch", str(blocked)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertFalse(blocked.exists())
+
+    def test_app_server_command_keeps_managed_profile_behavior(self):
+        from codex_profile_dashboard import _app_server_read_command
+
+        with tempfile.TemporaryDirectory() as tmp:
+            profile = Path(tmp)
+            (profile / "auth.json").write_text("{}", encoding="utf-8")
+
+            self.assertEqual(
+                _app_server_read_command("/usr/bin/codex", profile),
+                ["/usr/bin/codex", "app-server"],
+            )
+
     def test_select_reset_credit_prefers_earliest_available_expiry(self):
         from codex_profile_dashboard import select_reset_credit_for_consumption
 
@@ -1152,7 +1256,9 @@ class ProfileApiTests(unittest.TestCase):
             def read_isolated_remote(home):
                 remote_homes.append(home)
                 self.assertNotEqual(home, shared_home)
-                self.assertEqual((home / "auth.json").read_text(encoding="utf-8"), "{}")
+                self.assertTrue((home / "auth.json").is_symlink())
+                self.assertEqual((home / "auth.json").readlink(), auth)
+                self.assertEqual((home / "auth.json").resolve(), auth.resolve())
                 (home / "state_5.sqlite").write_text("isolated", encoding="utf-8")
                 return self.remote_snapshot(remaining=43)
 

@@ -1248,6 +1248,40 @@ def resolve_codex_binary(
     return path_lookup("codex")
 
 
+def _app_server_read_command(
+    codex: str,
+    profile_home: Path,
+    *,
+    sandbox_binary: Path = Path("/usr/bin/sandbox-exec"),
+) -> list[str] | None:
+    auth_link = profile_home / "auth.json"
+    if not auth_link.is_symlink():
+        return [codex, "app-server"]
+    try:
+        linked_auth = auth_link.readlink()
+        if not linked_auth.is_absolute():
+            linked_auth = auth_link.parent / linked_auth
+        protected_roots = sorted(
+            {
+                str(linked_auth.parent.resolve(strict=True)),
+                str(linked_auth.resolve(strict=True).parent),
+            }
+        )
+    except OSError:
+        return None
+    if not sandbox_binary.is_file() or not os.access(sandbox_binary, os.X_OK):
+        return None
+
+    profile = "(version 1)(allow default)" + "".join(
+        f'(deny file-write* (subpath (param "CODEX_PROTECTED_{index}")))'
+        for index in range(len(protected_roots))
+    )
+    command = [str(sandbox_binary)]
+    for index, root in enumerate(protected_roots):
+        command += ["-D", f"CODEX_PROTECTED_{index}={root}"]
+    return command + ["-p", profile, codex, "app-server"]
+
+
 def _stop_process(process: subprocess.Popen) -> None:
     if process.poll() is not None:
         return
@@ -1401,9 +1435,18 @@ def read_app_server_account_snapshot(
 
     env = dict(os.environ)
     env["CODEX_HOME"] = str(profile_home)
+    command = _app_server_read_command(codex, profile_home)
+    if command is None:
+        return {
+            "ok": False,
+            "account": None,
+            "rate_limits": None,
+            "usage": None,
+            "error": "read-only sandbox unavailable",
+        }
     try:
         process = subprocess.Popen(
-            [codex, "app-server"],
+            command,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
@@ -1618,14 +1661,9 @@ def _read_local_default_status_in_isolated_home(
 
     with tempfile.TemporaryDirectory(prefix="codex-workbench-account-read-") as tmp:
         isolated_home = Path(tmp)
+        isolated_home.chmod(0o700)
         destination_auth = isolated_home / "auth.json"
-        descriptor = os.open(
-            destination_auth,
-            os.O_WRONLY | os.O_CREAT | os.O_EXCL,
-            0o600,
-        )
-        with source_auth.open("rb") as source, os.fdopen(descriptor, "wb") as destination:
-            shutil.copyfileobj(source, destination)
+        destination_auth.symlink_to(source_auth.absolute())
         return reader(isolated_home)
 
 
