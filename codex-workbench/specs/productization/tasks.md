@@ -7,8 +7,8 @@
 
 - [x] **T002 本机单账号后端契约**
   映射：AC-PD-003、AC-PD-004、AC-PD-011
-  验收：无 profiles 且默认认证入口存在时返回 `local_default` 只读账号；空 home 返回 unavailable；不创建 profile、active record 或软链；Profiles fixture 无回归。
-  验证：Python RED/GREEN、临时目录文件树 diff、完整 Python tests。
+  验收：无 profiles 且默认认证入口存在时返回 `local_default` 只读账号；空 home 返回 unavailable；认证正文不复制，0700 临时 home 只建立短生命周期认证符号链接，系统沙盒拒绝源 home 写入；不创建 profile、active record 或持久软链；Profiles fixture 无回归。
+  验证：Python RED/GREEN、链接类型与沙盒命令测试、临时/源目录文件树 diff、完整 Python tests。
 
 - [x] **T003 Swift 双模式账号展示与自动化门禁**
   映射：AC-PD-003、AC-PD-004、AC-PD-007
