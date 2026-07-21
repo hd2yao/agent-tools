@@ -156,7 +156,7 @@ public struct EvidenceReconciler: Sendable {
         let succeeded = evidence.outcome == "reset"
         let producedByWorkbench = evidence.producer == "codex-workbench"
         let producer = producedByWorkbench
-            ? EventActor(type: .app, id: "codex-workbench", label: "Codex 观测站")
+            ? EventActor(type: .app, id: "codex-workbench", label: "Codex 工作台")
             : EventActor(type: .app, id: "codex-profile-switcher", label: "Profile Switcher")
         let producerLabel = producer.id == "codex-workbench" ? "工作台" : "Profile Switcher"
         let sourceChain = producedByWorkbench

@@ -1,8 +1,8 @@
-# Codex 观测站
+# Codex 工作台
 
-一个原生 macOS Codex 工作台，用同一个 App 承载账号管理、操作日志、项目分析、工具 / Skill 统计和后续 Codex 小工具。
+一个原生 macOS Codex 工作台，用同一个 App 承载账号管理、操作日志、项目与任务、工具与自动化。
 
-`Codex 观测站.app` 是唯一日常入口。成熟的 Profile Switcher Python 账号引擎作为工作台内置后端继续提供额度、重置卡、切换和运行状态，不再形成第二套 UI 或状态源。迁移验收已经通过；用户确认正式退役前，旧 `Codex Profile Switcher.app` 只作为退出工作台后手动启用的冷备份保留。
+`Codex 工作台.app` 是唯一日常入口。成熟的 Profile Switcher 账号引擎会以 arm64 自包含后端随 App 安装，继续提供额度、重置卡、切换和运行状态，不要求用户安装 Python。旧 `Codex Profile Switcher.app` 在用户确认正式退役前只作为退出工作台后手动启用的冷备份保留。
 
 ## 功能
 
@@ -10,8 +10,8 @@
 - 操作日志：最新在上、按日期分组，支持搜索、级别/来源/状态筛选和详情 inspector。
 - 任务定位：有有效任务 ID 时，可直接回到对应 Codex 任务。
 - 账号管理：查看当前真实登录账号、官方额度窗口、逐张重置卡、账号用量和其他账号；复用既有安全切换路径并在完成后验证真实登录状态。
-- 项目分析：查看本地真实项目、对话、Tokens 和最近活动。
-- 工具 / Skill：查看真实工具调用与 Skill 使用排行及数据健康。
+- 项目与任务：查看本地真实项目、任务、Tokens、上下文摘要和接续关系。
+- 工具与自动化：查看真实工具调用、Skill 使用排行、Hook 和自动化状态。
 - 菜单栏：显示当前真实登录账号的首要额度和 Codex 工作状态，并提供额度摘要、快速切换、最近操作及工作台快捷入口。
 - 启动关联：可选登录 Mac 时启动；可选在 Codex 启动时显示观测站。
 - 状态监听：官方额度通知近实时触发完整快照，另有 60 秒、启动与唤醒补扫；只记录恢复、耗尽和重置次数变化，普通消耗与刷新时间漂移不刷日志。
@@ -22,10 +22,10 @@
 ```bash
 ./install-app.sh
 ./verify-install.sh
-open "$HOME/Applications/Codex 观测站.app"
+open "$HOME/Applications/Codex 工作台.app"
 ```
 
-安装后可以直接从 Finder、Spotlight 或菜单栏打开，不需要手动运行 Python 命令或启动本地服务。手动打开会显示主窗口；可选的登录启动由内置 Login Helper 提供，只驻留菜单栏。
+安装脚本会原子替换同 bundle id 的旧工作台，并迁移旧 `Codex 观测站.app` / `Codex 工具台.app`；失败时恢复旧 App，且不会改动 `~/.codex` 或 `~/.codex-profiles`。安装后可以直接从 Finder、Spotlight 或菜单栏打开，不需要手动运行 Python 命令或启动本地服务。手动打开会显示主窗口；可选的登录启动由内置 Login Helper 提供，只驻留菜单栏。
 
 不要同时运行工作台和旧 Profile Switcher。若工作台账号链路出现问题，应先退出工作台，再手动打开旧 App；没有用户新的明确确认，不会删除冷备安装产物。
 

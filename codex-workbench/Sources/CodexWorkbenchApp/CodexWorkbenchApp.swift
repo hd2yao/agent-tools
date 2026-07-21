@@ -31,7 +31,7 @@ struct CodexWorkbenchApp: App {
     }
 
     private var mainWindow: some Scene {
-        Window("Codex 观测站", id: model.windowSceneID) {
+        Window("Codex 工作台", id: model.windowSceneID) {
             mainWindowContent
                 .task { model.bootstrap() }
         }

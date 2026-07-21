@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 TEST_ROOT="$(mktemp -d)"
-APP_DIR="$TEST_ROOT/Codex 观测站.app"
+APP_DIR="$TEST_ROOT/Codex 工作台.app"
 HELPER_APP="$APP_DIR/Contents/Library/LoginItems/Codex Workbench Login Helper.app"
 HELPER_PLIST="$HELPER_APP/Contents/Info.plist"
 

@@ -32,7 +32,7 @@ final class WorkbenchAppDelegate: NSObject, NSApplicationDelegate {
         guard launchMode == .menuBarOnly else { return }
         DispatchQueue.main.async {
             NSApp.windows
-                .filter { $0.title == "Codex 观测站" }
+                .filter { $0.title == "Codex 工作台" }
                 .forEach { $0.orderOut(nil) }
         }
     }
@@ -41,7 +41,7 @@ final class WorkbenchAppDelegate: NSObject, NSApplicationDelegate {
         guard visualAcceptanceConfiguration.fixture != nil else { return }
         let surface = visualAcceptanceConfiguration.surface
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            guard let window = NSApp.windows.first(where: { $0.title == "Codex 观测站" }) else {
+            guard let window = NSApp.windows.first(where: { $0.title == "Codex 工作台" }) else {
                 return
             }
             if surface == .menu {

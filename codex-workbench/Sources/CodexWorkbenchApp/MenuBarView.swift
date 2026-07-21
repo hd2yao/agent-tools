@@ -315,7 +315,7 @@ struct MenuBarView: View {
         openWindow(id: "main")
         NSApp.activate(ignoringOtherApps: true)
         DispatchQueue.main.async {
-            NSApp.windows.first { $0.title == "Codex 观测站" }?.makeKeyAndOrderFront(nil)
+            NSApp.windows.first { $0.title == "Codex 工作台" }?.makeKeyAndOrderFront(nil)
         }
     }
 

@@ -101,7 +101,7 @@ struct WorkbenchShell: View {
                     .frame(width: 28, height: 28)
                     .background(Color.accentColor.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("Codex 观测站")
+                    Text("Codex 工作台")
                         .font(.system(size: 13, weight: .semibold))
                     Text("本地状态观测与操作台账")
                         .font(.system(size: 9))

@@ -59,7 +59,7 @@ func runAccountGatewayTests(_ runner: inout TestRunner) {
     runner.expect(decoded?.profiles.first?.rateLimits.reachedType == "primary", "Official reached state should decode")
 
     let frozenExecutable = URL(
-        fileURLWithPath: "/Applications/Codex 观测站.app/Contents/Helpers/CodexAccountBackend/CodexAccountBackend"
+        fileURLWithPath: "/Applications/Codex 工作台.app/Contents/Helpers/CodexAccountBackend/CodexAccountBackend"
     )
     let frozen = AccountCommandBuilder(executableURL: frozenExecutable, argumentPrefix: [])
     let status = frozen.statusCommand(refreshResetCredits: false)

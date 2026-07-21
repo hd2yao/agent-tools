@@ -315,7 +315,7 @@ public struct ProjectSpaceEventFactory: Sendable {
                 status: .success,
                 importance: .important,
                 certainty: .inferred,
-                actor: EventActor(type: .app, id: "codex-observatory", label: "Codex 观测站"),
+                actor: EventActor(type: .app, id: "codex-observatory", label: "Codex 工作台"),
                 project: EventProject(name: firstThread.projectName, path: path),
                 evidence: [
                     EventEvidence(kind: "codex_thread_catalog", label: "Codex 线程项目路径"),

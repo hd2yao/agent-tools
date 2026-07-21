@@ -155,7 +155,7 @@ public enum AccountOperationEventFactory {
     private static let workbenchActor = EventActor(
         type: .app,
         id: "codex-workbench",
-        label: "Codex 观测站"
+        label: "Codex 工作台"
     )
 
     private static let accountEngineActor = EventActor(

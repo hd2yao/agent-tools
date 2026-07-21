@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
-APP_NAME="Codex 观测站"
+APP_NAME="Codex 工作台"
 INSTALL_ROOT="${CODEX_WORKBENCH_INSTALL_ROOT:-$HOME/Applications}"
 APP_DIR="$INSTALL_ROOT/$APP_NAME.app"
 PLIST="$APP_DIR/Contents/Info.plist"

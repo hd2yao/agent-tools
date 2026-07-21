@@ -3,9 +3,9 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 TEST_ROOT="$(mktemp -d)"
-APP_DIR="$TEST_ROOT/Codex 观测站.app"
+APP_DIR="$TEST_ROOT/Codex 工作台.app"
 PLIST="$APP_DIR/Contents/Info.plist"
-HELPER="$APP_DIR/Contents/Resources/codex-profile-switcher/codex_profile.py"
+HELPER="$APP_DIR/Contents/Resources/CodexAccountBackend/account-backend-source-fingerprint.txt"
 OUTPUT="$TEST_ROOT/verify.out"
 
 cleanup() {

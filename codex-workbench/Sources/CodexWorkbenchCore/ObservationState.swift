@@ -190,12 +190,12 @@ public struct ObservationStateReconciler: Sendable {
         if let currentFingerprint, currentFingerprint != previousFingerprint {
             action = "account_data_source_failed"
             title = "账号数据源读取失败"
-            summary = "Codex 观测站未能读取账号状态；已保留上一次成功数据。"
+            summary = "Codex 工作台未能读取账号状态；已保留上一次成功数据。"
             status = .failure
         } else if previousFingerprint != nil, currentFingerprint == nil, hasCurrentPayload {
             action = "account_data_source_recovered"
             title = "账号数据源已恢复"
-            summary = "Codex 观测站已重新读取账号与额度状态。"
+            summary = "Codex 工作台已重新读取账号与额度状态。"
             status = .success
         } else {
             return []
@@ -217,7 +217,7 @@ public struct ObservationStateReconciler: Sendable {
             status: status,
             importance: .important,
             certainty: .confirmed,
-            actor: EventActor(type: .app, id: "codex-observatory", label: "Codex 观测站"),
+            actor: EventActor(type: .app, id: "codex-observatory", label: "Codex 工作台"),
             sourceChain: [
                 EventActor(type: .app, id: "account-gateway", label: "账号数据适配器"),
             ],

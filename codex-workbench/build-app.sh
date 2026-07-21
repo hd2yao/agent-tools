@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
-APP_NAME="Codex 观测站"
+APP_NAME="Codex 工作台"
 APP_DIR="$ROOT_DIR/build/$APP_NAME.app"
 CONTENTS_DIR="$APP_DIR/Contents"
 MACOS_DIR="$CONTENTS_DIR/MacOS"
@@ -16,7 +16,7 @@ ACCOUNT_BACKEND_SOURCE_DIR="$ROOT_DIR/.build/account-backend/dist/CodexAccountBa
 ACCOUNT_BACKEND_PAYLOAD_DIR="$RESOURCES_DIR/CodexAccountBackend"
 ACCOUNT_BACKEND_ENTRY_DIR="$HELPERS_DIR/CodexAccountBackend"
 ICON_SOURCE="$ROOT_DIR/Resources/AppIcon-1024.png"
-ICONSET_DIR="$ROOT_DIR/.build/CodexObservatory.iconset"
+ICONSET_DIR="$ROOT_DIR/.build/CodexWorkbench.iconset"
 
 source_fingerprint() {
     find Sources Resources scripts -type f \
